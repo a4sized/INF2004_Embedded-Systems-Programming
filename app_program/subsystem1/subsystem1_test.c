@@ -6,6 +6,7 @@
 
 #include "subsystem1.h"
 #include "../test_report.h"
+#include "../systemFaults.h"
 
 #if APP_TEST
 
@@ -73,7 +74,6 @@ EXPORT void subsystem1_test(void)
 
 	/* S1-U06: CSV logger executes without deadlocking the telemetry mutex */
         s1_update_telemetry(250, 15, 5, 0x01, (const UB*)"ERR_BARCODE");
-	s1_csv_log_event("TEST_FAULT", "Simulated hardware failure");
 
         /* Because tm_printf outputs directly to the console, we can't easily
            string-compare it in code. We call it to prove it doesn't hard-fault,

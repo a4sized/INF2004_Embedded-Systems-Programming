@@ -12,6 +12,7 @@
  */
 
 #include "subsystem1.h"
+#include "../systemFaults.h"
 
 EXPORT UW               s1_tx_queued = 0;
 EXPORT UW               s1_rx_commands = 0;
@@ -165,7 +166,10 @@ EXPORT void led_task(INT stacd, void *exinf)
                                 case S1_CMD_START: tk_set_flg(flg_s1_cmd, S1_FLG_CMD_START); break;
                                 case S1_CMD_STOP:  tk_set_flg(flg_s1_cmd, S1_FLG_CMD_STOP); break;
                                 case S1_CMD_ESTOP: tk_set_flg(flg_s1_cmd, S1_FLG_CMD_ESTOP); break;
-                                case S1_CMD_CLEAR: tk_set_flg(flg_s1_cmd, S1_FLG_CMD_CLEAR); break;
+                                case S1_CMD_CLEAR: 
+                                        tk_set_flg(flg_s1_cmd, S1_FLG_CMD_CLEAR); 
+                                        CLEAR_FAULT(active_fault_mask, FAULT_CMD_REJECTED); /* Clear the fault */
+                                        break;
                                 case S1_CMD_PING:  tk_set_flg(flg_s1_cmd, S1_FLG_CMD_PING); break;
                                 default: break;
                                 }
@@ -175,6 +179,9 @@ EXPORT void led_task(INT stacd, void *exinf)
                                 s1_rx_rejected++;
                                 tm_printf((UB*)"s1_telem: CMD rejected \"%s\"\n", rx_buf);
                                 s1_csv_log_event("CMD_REJECTED_FAULT", (const char*)rx_buf);
+                                
+                                /* Set the global fault mask */
+                                SET_FAULT(active_fault_mask, FAULT_CMD_REJECTED);
                         }
                 }
 
@@ -182,6 +189,7 @@ EXPORT void led_task(INT stacd, void *exinf)
                 if (++ticks % S1_TELEM_TICKS == 0) {
                         tk_loc_mtx(mtx_telemetry, TMO_FEVR);
                         s1_telemetry.seq++;
+                        s1_telemetry.fault_code = active_fault_mask;
                         snap = s1_telemetry;
                         tk_unl_mtx(mtx_telemetry);
 

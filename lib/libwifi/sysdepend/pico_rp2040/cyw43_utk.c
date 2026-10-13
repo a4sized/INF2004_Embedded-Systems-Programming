@@ -3,6 +3,7 @@
 #include "cyw43.h"
 #include "cyw43_country.h"
 #include "cyw43_utk.h"
+#include "../../../../app_program/systemFaults.h"
 
 #if TM_NET_LWIP
 /* lwip_init() must run before cyw43_wifi_set_up() -- cyw43_cb_tcpip_init()
@@ -294,10 +295,16 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
                 tm_printf((UB*)"wifi: link up, ip=%d.%d.%d.%d\n",
                           (int)(ip & 0xff), (int)((ip >> 8) & 0xff),
                           (int)((ip >> 16) & 0xff), (int)((ip >> 24) & 0xff));
+
+                /* Clear the Wi-Fi disconnect fault when the link comes up */
+                CLEAR_FAULT(active_fault_mask, FAULT_WIFI_DISCONNECTED);
             } else {
                 tm_printf((UB*)"wifi: link status -> %s (%d)\n",
                           link_status_str(radio_status.link_status),
                           (int)radio_status.link_status);
+
+                /* Set the Wi-Fi disconnect fault whenever the link drops or fails */
+                SET_FAULT(active_fault_mask, FAULT_WIFI_DISCONNECTED);
             }
 
             /* Negative == the association attempt is over and lost. Arm a

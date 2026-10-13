@@ -31,9 +31,9 @@ typedef enum{ // bit masking
     // reserved for any more motor faults (1U << 6)
 
     // for rayykkk
-    // <fault name> = (1U << 7),    // Bit 7
-    // <fault name> = (1U << 8),    // Bit 8
-    // <fault name> = (1U << 9),    // Bit 9
+    FAULT_WIFI_DISCONNECTED = (1U << 7), // Bit 7
+    FAULT_MQTT_DROPPED      = (1U << 8), // Bit 8
+    FAULT_CMD_REJECTED      = (1U << 9), // Bit 9
     // <fault name> = (1U << 10),   // Bit 10
     // <fault name> = (1U << 11),   // Bit 11
     // <fault name> = (1U << 12),   // Bit 12
