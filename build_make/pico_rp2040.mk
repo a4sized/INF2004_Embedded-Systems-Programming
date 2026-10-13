@@ -330,6 +330,7 @@ WIFI_INCLUDES := -I"$(WIFIDIR)" \
                  -I"$(PICO_SDK_PATH)/src/rp2_common/hardware_base/include" \
                  -I"$(PICO_SDK_PATH)/src/rp2_common/hardware_pio/include" \
                  -I"$(PICO_SDK_PATH)/src/rp2_common/hardware_gpio/include" \
+                 -I"$(PICO_SDK_PATH)/src/rp2_common/hardware_pwm/include" \
                  -I"$(PICO_SDK_PATH)/src/rp2_common/hardware_dma/include" \
                  -I"$(PICO_SDK_PATH)/src/rp2_common/hardware_irq/include" \
                  -I"$(PICO_SDK_PATH)/src/rp2_common/hardware_sync/include" \

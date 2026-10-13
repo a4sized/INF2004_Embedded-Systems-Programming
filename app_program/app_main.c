@@ -54,6 +54,8 @@
  */
 
 #include "app.h"
+#include "subsystem1/subsystem1.h"
+#include "subsystem2/buzzer.h"
 
 /*
  * Create and start one task (declared in app.h for every subsystem).
@@ -113,6 +115,8 @@ EXPORT INT usermain(void)
 	CHECK(subsystem3_init(), "subsystem3_init");
 	CHECK(subsystem4_init(), "subsystem4_init");
 	CHECK(subsystem5_init(), "subsystem5_init");
+
+	buzzer_play_tone(1000, 500);
 
 	/* Phase 2: every subsystem starts its tasks */
 	CHECK(subsystem1_start(), "subsystem1_start");

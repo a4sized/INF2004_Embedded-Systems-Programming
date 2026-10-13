@@ -12,8 +12,7 @@
 #include "../app.h"
 #include <stdint.h>
 #include <stdbool.h>
-#include <tk/tkernel.h>
-#include "systemFaults.h"
+#include "../systemFaults.h"
 
 #define S2_PRI_PRODUCER		14	/* priority band 14-15 (TEAM.md) */
 #define S2_PERIOD_MS		300	/* one sample every 300 ms */
