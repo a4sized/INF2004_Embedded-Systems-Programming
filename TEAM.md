@@ -54,8 +54,8 @@ fixed.
 | GP3 | | |
 | GP4 | | |
 | GP5 | | |
-| GP6 | | |
-| GP7 | | |
+| GP6 | Buddy 3 (2501107), bench only | IR calibration DO; Maker Pi Pico Grove 4, GP6 |
+| GP7 | Buddy 3 (2501107) | Intended robot left IR; not used by current GP6 bench |
 | GP8 | | |
 | GP9 | | |
 | GP10 | | |
@@ -196,3 +196,23 @@ limit there. The numbers below are the example's usage.
 | Alarm handler | 12 | 0 | | | 1 | |
 
 (The kernel's USB and WiFi service tasks also use a few of these.)
+
+## 7. Standalone Buddy 3 calibration bench (13 October 2026)
+
+`bench/ir_calibration/` is a separate one-sensor application for Buddy 3
+(2501107). Its isolated build replaces the example application only inside
+an ignored build staging tree; the example code and its tables above remain
+unchanged. The user confirmed DO on GP6 through Grove 4 of a Maker Pi Pico
+carrier with the Pico W seated on it. The current bench reads GP6; GP7
+remains the intended robot left IR allocation. AO is disconnected; no ADC
+is used.
+
+| Bench task | Priority | Core | Stack | Kernel objects |
+|---|---|---|---|---|
+| `ir_bench_task` | 16 | core 0 (`TP_PRC1`) | 2048 bytes | One task |
+
+Only that task reads/configures GP6. It uses the existing kernel USB console
+service and creates no subsystem communication objects. The bench profile
+disables Wi-Fi/MQTT and example tasks. These choices do not settle robot
+priorities or cross-buddy interfaces. See `testing/subsystem3/IR_CALIBRATION_TEST_LOG.md` for evidence and
+pending hardware checks.
