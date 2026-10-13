@@ -15,9 +15,9 @@ subsystem, ask its owner or open a pull request for them to review.
 
 ## 1. Members and subsystems
 
-| # | Subsystem (what it does) | 2501283 | ray15rk | Code | Tests |
+| # | Subsystem (what it does) | Student ID | GitHub ID | Code | Tests |
 |---|---|---|---|---|---|
-| 1 | *example:* LED heartbeat on GP19 | | | `app_program/subsystem1/` | `testing/subsystem1/` |
+| 1 | Wi-Fi & MQTT Telemetry: Aggregates sensor data, publishes JSON telemetry, decodes MQTT commands, CSV logging, and heartbeat LED. |2501283|ray15rk| `app_program/subsystem1/` | `testing/subsystem1/` |
 | 2 | *example:* Producer: makes a sample every 300 ms | | | `app_program/subsystem2/` | `testing/subsystem2/` |
 | 3 | *example:* Consumer: collects samples into statistics | | | `app_program/subsystem3/` | `testing/subsystem3/` |
 | 4 | *example:* Monitor: prints reports, pauses the LED | | | `app_program/subsystem4/` | `testing/subsystem4/` |
@@ -67,7 +67,7 @@ fixed.
 | GP16 | | |
 | GP17 | | |
 | GP18 | | |
-| GP19 | *example:* S1 | external LED (LED + 330 Ω to GND) |
+| GP19 |S1| Heartbeat status LED (LED + 330 Ω to GND) |
 | GP20 | | |
 | GP21 | | |
 | GP22 | | |
@@ -146,7 +146,7 @@ change it only by team agreement. Write down every task you create.
 
 | Subsystem | Priority band | Tasks (name – priority – core) |
 |---|---|---|
-| 1 | 12–13 | *example:* led_task – 12 – any |
+| 1 | 12–13 | led_task – 12 – any |
 | 2 | 14–15 | *example:* producer_task – 14 – core 1 |
 | 3 | 16–17 | *example:* consumer_task – 16 – core 0 |
 | 4 | 18–19 | *example:* monitor_task – 18 – any |
@@ -162,11 +162,16 @@ sends to it or waits on it. Agree on the data format before coding.
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning | Agreed by |
 |---|---|---|---|---|---|
-| IF-01 | S2 → S3 | mailbox (owned by S3) | `mbx_samples` | `SAMPLE_MSG` in `subsystem2.h` | *example* |
-| IF-02 | S3 → S2 | semaphore + fixed memory pool (owned by S2) | `sem_slots`, `mpf_samples` | receiver returns the block, then 1 slot | *example* |
-| IF-03 | S3 → S4 | message buffer + event flag (owned by S4) | `mbf_summary`, `flg_events` | text line ≤ `S4_SUMMARY_MAX` bytes, then `FLG_BATCH` | *example* |
-| IF-04 | S4 → S3 | shared data under a mutex (owned by S3) | `app_stats`, `mtx_stats` | `APP_STATS`, read only while locked | *example* |
-| IF-05 | S4 → S1 | task control | `tid_led` | `tk_sus_tsk` / `tk_rsm_tsk` / `tk_chg_pri` | *example* |
+| IF-01 | Any -> S1 | Shared data under mutex (S1) | mtx_telemetry | S1_TELEMETRY struct containing speed, distance, pitch, faults and barcode via s1_update_telemetry() | 2501283
+| IF-02 | S1 -> Any | Event flag | flg_s1_cmd | S1_FLG_CMD_START, STOP, ESTOP, CLEAR, PING bits set upon remote MQTT command | 2501283
+| IF-03 | IwIp -> S1 | Message Buffer | mbf_mqtt_rx | Incoming raw string payloads mapped to S1_CMD_TYPE by led_task via s1_mqtt_push_rx() | 2501283
+| IF-04 | S1 -> IwIP | Message Buffer | mbf_mqtt_tx | Formatted JSON telemetry string (96 bytes max) queued every 1 second using s1_mqttt_pop_tx() | 2501283
+| IF-05 | S4 -> S1 | Task Control | tid_ed | tl_sus_tsk / ts_rsm_tsk / tk_cng_pri | 2501283
+#| IF-01 | S2 → S3 | mailbox (owned by S3) | `mbx_samples` | `SAMPLE_MSG` in `subsystem2.h` | *example* |
+#| IF-02 | S3 → S2 | semaphore + fixed memory pool (owned by S2) | `sem_slots`, `mpf_samples` | receiver returns the block, then 1 slot | *example* |
+#| IF-03 | S3 → S4 | message buffer + event flag (owned by S4) | `mbf_summary`, `flg_events` | text line ≤ `S4_SUMMARY_MAX` bytes, then `FLG_BATCH` | *example* |
+#| IF-04 | S4 → S3 | shared data under a mutex (owned by S3) | `app_stats`, `mtx_stats` | `APP_STATS`, read only while locked | *example* |
+#| IF-05 | S4 → S1 | task control | `tid_led` | `tk_sus_tsk` / `tk_rsm_tsk` / `tk_chg_pri` | *example* |
 | IF-06 | | | | | |
 
 Each interface is tested by at least one integration test
@@ -180,14 +185,14 @@ limit there. The numbers below are the example's usage.
 | Object | Limit | S1 | S2 | S3 | S4 | S5 |
 |---|---|---|---|---|---|---|
 | Task | 32 | 1 | 1 | 1 | 1 | |
-| Semaphore | 16 | | 1 | | | |
-| Event flag | 16 | | | | 1 | |
-| Mailbox | 12 | | | 1 | | |
-| Mutex | 12 | | | 1 | | |
-| Message buffer | 12 | | | | 1 | |
-| Fixed memory pool | 12 | | 1 | | | |
-| Variable memory pool | 12 | | | | | |
+| Semaphore | 16 | 0 | 1 | | | |
+| Event flag | 16 | 1 | | | 1 | |
+| Mailbox | 12 | 0 | | 1 | | |
+| Mutex | 12 | 1 | | 1 | | |
+| Message buffer | 12 | 2 | | | 1 | |
+| Fixed memory pool | 12 | 0 | 1 | | | |
+| Variable memory pool | 12 | 0 | | | | |
 | Cyclic handler | 12 | 1 | | | | |
-| Alarm handler | 12 | | | | 1 | |
+| Alarm handler | 12 | 0 | | | 1 | |
 
 (The kernel's USB and WiFi service tasks also use a few of these.)
