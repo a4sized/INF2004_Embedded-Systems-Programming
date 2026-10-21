@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -10,9 +11,12 @@ import tempfile
 SUBSYSTEM = Path(__file__).resolve().parent
 REPO = SUBSYSTEM.parents[1]
 IMAGE = "buddy3_ir_sensing_smp1_usb_cdc_wifi_none"
+SENSING_TICK_MS = 5
 SOURCES = (
     "drv_ir.c", "drv_ir.h", "ir_sensing.c", "ir_sensing.h",
     "ir_line_filter.c", "ir_line_filter.h",
+    "ir_line_state.c", "ir_line_state.h",
+    "ir_time.c", "ir_time.h",
     "ir_sensing_main.c", "ir_sensing_main.h",
 )
 
@@ -38,7 +42,19 @@ def main():
 
         for name in ("config", "device", "etc", "include", "kernel", "lib",
                      "tools"):
-            stage_source(REPO / name, stage / name)
+            if name == "config":
+                shutil.copytree(REPO / name, stage / name)
+            else:
+                stage_source(REPO / name, stage / name)
+        config = stage / "config" / "config.h"
+        configured, count = re.subn(
+            r"(?m)^(#define\s+CNF_TIMER_PERIOD\s+)\d+\b",
+            lambda match: f"{match.group(1)}{SENSING_TICK_MS}",
+            config.read_text(),
+        )
+        if count != 1:
+            raise RuntimeError("Expected one kernel timer setting in config.h.")
+        config.write_text(configured)
         for name in SOURCES:
             stage_source(SUBSYSTEM / name, app / name)
 

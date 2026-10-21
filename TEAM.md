@@ -225,12 +225,16 @@ in a temporary build tree; it does not start the example consumer, producer
 or monitor. The output UF2 is placed in `build_make/`. The profile has a USB
 console and disables Wi-Fi, lwIP and MQTT.
 
-The task requests a 10 ms sampling delay and prints raw GPIO levels about
-every 20 samples while a USB terminal is open. This is a diagnostic rate,
-not evidence that the design's 5 ms line-sampling target is met. Fixed
-black-level settings remain UNKNOWN until GP7, GP4 and GP16 have each been
-observed over black and white. An UNKNOWN setting prints `?` instead of a
-guessed surface. See `testing/subsystem3/IR_SENSING_TEST_LOG.md`.
+The standalone sensing build stages a 5 ms kernel tick and wakes the
+sensing task with a 5 ms cyclic handler. It prints raw GPIO levels about
+every 40 samples while a USB terminal is open. The project-wide
+`config/config.h` remains at 10 ms. Compilation does not prove the design's
+5 ms sampling and jitter target on hardware. The USB line includes min/max
+sample gaps in microseconds, count within 4000–6000 us, and count above
+10 ms over a rolling window of up to 12,000 intervals. On 21 October 2026, the user
+reported black=1 and white=0 on GP7, GP4 and GP16, so the standalone image
+maps a high level to BLACK on each channel.
+See `testing/subsystem3/IR_SENSING_TEST_LOG.md`.
 
 On 21 October 2026, Buddy 3 added a time-qualified filter to the two line
 levels in this standalone readout. It accepts a changed level only after a
@@ -243,3 +247,12 @@ The 20 ms Motion State cycle is a design target and is not present in the
 current Buddy 2 application. The earlier GP16 encoder-power output was
 removed on this local branch; GP16 belongs to Buddy 3's barcode input.
 The isolated Buddy 3 UF2 still excludes Buddy 2 code.
+
+The user found a narrow sweet spot with both line sensors black when centered.
+Left black/right white points to a left correction; right black/left white
+points to a right correction. Both black is centered/no correction. Both
+white for 30 ms confirms potential loss; a lost state clears after both
+black persists for 20 ms. The isolated readout updates this latest decision
+every 5 ms and prints it over USB. The intended handoff is one latest
+decision at each future Motion State cycle, without queueing every sample.
+Moving-robot validation of the narrow centered margin remains outstanding.
