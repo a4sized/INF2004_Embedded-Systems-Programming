@@ -14,7 +14,14 @@
 
 #include "subsystem4.h"
 #include "lsm303d.h"
-#include "../subsystem2/subsystem2.h"   /* get_left/right_encoder_ticks() */
+#include <stdint.h>
+
+/* Subsystem 2's wheel-encoder counters (IF-06).  They are declared here and
+ * not by including subsystem2.h: that header is Subsystem 2's own business
+ * (it currently does not even compile), and these two functions are all we
+ * use. */
+extern int32_t get_left_encoder_ticks(void);
+extern int32_t get_right_encoder_ticks(void);
 
 /* A free-running 1 MHz hardware timer (RP2040 TIMERAWL).  The kernel's own
  * clock only ticks every 1 ms, which is too coarse for a 20 ms loop.  It wraps
@@ -92,9 +99,9 @@ static void send_fault_msg(void)
 {
     S4_MSG m = {0};
 
-    m.type   = S4_MSG_FAULT;
-    m.t_ms   = now_ms();
-    m.faults = s4_get_faults();
+    m.type           = S4_MSG_FAULT;
+    m.time16         = (UINT)(now_ms() & 0xFFFFU);
+    m.p.fault.faults = (UINT)s4_get_faults() & 0x3U;
     send_msg(&m);
 }
 
@@ -124,6 +131,7 @@ static float distance_cm(void)
  *  (0, 0, 1).  That "offset" is subtracted from every later reading.
  * ====================================================================== */
 static CAR_VEC g_offset;        /* subtracted from every reading */
+static BOOL    calibrated;      /* imu_task only; others read the S4_FLG_CALIBRATED bit */
 
 static BOOL calibrate(void)
 {
@@ -208,7 +216,7 @@ typedef enum { HUMP_FLAT = 0, HUMP_UP, HUMP_DOWN } HUMP_STATE;
 
 static HUMP_STATE hump;
 static float      height_cm, length_cm, peak_cm;
-static UINT       enter_n, exit_n;
+static UB         enter_n, exit_n;     /* count 0..5: a byte is plenty */
 static UW         hump_start_ms;
 static float      base_deg;     /* the pitch of "level ground" */
 
@@ -223,15 +231,20 @@ static void hump_finished(UW t_ms)
 {
     if (peak_cm >= S4_HUMP_MIN_CM) {
         S4_MSG m = {0};
+        INT    peak_mm = s4_round(peak_cm * 10.0f);
 
-        s4_hump_count++;
-        if (peak_cm > s4_max_hump_cm) {
-            s4_max_hump_cm = peak_cm;
+        /* Results are packed here, at the boundary.  The working values
+         * (height_cm, peak_cm) stay float. */
+        if (s4_hump_count < 255U) {
+            s4_hump_count++;                        /* saturates, never wraps */
         }
-        m.type      = S4_MSG_HUMP;
-        m.t_ms      = t_ms;
-        m.peak_cm   = peak_cm;
-        m.length_cm = length_cm;
+        if (peak_mm > (INT)s4_max_hump_mm) {
+            s4_max_hump_mm = (UB)s4_clip_u(peak_mm, 8);
+        }
+        m.type          = S4_MSG_HUMP;
+        m.time16        = t_ms & 0xFFFFU;
+        m.p.hump.peak   = s4_clip_u(s4_round(peak_cm * 10.0f / (float)S4_PEAK_STEP_MM), 7) & 0x7FU;
+        m.p.hump.length = (UB)s4_clip_u(s4_round(length_cm * 10.0f / (float)S4_LENGTH_STEP_MM), 8);
         send_msg(&m);
     }
     hump_reset();
@@ -310,7 +323,12 @@ static UW      collision_set_ms;
 static void collision_update(const CAR_VEC *a, UW t_ms)
 {
     float v[3], dyn = 0.0f;
-    UINT  axis;
+    UINT  axis, bits;
+    /* Consume a "release the collision" request, if any.  The kernel clears
+     * only that one bit (TWF_BITCLR), atomically.  It is consumed even when no
+     * collision is active, so an old request can not release a later one. */
+    BOOL  clear_req = (tk_wai_flg(s4_flg, S4_FLG_CLEAR_REQ, TWF_ORW | TWF_BITCLR,
+                                  &bits, TMO_POL) == E_OK) ? TRUE : FALSE;
 
     v[0] = a->fwd;  v[1] = a->left;  v[2] = a->up;
     for (axis = 0; axis < 3; axis++) {
@@ -329,16 +347,16 @@ static void collision_update(const CAR_VEC *a, UW t_ms)
         collision_set_ms = t_ms;
         s4_fault_set(S4_FAULT_COLLISION);
 
-        m.type     = S4_MSG_COLLISION;
-        m.t_ms     = t_ms;
-        m.impact_g = dyn;
+        m.type                = S4_MSG_COLLISION;
+        m.time16              = t_ms & 0xFFFFU;
+        m.p.collision.impact  = (UB)s4_clip_u(s4_round(dyn * 10.0f / (float)S4_IMPACT_STEP_DG), 8);
         send_msg(&m);
         send_fault_msg();
     }
 
     /* Release the fault after S4_COLLISION_HOLD_MS, or when asked to. */
     if (collision_on) {
-        BOOL release = s4_clear_req;
+        BOOL release = clear_req;
 
         if ((S4_COLLISION_HOLD_MS > 0) &&
             ((t_ms - collision_set_ms) > S4_COLLISION_HOLD_MS)) {
@@ -350,7 +368,6 @@ static void collision_update(const CAR_VEC *a, UW t_ms)
             send_fault_msg();
         }
     }
-    s4_clear_req = FALSE;
 }
 
 /* ======================================================================
@@ -394,6 +411,7 @@ static void turn_update(float mf, float ml, float dt, BOOL level)
 static float   pitch_f, roll_f;     /* filtered tilt in degrees */
 static float   accel_hp_g;          /* forward acceleration change */
 static UW      last_us;
+static UW      last_mag_us;     /* when the compass was last read */
 static float   last_dist;
 static BOOL    first_sample = TRUE;
 
@@ -410,8 +428,8 @@ static BOOL process_sample(void)
 {
     float   raw_a[3], raw_m[3];
     CAR_VEC a;
-    float   mf, ml, dist, dt, ds, pitch_raw, roll_raw, pitch_rel;
-    UW      t_us, t_ms;
+    float   mf, ml, dist, dt, mag_dt, ds, pitch_raw, roll_raw, pitch_rel;
+    UW      t_us, t_ms, mag_us;
 
     /* The time and the distance are noted back to back, so they describe the
      * same instant even if another task interrupts us a moment later. */
@@ -421,6 +439,7 @@ static BOOL process_sample(void)
 
     if (lsm303d_read_accel(raw_a) != E_OK) return FALSE;
     if (lsm303d_read_mag(raw_m)   != E_OK) return FALSE;
+    mag_us = TIMER_US();    /* the turn rate must use the time the COMPASS was read */
 
     /* Raw readings -> car axes, with the calibration offset removed. */
     a = to_car(raw_a);
@@ -438,7 +457,10 @@ static BOOL process_sample(void)
     } else {
         ds = S4_FALLBACK_SPEED_CM_S * dt;
     }
+    mag_dt = first_sample ? ((float)S4_SAMPLE_MS / 1000.0f)
+                          : ((float)(UW)(mag_us - last_mag_us) * 1.0e-6f);
     last_us = t_us;
+    last_mag_us = mag_us;
     last_dist = dist;
 
     /* Tilt.  When the car is tilted, gravity shows up on the forward axis
@@ -476,21 +498,27 @@ static BOOL process_sample(void)
     /* Forward acceleration change = the forward reading minus its slow average. */
     accel_hp_g = a.fwd - slow[0];
 
-    if (s4_reset_req) {
-        s4_reset_req = FALSE;
-        s4_max_hump_cm = 0.0f;
-        s4_hump_count = 0;
+    {
+        UINT bits;
+
+        /* s4_reset_run() leaves a bit in the event flag; consume it here. */
+        if (tk_wai_flg(s4_flg, S4_FLG_RESET_REQ, TWF_ORW | TWF_BITCLR, &bits, TMO_POL) == E_OK) {
+            s4_max_hump_mm = 0U;
+            s4_hump_count  = 0U;
+        }
     }
 
     hump_update(pitch_rel, ds, t_ms);
     collision_update(&a, t_ms);
-    turn_update(mf, ml, dt,
+    turn_update(mf, ml, mag_dt,
                 (absf(pitch_f) < S4_TURN_MAX_TILT_DEG) &&
                 (absf(roll_f)  < S4_TURN_MAX_TILT_DEG));
 
-    s4_pitch_deg = pitch_f;
-    s4_roll_deg  = roll_f;
-    s4_turn_dps  = turn_f;
+    /* Publish pitch, roll and turn rate together in ONE store, so a reader
+     * never sees a pitch from one sample and a roll from the next. */
+    s4_snap = s4_snap_pack(s4_clip_s(s4_round(pitch_f), 8),
+                           s4_clip_s(s4_round(roll_f), 8),
+                           s4_clip_s(s4_round(turn_f / (float)S4_TURN_STEP_DPS), 8));
     s4_samples++;
 
 #if S4_PRINT_CSV
@@ -506,14 +534,14 @@ static void send_status(void)
 {
     S4_MSG m = {0};
 
-    m.type        = S4_MSG_STATUS;
-    m.t_ms        = now_ms();
-    m.pitch_deg   = pitch_f;
-    m.roll_deg    = roll_f;
-    m.turn_dps    = turn_f;
-    m.accel_hp_g  = accel_hp_g;
-    m.vibration_g = vibration_g;
-    m.hump_state  = (INT)hump;
+    m.type             = S4_MSG_STATUS;
+    m.time16           = now_ms() & 0xFFFFU;
+    m.hump_state       = (UINT)hump & 0x3U;
+    m.vibration        = (UB)s4_clip_u(s4_round(vibration_g * 1000.0f), 8);    /* mg   */
+    m.p.status.pitch   = (B)s4_clip_s(s4_round(pitch_f), 8);                  /* deg  */
+    m.p.status.roll    = (B)s4_clip_s(s4_round(roll_f), 8);
+    m.p.status.turn    = (B)s4_clip_s(s4_round(turn_f / (float)S4_TURN_STEP_DPS), 8);
+    m.p.status.accel   = (B)s4_clip_s(s4_round(accel_hp_g * 1000.0f / (float)S4_ACCEL_STEP_MG), 8);
     send_msg(&m);
 }
 
@@ -549,8 +577,11 @@ void imu_task(INT stacd, void *exinf)
                 continue;
             }
             S4_LOG("IMU found (LSM303D)\n");
-            if (!s4_calibrated) {
-                s4_calibrated = calibrate();    /* the car must be still */
+            if (!calibrated) {
+                calibrated = calibrate();       /* the car must be still */
+                if (calibrated) {
+                    (void)tk_set_flg(s4_flg, S4_FLG_CALIBRATED);
+                }
             }
             if ((s4_get_faults() & S4_FAULT_COMM) != 0U) {
                 s4_fault_clear(S4_FAULT_COMM);
@@ -567,6 +598,7 @@ void imu_task(INT stacd, void *exinf)
             fail = 0;
             if (++tick >= S4_REPORT_EVERY) {
                 tick = 0;
+                s4_fault_assert();      /* keep FAULT_IMU_SENS set while we are faulted */
                 send_status();
             }
         } else if (++fail >= S4_I2C_FAIL_LIMIT) {

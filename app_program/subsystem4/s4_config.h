@@ -75,8 +75,12 @@
  * ------------------------------------------------------------------ */
 #define S4_IMPACT_G         1.0f    /* sudden change in acceleration (in g)  */
 #define S4_IMPACT_HOLDOFF_MS 500    /* ignore the rebound right after a hit  */
-/* How long the collision fault stays set.  While it is set the motors are
- * halted.  0 = stay set until s4_clear_collision() is called. */
+/* How long the collision condition stays active (so FAULT_IMU_SENS stays
+ * set).  0 = stay active until s4_clear_collision() is called.
+ * NOTE: systemFaults.h puts FAULT_IMU_SENS in the TIER 1 (fatal) mask, which
+ * says "requires manual clearance".  A timed release is NOT manual.  If the
+ * team wants manual clearance, set this to 0 and have whoever handles the
+ * CLEAR command call s4_clear_collision(). */
 #ifndef S4_COLLISION_HOLD_MS        /* (#ifndef: the PC tests change it) */
 #define S4_COLLISION_HOLD_MS 3000
 #endif
@@ -84,9 +88,9 @@
 /* ------------------------------------------------------------------ *
  *  Motion classification (tune)
  * ------------------------------------------------------------------ */
-#define S4_STILL_VIB_G      0.015f  /* less vibration than this = standing   */
-#define S4_ACCEL_G          0.06f   /* forward acceleration change           */
-#define S4_TURN_DPS         30.0f   /* turning faster than this              */
+#define S4_STILL_VIB_MG     15      /* less shaking than this (mg) = standing*/
+#define S4_ACCEL_MG         60      /* forward acceleration change (mg)      */
+#define S4_TURN_DPS         30      /* turning faster than this (deg/s)      */
 #define S4_TURN_MAX_TILT_DEG 5.0f   /* the compass is only trusted when level*/
 #define S4_CLASS_PERSIST    2       /* same answer twice in a row to report  */
 #define S4_IMPACT_SHOW_MS   300     /* how long IMPACT is shown              */
@@ -94,9 +98,12 @@
 /* ------------------------------------------------------------------ *
  *  Working with the other subsystems
  * ------------------------------------------------------------------ */
-/* 1 = put the IMU faults into the team's shared active_fault_mask (bit 28
- * and 30).  Subsystem 2 halts the motors on ANY bit in that mask.
- * 0 = keep them inside subsystem 4 (for testing without an IMU fitted). */
+/* 1 = report the IMU faults to Subsystem 1: s1_report_fault(FAULT_IMU_SENS)
+ * while the IMU is not answering OR a collision is active, and
+ * s1_clear_fault(FAULT_IMU_SENS) when neither is.  The team's tiers decide
+ * what the rest of the car does with that bit (systemFaults.h: IMU is in the
+ * fatal tier).  0 = keep the faults inside subsystem 4 (for testing without
+ * an IMU fitted). */
 #define S4_PROPAGATE_FAULTS 1
 
 /* Distance per wheel-encoder tick in cm (wheel circumference / ticks per

@@ -2,51 +2,48 @@
  *  task_report.c  --  report_task: the consumer (priority 18).
  *
  *  Sleeps until imu_task puts a message in the buffer, then:
- *    STATUS     work out the motion state, send the pitch to Subsystem 1,
- *               print a status line
+ *    STATUS     work out the motion state, tell Subsystem 1 (pitch, motion
+ *               state, hump state), print a status line
  *    HUMP       log the hump (Subsystem 1's CSV logger) and print it
  *    COLLISION  log it and print it
- *    FAULT      log the new fault bits
+ *    FAULT      log the new fault conditions
  *
  *  All the slow things (printing, waiting for Subsystem 1's lock) happen here,
  *  so imu_task can keep its 20 ms rhythm.
+ *
+ *  This task uses NO floating point: the message carries whole numbers, and
+ *  every threshold below is a whole number in the same unit.  (The RP2040 has
+ *  no floating-point hardware, so float maths costs real time.)
  */
 
 #include "subsystem4.h"
-
-/* tm_printf can not print floats, so print "tenths" as whole numbers. */
-static INT tenths(float v)
-{
-    return (INT)((v >= 0.0f) ? (v * 10.0f + 0.5f) : (v * 10.0f - 0.5f));
-}
 
 static INT abs_i(INT v)
 {
     return (v < 0) ? -v : v;
 }
 
-static float absf(float x)
-{
-    return (x < 0.0f) ? -x : x;
-}
-
 /* The motion state, from the newest status message.  The first rule that
- * matches wins, so the order is the priority.
+ * matches wins, so the order is the priority.  All inputs are whole numbers:
+ * degrees per second, milli-g.
  *
  * "Standing still" has two limits: it takes less shaking to ENTER the
  * STATIONARY state than to LEAVE it (hysteresis), otherwise a car shaking
  * right at the limit would flicker between the two. */
 static S4_MOTION classify(const S4_MSG *m, BOOL impact_recent, S4_MOTION previous)
 {
-    float still_limit = (previous == S4_STATIONARY) ? (S4_STILL_VIB_G * 1.5f)
-                                                    : S4_STILL_VIB_G;
+    INT turn_dps  = (INT)m->p.status.turn  * S4_TURN_STEP_DPS;
+    INT accel_mg  = (INT)m->p.status.accel * S4_ACCEL_STEP_MG;
+    INT vib_mg    = (INT)m->vibration;
+    INT still_limit = (previous == S4_STATIONARY) ? ((S4_STILL_VIB_MG * 3) / 2)
+                                                  : S4_STILL_VIB_MG;
 
     if (impact_recent)                  return S4_IMPACT;
-    if (m->hump_state == 1)             return S4_CLIMBING_HUMP;
-    if (m->hump_state == 2)             return S4_DESCENDING_HUMP;
-    if (absf(m->turn_dps) > S4_TURN_DPS) return S4_TURNING;
-    if (absf(m->accel_hp_g) > S4_ACCEL_G) return S4_ACCELERATING;
-    if (m->vibration_g < still_limit)   return S4_STATIONARY;
+    if (m->hump_state == 1U)            return S4_CLIMBING_HUMP;
+    if (m->hump_state == 2U)            return S4_DESCENDING_HUMP;
+    if (abs_i(turn_dps) > S4_TURN_DPS)  return S4_TURNING;
+    if (abs_i(accel_mg) > S4_ACCEL_MG)  return S4_ACCELERATING;
+    if (vib_mg < still_limit)           return S4_STATIONARY;
     return S4_MOVING;
 }
 
@@ -57,7 +54,7 @@ void report_task(INT stacd, void *exinf)
     S4_MOTION   candidate = S4_STATIONARY;  /* the state we are waiting to confirm */
     UINT        candidate_n = 0;
     UINT        lines = 0;                  /* status messages seen           */
-    UW          impact_ms = 0;
+    UINT        impact_time16 = 0;          /* 16-bit ms clock of the last impact */
     BOOL        had_impact = FALSE;
 
     (void)stacd;
@@ -74,8 +71,16 @@ void report_task(INT stacd, void *exinf)
         switch (m.type) {
 
         case S4_MSG_STATUS: {
-            BOOL      impact = had_impact && ((m.t_ms - impact_ms) < S4_IMPACT_SHOW_MS);
-            S4_MOTION now = classify(&m, impact, shown);
+            S4_MOTION now;
+
+            /* The timestamps are only 16 bits (about 65 s), so the age of the
+             * last impact is a 16-bit subtraction.  Once the "show IMPACT"
+             * window is over, forget the impact, so that the clock wrapping
+             * round can never make an old impact look recent. */
+            if (had_impact && ((UH)(m.time16 - impact_time16) >= S4_IMPACT_SHOW_MS)) {
+                had_impact = FALSE;
+            }
+            now = classify(&m, had_impact, shown);
 
             /* Only announce a new state once it has been seen twice in a row
              * (an impact is announced at once). */
@@ -88,21 +93,19 @@ void report_task(INT stacd, void *exinf)
             if ((candidate != shown) &&
                 ((candidate_n >= S4_CLASS_PERSIST) || (candidate == S4_IMPACT))) {
                 shown = candidate;
-                s4_motion = shown;
+                s4_motion = (UB)shown;
                 S4_LOG("motion: %s\n", s4_motion_name(shown));
             }
 
-            s4_push_pitch(m.pitch_deg);     /* IF-01: pitch for the dashboard */
+            /* IF-01: pitch, motion state and hump state, through Subsystem 1's
+             * setters.  Each field is updated under Subsystem 1's lock. */
+            s4_report_status((INT)m.p.status.pitch, (UW)shown, (UW)m.hump_state);
 
 #if S4_PRINT_STATUS
             if ((++lines % 5U) == 0U) {     /* twice a second */
-                INT p = tenths(m.pitch_deg), r = tenths(m.roll_deg), t = tenths(m.turn_dps);
-
-                S4_LOG("pitch %s%d.%d roll %s%d.%d turn %s%d.%d dps  %s\n",
-                       (p < 0) ? "-" : "", abs_i(p) / 10, abs_i(p) % 10,
-                       (r < 0) ? "-" : "", abs_i(r) / 10, abs_i(r) % 10,
-                       (t < 0) ? "-" : "", abs_i(t) / 10, abs_i(t) % 10,
-                       s4_motion_name(shown));
+                S4_LOG("pitch %d roll %d turn %d dps  %s\n",
+                       (INT)m.p.status.pitch, (INT)m.p.status.roll,
+                       (INT)m.p.status.turn * S4_TURN_STEP_DPS, s4_motion_name(shown));
             }
 #else
             (void)lines;
@@ -112,26 +115,34 @@ void report_task(INT stacd, void *exinf)
 
         case S4_MSG_HUMP:
             (void)tm_sprintf(text, (const UB*)"n=%d,peak_mm=%d,len_mm=%d,max_mm=%d",
-                             (INT)s4_hump_count, (INT)(m.peak_cm * 10.0f),
-                             (INT)(m.length_cm * 10.0f), (INT)(s4_max_hump_cm * 10.0f));
+                             (INT)s4_hump_count,
+                             (INT)m.p.hump.peak * S4_PEAK_STEP_MM,
+                             (INT)m.p.hump.length * S4_LENGTH_STEP_MM,
+                             (INT)s4_max_hump_mm);
             s4_log_csv("HUMP", (const char*)text);
-            S4_LOG("hump %d: peak %d.%d cm, length %d cm\n", (INT)s4_hump_count,
-                   (INT)m.peak_cm, abs_i(tenths(m.peak_cm)) % 10, (INT)m.length_cm);
+            S4_LOG("hump %d: peak %d mm, length %d mm\n", (INT)s4_hump_count,
+                   (INT)m.p.hump.peak * S4_PEAK_STEP_MM,
+                   (INT)m.p.hump.length * S4_LENGTH_STEP_MM);
             break;
 
         case S4_MSG_COLLISION:
-            impact_ms = m.t_ms;
+            impact_time16 = m.time16;
             had_impact = TRUE;
-            (void)tm_sprintf(text, (const UB*)"impact_x10g=%d", tenths(m.impact_g));
+            (void)tm_sprintf(text, (const UB*)"impact_x10g=%d",
+                             (INT)m.p.collision.impact * S4_IMPACT_STEP_DG);
             s4_log_csv("COLLISION", (const char*)text);
-            S4_LOG("COLLISION %d.%d g\n", tenths(m.impact_g) / 10,
-                   abs_i(tenths(m.impact_g)) % 10);
+            S4_LOG("COLLISION %d.%d g\n",
+                   ((INT)m.p.collision.impact * S4_IMPACT_STEP_DG) / 10,
+                   ((INT)m.p.collision.impact * S4_IMPACT_STEP_DG) % 10);
             break;
 
         case S4_MSG_FAULT:
-            (void)tm_sprintf(text, (const UB*)"faults=0x%x", (INT)m.faults);
+            (void)tm_sprintf(text, (const UB*)"imu_sens=%d,comm=%d,collision=%d",
+                             (m.p.fault.faults != 0U) ? 1 : 0,
+                             (INT)(m.p.fault.faults & S4_FAULT_COMM),
+                             (INT)((m.p.fault.faults & S4_FAULT_COLLISION) >> 1));
             s4_log_csv("IMU_FAULT", (const char*)text);
-            S4_LOG("faults now 0x%x\n", (INT)m.faults);
+            S4_LOG("faults now 0x%x\n", (INT)m.p.fault.faults);
             break;
 
         default:
