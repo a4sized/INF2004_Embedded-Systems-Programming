@@ -82,6 +82,10 @@ EXPORT void s1_get_telemetry(S1_TELEMETRY_PKT *out) {
     tk_unl_mtx(mtx_telemetry);
 }
 
+EXPORT void s1_report_fault_isr(UW fault_bit) {
+    tk_set_flg(fault_flag, fault_bit); /* Does not use mtx_telemetry, ISR safe */
+}
+
 /* Parse 1-byte binary command payload */
 EXPORT S1_CMD_TYPE s1_parse_command(const UB *payload, INT len) {
     if (payload == NULL || len < 1) return S1_CMD_NONE;
@@ -95,11 +99,17 @@ EXPORT S1_CMD_TYPE s1_parse_command(const UB *payload, INT len) {
 EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
     S1_TELEMETRY_PKT snap;
     s1_get_telemetry(&snap);
-    tm_printf((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
-              (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
-              (INT)snap.pitch_deg, (UW)snap.fault_mask,
-              event_type != NULL ? event_type : "NONE",
-              details != NULL ? details : "NONE");
+
+    /* Only log to slow USB serial if there is a fault or a command event */
+    if (snap.fault_mask != 0 ||
+        (event_type != NULL && (event_type[0] == 'C' && event_type[1] == 'M' && event_type[2] == 'D'))) {
+
+        tm_printf((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
+                  (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
+                  (INT)snap.pitch_deg, (UW)snap.fault_mask,
+                  event_type != NULL ? event_type : "NONE",
+                  details != NULL ? details : "NONE");
+    }
 }
 
 EXPORT void led_cyclic_handler(void *exinf) {
