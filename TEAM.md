@@ -20,7 +20,7 @@ subsystem, ask its owner or open a pull request for them to review.
 | 1 | Wi-Fi & MQTT Telemetry: Aggregates sensor data, publishes JSON telemetry, decodes MQTT commands, CSV logging, and heartbeat LED. |2501283|ray15rk| `app_program/subsystem1/` | `testing/subsystem1/` |
 | 2 | *example:* Producer: makes a sample every 300 ms | | | `app_program/subsystem2/` | `testing/subsystem2/` |
 | 3 | *example:* Consumer: collects samples into statistics | | | `app_program/subsystem3/` | `testing/subsystem3/` |
-| 4 | IMU motion and terrain monitoring. `imu_task` reads an LSM303D accelerometer/magnetometer through `lsm303d` every 20 ms, calibrates it, and works out tilt, turn rate, humps with their peak height, and collisions; `report_task` decides the motion state and reports it. `subsystem4.c/.h` hold the start-up, shared data and the links to other subsystems: pitch and events go to Subsystem 1, IMU faults go into bits 28 and 30 of the shared fault mask, and all tuning values are in `s4_config.h`. On-target self-tests are in `subsystem4_test.c`. |2500787|DariusKong| `app_program/subsystem4/` | `testing/subsystem4/` |
+| 4 | IMU motion and terrain monitoring. `imu_task` reads an LSM303D accelerometer/magnetometer through `lsm303d` every 20 ms, calibrates it, and works out tilt, turn rate, humps with their peak height, and collisions; `report_task` decides the motion state and reports it. `subsystem4.c/.h` hold the start-up, shared data and the links to other subsystems: pitch, motion state and hump state go to Subsystem 1 through its setters, the IMU fault is reported to Subsystem 1 as FAULT_IMU_SENS, and data between the two tasks is packed into 8-byte messages. All tuning values are in `s4_config.h`. On-target self-tests are in `subsystem4_test.c`. |2500787|DariusKong| `app_program/subsystem4/` | `testing/subsystem4/` |
 | 5 | | | | `app_program/subsystem5/` | `testing/subsystem5/` |
 
 Shared files (`app_program/app_main.c`, `app_program/app.h`, this file)
@@ -173,8 +173,9 @@ sends to it or waits on it. Agree on the data format before coding.
 #| IF-04 | S4 → S3 | shared data under a mutex (owned by S3) | `app_stats`, `mtx_stats` | `APP_STATS`, read only while locked | *example* |
 #| IF-05 | S4 → S1 | task control | `tid_led` | `tk_sus_tsk` / `tk_rsm_tsk` / `tk_chg_pri` | *example* |
 | IF-06 | S2 -> S4 | Function calls (S2) | `get_left_encoder_ticks()`, `get_right_encoder_ticks()` | Signed ticks; S4 uses the mean of both wheels times `S4_CM_PER_TICK` (`s4_config.h`) as distance in cm. Ticks must count up when driving forward. | 2500787 |
-| IF-07 | S4 -> All | Shared data (shared) | `active_fault_mask` bits 28 and 30 | 28 = IMU not answering, 30 = collision (released by itself after `S4_COLLISION_HOLD_MS`, 3 s). Any bit halts the motors (S2). Bits 29 and 31 are unused. | 2500787 |
+| IF-07 | S4 -> S1 | Function calls (S1) | `s1_report_fault(FAULT_IMU_SENS)`, `s1_clear_fault(FAULT_IMU_SENS)` | One IMU bit (bit 4), set while the IMU is not answering or a collision is active; collision released after `S4_COLLISION_HOLD_MS` (3 s, 0 = until `s4_clear_collision()` is called) | 2500787 |
 | IF-08 | S4 -> S1 | Function call (S1) | `s1_csv_log_event()` | Event names `HUMP`, `COLLISION`, `IMU_FAULT`, `RUN_SUMMARY`, with a short details string (heights in millimetres) | 2500787 |
+| IF-09 | S4 -> S1 | Function calls (S1) | `s1_set_pitch()`, `s1_set_car_state()` | pitch (8 bits signed, degrees, clipped); car_state (3 bits) = Subsystem 4's motion state 0..6; hump_state (2 bits): 0 flat, 1 going up, 2 going down | pending 2501283 |
 
 Each interface is tested by at least one integration test
 (`testing/integration/TEST_LOG.md`).
@@ -188,7 +189,7 @@ limit there. The numbers below are the example's usage.
 |---|---|---|---|---|---|---|
 | Task | 32 | 1 | 1 | 1 | 2 | |
 | Semaphore | 16 | 0 | 1 | | 0 | |
-| Event flag | 16 | 1 | | | 0 | |
+| Event flag | 16 | 1 | | | 1 | |
 | Mailbox | 12 | 0 | | 1 | 0 | |
 | Mutex | 12 | 1 | | 1 | 0 | |
 | Message buffer | 12 | 2 | | | 1 | |
