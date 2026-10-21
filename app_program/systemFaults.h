@@ -13,6 +13,7 @@ IMPORT ID fault_flag;
 #define FAULT_US_SENS    (1U << 3)  // Ultrasonic fault
 #define FAULT_IMU_SENS   (1U << 4)  // IMU fault
 #define FAULT_WIFI       (1U << 5)  // Wifi fault
+#define FAULT_CMD_REJECTED (1U << 6) // MQTT invalid command
 
 // motor must stop, requires manual clearance
 #define TIER1_FATAL_MASK  (FAULT_ESTOP | FAULT_MOTOR | FAULT_IR_SENS | FAULT_IMU_SENS)

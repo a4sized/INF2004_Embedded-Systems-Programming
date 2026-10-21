@@ -1,9 +1,10 @@
 /* Core-0-owned CYW43439 polling service for micro T-Kernel. */
+#include <stdint.h>
 
 #include "cyw43.h"
 #include "cyw43_country.h"
 #include "cyw43_utk.h"
-#include "../../../../app_program/systemFaults.h"
+//#include "../../../../app_program/systemFaults.h"
 
 #if TM_NET_LWIP
 /* lwip_init() must run before cyw43_wifi_set_up() -- cyw43_cb_tcpip_init()

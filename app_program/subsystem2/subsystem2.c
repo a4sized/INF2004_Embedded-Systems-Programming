@@ -13,6 +13,7 @@
 #include "../app.h"
 #include "subsystem2.h"
 #include "buzzer.h"
+#include "../subsystem1/subsystem1.h"
 
 EXPORT ID   sem_slots;
 EXPORT ID   mpf_samples;
@@ -110,8 +111,9 @@ EXPORT void motor_speed(int16_t left_speed, int16_t right_speed) {
     }
 }
 
-EXPORT void motion_trigger_safety_halt(SystemFault_t cause) {
-    SET_FAULT(active_fault_mask, cause);
+EXPORT void motion_trigger_safety_halt(UW cause) {
+    SET_FAULT(cause);
+    s1_report_fault(cause);
     current_state = MOTOR_SAFETY_HALT;
     motor_speed(0, 0);
 }
@@ -189,14 +191,18 @@ LOCAL void handle_motor_safety_halt(int16_t left_speed, int16_t right_speed) {
     active_left_speed = 0;
     active_right_speed = 0;
     motor_speed(0, 0);
+    S1_TELEMETRY_PKT t;
+    s1_get_telemetry(&t);
 
-    if (!HAS_ANY_FAULT(active_fault_mask) && left_speed == 0 && right_speed == 0) {
+    if (t.fault_mask == 0 && left_speed == 0 && right_speed == 0) {
         current_state = MOTOR_STOPPED;
     }
 }
 
 EXPORT void motion_fsm_update(int16_t left_speed, int16_t right_speed) {
-    if (HAS_ANY_FAULT(active_fault_mask)) {
+    S1_TELEMETRY_PKT t;
+    s1_get_telemetry(&t);
+    if (t.fault_mask != 0) {
         current_state = MOTOR_SAFETY_HALT;
     }
 

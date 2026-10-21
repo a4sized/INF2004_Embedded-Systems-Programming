@@ -81,7 +81,7 @@ void motor_speed(int16_t left_speed, int16_t right_speed);
 //void motor_duration(int16_t left_speed, int16_t right_speed, uint32_t duration_ms);
 void motor_reset_ticks(void);
 void motion_fsm_update(int16_t left_speed, int16_t right_speed);
-void motion_trigger_safety_halt(SystemFault_t cause);
+void motion_trigger_safety_halt(UW cause);
 MotionState_t motion_fsm_get_state(void);
 
 int32_t get_left_encoder_ticks(void);
