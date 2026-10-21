@@ -24,7 +24,7 @@ EXPORT ER subsystem1_init(void)
         mtx_telemetry = tk_cre_mtx(&cmtx);
         if (mtx_telemetry < E_OK) return mtx_telemetry;
 
-        /* 2. Outbound MQTT TX (8-byte packets) */
+        /* 2. Outbound MQTT TX (8-byte packets now) */
         cmbf.mbfatr = TA_TFIFO;
         cmbf.bufsz  = 4 * S1_MQTT_MSG_MAX; 
         cmbf.maxmsz = S1_MQTT_MSG_MAX;

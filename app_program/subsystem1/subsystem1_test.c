@@ -1,7 +1,5 @@
 /*
  *      subsystem1_test.c
- *      On-target tests for subsystem 1.  Built only with: make TEST=1
- *      Record results in testing/subsystem1/TEST_LOG.md.
  */
 
 #include "subsystem1.h"
