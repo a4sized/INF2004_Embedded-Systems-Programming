@@ -162,11 +162,11 @@ sends to it or waits on it. Agree on the data format before coding.
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning | Agreed by |
 |---|---|---|---|---|---|
-| IF-01 | Any -> S1 | Shared data under mutex (S1) | mtx_telemetry | S1_TELEMETRY struct containing speed, distance, pitch, faults and barcode via s1_update_telemetry() | 2501283
+| IF-01 | Any -> S1 | Shared data under mutex (S1) | mtx_telemetry | S1_TELEMETRY_PKT updated via Gatekeeper setters | 2501283
 | IF-02 | S1 -> Any | Event flag | flg_s1_cmd | S1_FLG_CMD_START, STOP, ESTOP, CLEAR, PING bits set upon remote MQTT command | 2501283
-| IF-03 | IwIp -> S1 | Message Buffer | mbf_mqtt_rx | Incoming raw string payloads mapped to S1_CMD_TYPE by led_task via s1_mqtt_push_rx() | 2501283
-| IF-04 | S1 -> IwIP | Message Buffer | mbf_mqtt_tx | Formatted JSON telemetry string (96 bytes max) queued every 1 second using s1_mqttt_pop_tx() | 2501283
-| IF-05 | S4 -> S1 | Task Control | tid_ed | tl_sus_tsk / ts_rsm_tsk / tk_cng_pri | 2501283
+| IF-03 | IwIp -> S1 | Message Buffer | mbf_mqtt_rx | Incoming 1-byte binary command payloads mapped to S1_CMD_TYPE by led_task via s1_mqtt_push_rx() | 2501283
+| IF-04 | S1 -> IwIP | Message Buffer | mbf_mqtt_tx | Packed 8-byte binary telemetry payload (S1_TELEMETRY_PKT) queued every 1 second using s1_mqtt_pop_tx() | 2501283
+| IF-05 | S4 -> S1 | Task Control | tid_led | tk_sus_tsk / tk_rsm_tsk / tk_chg_pri | 2501283
 #| IF-01 | S2 → S3 | mailbox (owned by S3) | `mbx_samples` | `SAMPLE_MSG` in `subsystem2.h` | *example* |
 #| IF-02 | S3 → S2 | semaphore + fixed memory pool (owned by S2) | `sem_slots`, `mpf_samples` | receiver returns the block, then 1 slot | *example* |
 #| IF-03 | S3 → S4 | message buffer + event flag (owned by S4) | `mbf_summary`, `flg_events` | text line ≤ `S4_SUMMARY_MAX` bytes, then `FLG_BATCH` | *example* |

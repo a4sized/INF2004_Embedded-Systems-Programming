@@ -199,21 +199,28 @@ ER tk_swri_dev(ID dd, INT dn, const void *buf, SZ sz, SZ *asz)
 
 /* =========================== mocks of subsystem 1 and 2 (real prototypes) */
 volatile uint32_t active_fault_mask = 0;
-static S1_TELEMETRY g_s1 = { 0, 123, 45, 0, 0, "BC1" };      /* speed 123, obstacle 45: must survive */
+
+/* MOCK: New 8-byte minimum-bit struct */
+static S1_TELEMETRY_PKT g_s1 = { .seq=0, .speed_mm_s=123, .obstacle_cm=45, .car_state=0, .hump_state=0, .pitch_deg=0, .line_mask=0, .barcode_id=7, .fault_mask=0 };
 static int s1_updates, s1_pitch_max = -999, s1_pitch_min = 999;
 static int csv_hump, csv_collision, csv_fault, csv_summary;
 static char csv_hump_details[96];
 static pthread_mutex_t s1_m = PTHREAD_MUTEX_INITIALIZER;
 
-void s1_update_telemetry(INT speed_mm_s, INT obstacle_cm, INT pitch_deg, UW fault_code, const UB *barcode)
-{
+/* MOCK: Gatekeeper Setters */
+void s1_set_speed(INT speed_mm_s) { pthread_mutex_lock(&s1_m); g_s1.speed_mm_s = speed_mm_s; pthread_mutex_unlock(&s1_m); }
+void s1_set_obstacle(INT obstacle_cm) { pthread_mutex_lock(&s1_m); g_s1.obstacle_cm = obstacle_cm; pthread_mutex_unlock(&s1_m); }
+void s1_set_pitch(INT pitch_deg) {
     pthread_mutex_lock(&s1_m);
-    g_s1.speed_mm_s = speed_mm_s; g_s1.obstacle_cm = obstacle_cm; g_s1.pitch_deg = pitch_deg; g_s1.fault_code = fault_code;
-    if (barcode) { strncpy((char*)g_s1.barcode, (const char*)barcode, 15); g_s1.barcode[15] = 0; }
-    s1_updates++; if (pitch_deg > s1_pitch_max) s1_pitch_max = pitch_deg; if (pitch_deg < s1_pitch_min) s1_pitch_min = pitch_deg;
+    g_s1.pitch_deg = pitch_deg;
+    s1_updates++; 
+    if (pitch_deg > s1_pitch_max) s1_pitch_max = pitch_deg; 
+    if (pitch_deg < s1_pitch_min) s1_pitch_min = pitch_deg;
     pthread_mutex_unlock(&s1_m);
 }
-void s1_get_telemetry(S1_TELEMETRY *out) { pthread_mutex_lock(&s1_m); *out = g_s1; pthread_mutex_unlock(&s1_m); }
+void s1_report_fault(UW fault_bit) { pthread_mutex_lock(&s1_m); g_s1.fault_mask |= fault_bit; pthread_mutex_unlock(&s1_m); }
+void s1_clear_fault(UW fault_bit) { pthread_mutex_lock(&s1_m); g_s1.fault_mask &= ~fault_bit; pthread_mutex_unlock(&s1_m); }
+void s1_get_telemetry(S1_TELEMETRY_PKT *out) { pthread_mutex_lock(&s1_m); *out = g_s1; pthread_mutex_unlock(&s1_m); }
 void s1_csv_log_event(const char *e, const char *d)
 {
     pthread_mutex_lock(&s1_m);
@@ -295,7 +302,7 @@ int main(int argc, char **argv)
             seen_impact |= 0; (void)l3; (void)g3; }
         usleep(5000);
         if (t > 12.9) {            /* report */
-            S1_TELEMETRY tl; s1_get_telemetry(&tl);
+            S1_TELEMETRY_PKT tl; s1_get_telemetry(&tl);
             int n = 0, peak_mm = 0; sscanf(csv_hump_details, "n=%d,peak_mm=%d", &n, &peak_mm);
             float tol = (S4_CM_PER_TICK > 0.0f) ? 0.6f : 1.2f;
             printf("\n--- results (%s) ---\n", mode);
@@ -310,7 +317,7 @@ int main(int argc, char **argv)
             printf("  -- subsystem 1 (IF-01, IF-09) --\n");
             CHECK_SIM(s1_updates >= 50, "pitch pushed to s1_update_telemetry() regularly");
             CHECK_SIM(s1_pitch_max >= 10 && s1_pitch_min <= -10, "nose up gives POSITIVE pitch, nose down NEGATIVE, in the telemetry");
-            CHECK_SIM(tl.speed_mm_s == 123 && tl.obstacle_cm == 45 && !strcmp((char*)tl.barcode, "BC1"), "speed, obstacle and barcode set by others are NOT overwritten");
+            CHECK_SIM(tl.speed_mm_s == 123 && tl.obstacle_cm == 45 && tl.barcode_id == 7, "speed, obstacle and barcode set by others are NOT overwritten");
             printf("  -- collision + shared fault mask (IF-08) --\n");
             CHECK_SIM(csv_collision == 1 && seen_impact, "one collision: logged, and motion state IMPACT shown");
             CHECK_SIM(l1 && g1, "collision fault set locally AND as bit 30 of active_fault_mask");

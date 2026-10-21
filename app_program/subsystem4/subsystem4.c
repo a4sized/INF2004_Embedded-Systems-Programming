@@ -37,7 +37,7 @@ void s4_fault_set(UW bits)
 {
     s4_faults |= bits;
 #if S4_PROPAGATE_FAULTS
-    SET_FAULT(active_fault_mask, bits);
+    s1_report_fault(bits);
 #endif
 }
 
@@ -45,7 +45,7 @@ void s4_fault_clear(UW bits)
 {
     s4_faults &= ~bits;
 #if S4_PROPAGATE_FAULTS
-    CLEAR_FAULT(active_fault_mask, bits);
+    s1_clear_fault(bits);
 #endif
 }
 
@@ -56,12 +56,11 @@ void s4_fault_clear(UW bits)
  * be overwritten with old numbers. */
 void s4_push_pitch(float pitch_deg)
 {
-    S1_TELEMETRY    t;
+    S1_TELEMETRY_PKT    t;
     INT             pitch;
 
     pitch = (INT)((pitch_deg >= 0.0f) ? (pitch_deg + 0.5f) : (pitch_deg - 0.5f));
-    s1_get_telemetry(&t);
-    s1_update_telemetry(t.speed_mm_s, t.obstacle_cm, pitch, t.fault_code, NULL);
+    s1_set_pitch(pitch);
 }
 
 void s4_log_csv(const char *event, const char *details)

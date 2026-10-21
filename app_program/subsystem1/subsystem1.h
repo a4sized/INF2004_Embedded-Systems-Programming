@@ -10,6 +10,7 @@
 #define SUBSYSTEM1_H
 
 #include "../app.h"
+#include <stdint.h>
 
 #define S1_PRI_LED              12
 #define S1_LED_PIN              19

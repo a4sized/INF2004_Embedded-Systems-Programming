@@ -56,13 +56,15 @@ void subsystem4_test(void)
     /* S4-U07: the pitch reaches Subsystem 1 (IF-01) and the other fields
      * that Subsystem 2 and 5 set are left alone. */
     {
-        S1_TELEMETRY t;
+        S1_TELEMETRY_PKT t;
         INT speed, obstacle;
 
         s1_get_telemetry(&t);
         speed = t.speed_mm_s + 7;
         obstacle = t.obstacle_cm + 3;
-        s1_update_telemetry(speed, obstacle, 99, t.fault_code, NULL);
+        s1_set_speed(speed);
+        s1_set_obstacle(obstacle);
+        s1_set_pitch(99);
         tk_dly_tsk(400);                        /* a few status messages */
         s1_get_telemetry(&t);
         TEST_CHECK("S4-U07",
@@ -71,19 +73,24 @@ void subsystem4_test(void)
                    "pitch reaches subsystem 1; speed and obstacle left unchanged");
     }
 
-    /* S4-U08: an IMU fault reaches the shared mask without disturbing the
+/* S4-U08: an IMU fault reaches the shared mask without disturbing the
      * bits of other subsystems, and is removed again. */
     {
         UW   other = (UW)FAULT_CMD_REJECTED;
         BOOL set_ok, clear_ok, other_ok;
+        S1_TELEMETRY_PKT t;
 
-        SET_FAULT(active_fault_mask, other);
+        s1_report_fault(other);
         s4_fault_set(S4_FAULT_COLLISION);
-        set_ok   = ((active_fault_mask & S4_FAULT_COLLISION) != 0U);
+        s1_get_telemetry(&t);
+        set_ok   = ((t.fault_mask & S4_FAULT_COLLISION) != 0U);
+        other_ok = ((t.fault_mask & other) != 0U);
         s4_fault_clear(S4_FAULT_COLLISION);
-        clear_ok = ((active_fault_mask & S4_FAULT_COLLISION) == 0U);
-        other_ok = ((active_fault_mask & other) != 0U);
-        CLEAR_FAULT(active_fault_mask, other);
+        s1_get_telemetry(&t);
+        clear_ok = ((t.fault_mask & S4_FAULT_COLLISION) == 0U);
+        other_ok = other_ok && ((t.fault_mask & other) != 0U);
+        s1_clear_fault(other);
+
         TEST_CHECK("S4-U08", set_ok && clear_ok && other_ok,
                    "IMU fault bit set/cleared in the shared mask, others kept");
     }
