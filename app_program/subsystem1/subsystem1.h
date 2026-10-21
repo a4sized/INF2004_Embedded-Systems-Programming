@@ -38,8 +38,7 @@ typedef enum {
 } S1_CMD_TYPE;
 
 /* Minimum-Bit Compact Binary Telemetry Payload (8 bytes total) */
-#pragma pack(push, 1)
-typedef struct {
+typedef struct __attribute__((packed)){
     uint32_t seq         : 8;   /* 0..255 rolling counter */
     int32_t  speed_mm_s  : 10;  /* -512..+511 mm/s */
     uint32_t obstacle_cm : 9;   /* 0..511 cm */
@@ -53,20 +52,19 @@ typedef struct {
 } S1_TELEMETRY_PKT;
 
 /* Minimum-Bit Compact Binary Command Payload (1 byte total) */
-typedef struct {
+typedef struct __attribute__((packed)){
     uint8_t cmd_id   : 3; /* 1=START, 2=STOP, 3=ESTOP, 4=CLEAR, 5=PING */
     uint8_t reserved : 5;
 } S1_CMD_PKT;
-#pragma pack(pop)
 
 /* IF-05: the LED task's ID */
 IMPORT ID       tid_led;
 
 /* Kernel objects owned by Subsystem 1 */
-IMPORT ID       mbf_mqtt_tx;    
-IMPORT ID       mbf_mqtt_rx;    
-IMPORT ID       mtx_telemetry;  
-IMPORT ID       flg_s1_cmd;     
+IMPORT ID       mbf_mqtt_tx;
+IMPORT ID       mbf_mqtt_rx;
+IMPORT ID       mtx_telemetry;
+IMPORT ID       flg_s1_cmd;
 IMPORT ID       flg_s1_isr_fault; /* NEW: Non-blocking ISR fault reporting */
 
 /* Counters & state */
@@ -86,6 +84,7 @@ IMPORT void     s1_set_line_mask(UW mask);
 /* Centralized Fault Management */
 IMPORT void     s1_report_fault(UW fault_bit); /* Normal tasks */
 IMPORT void     s1_clear_fault(UW fault_bit);
+IMPORT void	s1_report_fault_isr(UW fault_bit); /* ISR Safe */
 /* Note: ISRs must call tk_set_flg(flg_s1_isr_fault, fault_bit) directly */
 
 IMPORT void     s1_get_telemetry(S1_TELEMETRY_PKT *out);
