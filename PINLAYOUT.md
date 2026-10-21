@@ -16,8 +16,8 @@ Piezo Buzzer - GP22
 LEFT MOTOR connections:
 | *Sensor/Function* | *Connected To Pin/Terminal* | *Cable Colour* |
 | Encoder GND       | GROUND                      | WHITE          |
-| Left Encoder A    | GP14                        | RED            |
-| Right Encoder B   | GP15                        | GREEN          |
+| Motor 1 Encoder A | GP14                        | RED            |
+| Motor 1 Encoder B | GP15                        | GREEN          |
 | Encoder Power     | 3.3V                        | BLUE           |
 | Motor Power B     | M1B                         | YELLOW         |
 | Motor Power A     | M1A                         | BLACK          |
@@ -25,8 +25,8 @@ LEFT MOTOR connections:
 RIGHT MOTOR connections:
 | *Sensor/Function* | *Connected To Pin/Terminal* | *Cable Colour* |
 | Encoder GND       | GROUND                      | WHITE->BLACK   |
-| Left Encoder A    | GP2                         | RED->WHITE     |
-| Right Encoder B   | GP3                         | GREEN->YELLOW  |
+| Motor 2 Encoder A | GP2                         | RED->WHITE     |
+| Motor 2 Encoder B | GP3                         | GREEN->YELLOW  |
 | Encoder Power     | 3.3V                        | BLUE->RED      |
 | Motor Power B     | M2B                         | YELLOW         |
 | Motor Power A     | M2A                         | BLACK          |

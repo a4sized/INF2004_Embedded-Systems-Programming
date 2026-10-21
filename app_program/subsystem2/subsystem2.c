@@ -89,11 +89,6 @@ EXPORT void motor_init(void) {
     gpio_init(RIGHT_ENC_A); gpio_set_dir(RIGHT_ENC_A, GPIO_IN); gpio_pull_up(RIGHT_ENC_A);
     gpio_init(RIGHT_ENC_B); gpio_set_dir(RIGHT_ENC_B, GPIO_IN); gpio_pull_up(RIGHT_ENC_B);
 
-    // Power up Encoder 2 power pin if applicable
-    gpio_init(ENC2_PWR_PIN);
-    gpio_set_dir(ENC2_PWR_PIN, GPIO_OUT);
-    gpio_put(ENC2_PWR_PIN, 1);
-
     // Attach GPIO interrupt callback for Channel A pins
     gpio_set_irq_enabled_with_callback(LEFT_ENC_A, GPIO_IRQ_EDGE_RISE, true, &encoder_callback);
     gpio_set_irq_enabled(RIGHT_ENC_A, GPIO_IRQ_EDGE_RISE, true);

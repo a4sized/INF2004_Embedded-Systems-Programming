@@ -50,21 +50,21 @@ fixed.
 | GP23, GP24, GP25, GP29 | *reserved* | Pico W radio |
 | GP0 | | (taken whenever the team builds with `CRASH_REPORT=1`) |
 | GP1 | | (taken whenever the team builds with `CRASH_REPORT=1`) |
-| GP2 | | |
-| GP3 | | |
-| GP4 | | |
+| GP2 | Buddy 2 (2501820) | Motor 2 encoder A input |
+| GP3 | Buddy 2 (2501820) | Motor 2 encoder B input |
+| GP4 | Buddy 3 (2501107) | Right IR sensor DO |
 | GP5 | | |
 | GP6 | Buddy 3 (2501107), bench only | IR calibration DO; Maker Pi Pico Grove 4, GP6 |
-| GP7 | Buddy 3 (2501107) | Intended robot left IR; not used by current GP6 bench |
+| GP7 | Buddy 3 (2501107) | Left IR sensor DO; GP6 bench is separate |
 | GP8 | | |
 | GP9 | | |
 | GP10 | | |
 | GP11 | | |
 | GP12 | | |
 | GP13 | | |
-| GP14 | | |
-| GP15 | | |
-| GP16 | | |
+| GP14 | Buddy 2 (2501820) | Motor 1 encoder A input |
+| GP15 | Buddy 2 (2501820) | Motor 1 encoder B input |
+| GP16 | Buddy 3 (2501107) | Barcode IR sensor DO |
 | GP17 | | |
 | GP18 | | |
 | GP19 |S1| Heartbeat status LED (LED + 330 Ω to GND) |
@@ -216,3 +216,30 @@ service and creates no subsystem communication objects. The bench profile
 disables Wi-Fi/MQTT and example tasks. These choices do not settle robot
 priorities or cross-buddy interfaces. See `testing/subsystem3/IR_CALIBRATION_TEST_LOG.md` for evidence and
 pending hardware checks.
+
+## 8. Buddy 3 three-sensor digital readout (13 October 2026)
+
+`app_program/subsystem3/` contains a sensing-only application for GP7 left,
+GP4 right and GP16 barcode DO. `build_sensing.py` stages only Buddy 3 sources
+in a temporary build tree; it does not start the example consumer, producer
+or monitor. The output UF2 is placed in `build_make/`. The profile has a USB
+console and disables Wi-Fi, lwIP and MQTT.
+
+The task requests a 10 ms sampling delay and prints raw GPIO levels about
+every 20 samples while a USB terminal is open. This is a diagnostic rate,
+not evidence that the design's 5 ms line-sampling target is met. Fixed
+black-level settings remain UNKNOWN until GP7, GP4 and GP16 have each been
+observed over black and white. An UNKNOWN setting prints `?` instead of a
+guessed surface. See `testing/subsystem3/IR_SENSING_TEST_LOG.md`.
+
+On 21 October 2026, Buddy 3 added a time-qualified filter to the two line
+levels in this standalone readout. It accepts a changed level only after a
+second observation at least 10 ms later; the barcode level remains raw.
+The USB line now shows each line sensor as `raw>stable`. This bench value is
+not a calibrated moving-robot filter setting. No motion request is sent.
+The later steering interface must give Motion Control the latest correction
+for its own cycle, subject to the team's unfinished queue contract.
+The 20 ms Motion State cycle is a design target and is not present in the
+current Buddy 2 application. The earlier GP16 encoder-power output was
+removed on this local branch; GP16 belongs to Buddy 3's barcode input.
+The isolated Buddy 3 UF2 still excludes Buddy 2 code.

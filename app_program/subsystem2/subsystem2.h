@@ -62,7 +62,6 @@ IMPORT INT	s2_make_value(UW seq);
 #define LEFT_ENC_B  15  // Left encoder B
 #define RIGHT_ENC_A 2   // Right encoder A
 #define RIGHT_ENC_B 3   // Right encoder B  
-#define ENC2_PWR_PIN 16 
 
 extern volatile int32_t left_encoder_ticks;
 extern volatile int32_t right_encoder_ticks;
