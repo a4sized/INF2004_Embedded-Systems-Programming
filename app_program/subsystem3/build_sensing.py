@@ -10,13 +10,15 @@ import tempfile
 
 SUBSYSTEM = Path(__file__).resolve().parent
 REPO = SUBSYSTEM.parents[1]
-IMAGE = "buddy3_ir_sensing_smp1_usb_cdc_wifi_none"
+IMAGE = "buddy3_ir_sensing_smp1_usb_cdc_wifi_cyw43"
 SENSING_TICK_MS = 5
 SOURCES = (
     "drv_ir.c", "drv_ir.h", "ir_sensing.c", "ir_sensing.h",
     "ir_line_filter.c", "ir_line_filter.h",
     "ir_line_state.c", "ir_line_state.h",
     "ir_time.c", "ir_time.h",
+    "ir_barcode_capture.c", "ir_barcode_capture.h",
+    "ir_barcode_gpio.c", "ir_barcode_gpio.h",
     "ir_sensing_main.c", "ir_sensing_main.h",
 )
 
@@ -70,7 +72,7 @@ def main():
         makefile += "-Wall -Wextra -Werror -Wconversion -Wshadow\n"
         (build / "makefile").write_text(makefile)
 
-        command = ["make", "-j4", "SMP=1", "CONSOLE=usb_cdc", "WIFI=none",
+        command = ["make", "-j4", "SMP=1", "CONSOLE=usb_cdc", "WIFI=cyw43",
                    "NET=none", "MQTT=0", "CRASH_REPORT=0", "TEST=0",
                    f"EXE_FILE={IMAGE}"]
         completed = subprocess.run(command, cwd=build, text=True,

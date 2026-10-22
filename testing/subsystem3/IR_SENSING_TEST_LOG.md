@@ -94,3 +94,30 @@ The user then reported that all diagnostic readings work on the Pico. Exact
 serial values for each position were not saved in this log. This is a
 stationary bench observation; moving-robot behaviour remains untested. No
 motion requests are sent.
+
+## GP16 interrupt edge capture build (22 October 2026)
+
+The standalone profile now timestamps both GP16 edge types in a short GPIO
+callback using the microsecond timer. A 64-entry single-producer ring passes
+events to the sensing task; no allocation, printing or RTOS call occurs in
+the callback. The sensing task stores at most 64 edges starting with a
+white-to-black transition. After two seconds it prints the edge levels and
+successive durations. Queue overflow or a non-alternating/ambiguous edge
+marks the window invalid. The final edge's duration is unknown and is
+printed as zero. A window is a diagnostic trace, not a verified complete
+barcode; framing and trailing-white criteria require real sample data.
+
+The diagnostic build now uses `WIFI=cyw43, NET=none` because the starter's
+`WIFI=none` build omits the Pico SDK GPIO interrupt implementation. The
+standalone task installs the callback on core 1; normal team startup still
+uses the example consumer. This is not an agreed integrated IRQ ownership
+contract. USB printing a 64-edge window can delay line samples, so rerun
+the 60-second gap check during real scans before treating the timing target
+as met with capture enabled.
+
+Fresh checks: `ir_barcode_capture_test.c` passed with Clang strict warnings,
+AddressSanitizer and UndefinedBehaviorSanitizer. It verifies bounded full
+queue behavior, overflow counting, FIFO order and ring wrap. The isolated
+ARM UF2 compiled at `build_make/buddy3_ir_sensing_smp1_usb_cdc_wifi_cyw43.uf2`.
+No Pico flash, USB edge trace, pulse-width measurement or integrated robot
+test was performed in this change.

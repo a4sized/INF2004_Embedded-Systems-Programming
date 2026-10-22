@@ -7,6 +7,8 @@
 #if defined(BUDDY3_SENSING_STANDALONE)
 
 #include "drv_ir.h"
+#include "ir_barcode_capture.h"
+#include "ir_barcode_gpio.h"
 #include "ir_line_filter.h"
 #include "ir_line_state.h"
 #include "ir_sensing.h"
@@ -26,6 +28,7 @@
 #define IR_GAP_MAX_US      6000u
 #define IR_GAP_LIMIT_US    10000u
 #define IR_STATS_WINDOW    12000u
+#define IR_CAPTURE_LIMIT_US 2000000u
 
 #if CNF_TIMER_PERIOD != IR_SAMPLE_PERIOD_MS
 #error "Buddy 3 sensing needs a 5 ms kernel tick."
@@ -41,6 +44,8 @@ extern UW tm_usb_state (void);
 
 static void sensing_task (INT start_code, void * p_extra);
 static void sensing_tick (void * p_extra);
+static void print_capture (ir_barcode_edge_t const * p_edges,
+                           uint32_t count, bool b_invalid);
 static void halt_task (void);
 static char const * surface_name (ir_surface_t surface);
 static char const * position_name (ir_line_position_t position);
@@ -118,6 +123,11 @@ static void sensing_task (INT start_code, void * p_extra)
     bool b_console_was_ready = false;
     ir_line_filter_t filter = {0};
     ir_line_state_t line = {0};
+    ir_barcode_edge_t capture[IR_BARCODE_EDGE_CAPACITY] = {0};
+    uint32_t capture_count = 0u;
+    uint32_t capture_start_us = 0u;
+    uint32_t seen_overflows = 0u;
+    bool b_capture_invalid = false;
 
     (void)start_code;
     (void)p_extra;
@@ -126,6 +136,9 @@ static void sensing_task (INT start_code, void * p_extra)
     {
         halt_task();
     }
+
+    /* The standalone sensing task owns the core-1 GPIO callback. */
+    ir_barcode_gpio_start();
 
     ir_line_filter_reset(&filter);
     ir_line_state_reset(&line);
@@ -139,6 +152,63 @@ static void sensing_task (INT start_code, void * p_extra)
 
         uint32_t const sample_us = ir_time_us();
         SYSTIM now = {0};
+        ir_barcode_edge_t edge = {0};
+
+        if (ir_barcode_gpio_overflows() != seen_overflows)
+        {
+            seen_overflows = ir_barcode_gpio_overflows();
+            b_capture_invalid = true;
+        }
+
+        while (ir_barcode_gpio_pop(&edge))
+        {
+            if (0u == capture_count)
+            {
+                if (!edge.b_high)
+                {
+                    continue;
+                }
+                capture_start_us = edge.time_us;
+            }
+
+            if ((capture_count > 0u) &&
+                ((edge.time_us - capture_start_us) >= IR_CAPTURE_LIMIT_US))
+            {
+                print_capture(capture, capture_count, b_capture_invalid);
+                capture_count = 0u;
+                b_capture_invalid = false;
+                if (!edge.b_high)
+                {
+                    continue;
+                }
+                capture_start_us = edge.time_us;
+            }
+
+            if (edge.b_ambiguous ||
+                ((capture_count > 0u) &&
+                 (edge.b_high == capture[capture_count - 1u].b_high)))
+            {
+                b_capture_invalid = true;
+            }
+
+            if (capture_count < IR_BARCODE_EDGE_CAPACITY)
+            {
+                capture[capture_count] = edge;
+                ++capture_count;
+            }
+            else
+            {
+                b_capture_invalid = true;
+            }
+        }
+
+        if ((capture_count > 0u) &&
+            ((sample_us - capture_start_us) >= IR_CAPTURE_LIMIT_US))
+        {
+            print_capture(capture, capture_count, b_capture_invalid);
+            capture_count = 0u;
+            b_capture_invalid = false;
+        }
 
         if (b_have_previous)
         {
@@ -180,7 +250,7 @@ static void sensing_task (INT start_code, void * p_extra)
                       "L/R show raw>stable; B remains raw."
                       " Timing range is 4000..6000 us.\n"
                       "Line decisions are diagnostic; no motion request"
-                      " is sent.\n");
+                      " is sent. GP16 edge windows last 2 s.\n");
         }
 
         if (b_console_ready &&
@@ -232,6 +302,32 @@ static void sensing_tick (void * p_extra)
 {
     (void)p_extra;
     (void)tk_wup_tsk(sensing_task_id);
+}
+
+static void print_capture (ir_barcode_edge_t const * p_edges,
+                           uint32_t count, bool b_invalid)
+{
+    if (IR_USB_READY != tm_usb_state())
+    {
+        return;
+    }
+
+    tm_printf((UB const *)"Barcode edge window: count=%u invalid=%u"
+              " overflows=%u (not decoded)\n",
+              count, (UW)b_invalid, ir_barcode_gpio_overflows());
+    if (b_invalid)
+    {
+        return;
+    }
+
+    for (uint32_t index = 0u; index < count; ++index)
+    {
+        uint32_t const duration_us = (index + 1u < count) ?
+            (p_edges[index + 1u].time_us - p_edges[index].time_us) : 0u;
+        tm_printf((UB const *)"  edge=%u t=%u us level=%u duration=%u us\n",
+                  index, p_edges[index].time_us,
+                  (UW)p_edges[index].b_high, duration_us);
+    }
 }
 
 static void halt_task (void)
