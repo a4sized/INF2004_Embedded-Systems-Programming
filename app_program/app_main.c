@@ -55,12 +55,18 @@
 
 #include "app.h"
 #include "subsystem1/subsystem1.h"
+#include "subsystem2/subsystem2.h"
 #include "subsystem2/buzzer.h"
+#include "subsystem3/subsystem3.h"
+#include "subsystem4/subsystem4.h"
+#include "subsystem5/subsystem5.h"
+#include "systemFaults.h"
 
 /*
  * Create and start one task (declared in app.h for every subsystem).
  *   prc = TP_PRC1 (core 0), TP_PRC2 (core 1), or 0 for "any core".
  */
+EXPORT ID fault_flag;
 EXPORT ID app_start_task(FP entry, PRI pri, UW prc, const char *name)
 {
 	T_CTSK	ctsk = {0};
@@ -108,6 +114,15 @@ EXPORT INT usermain(void)
 #else
 	tm_printf((UB*)"single-core build\n");
 #endif
+
+T_CFLG cflg = {0};
+cflg.flgatr  = TA_TFIFO | TA_WMUL; /* Allow multiple subsystems to wait on or set it */
+cflg.iflgptn = 0U;                 /* Start with 0 (no faults active) */
+fault_flag   = tk_cre_flg(&cflg);
+
+if (fault_flag < E_OK) {
+    tm_printf((UB*)"FATAL: Failed to create fault_flag\n");
+}
 
 	/* Phase 1: every subsystem creates its kernel objects */
 	CHECK(subsystem1_init(), "subsystem1_init");
