@@ -9,6 +9,7 @@
 #include "drv_ir.h"
 #include "ir_barcode_capture.h"
 #include "ir_barcode_gpio.h"
+#include "ir_barcode_window.h"
 #include "ir_line_filter.h"
 #include "ir_line_state.h"
 #include "ir_sensing.h"
@@ -28,7 +29,6 @@
 #define IR_GAP_MAX_US      6000u
 #define IR_GAP_LIMIT_US    10000u
 #define IR_STATS_WINDOW    12000u
-#define IR_CAPTURE_LIMIT_US 2000000u
 
 #if CNF_TIMER_PERIOD != IR_SAMPLE_PERIOD_MS
 #error "Buddy 3 sensing needs a 5 ms kernel tick."
@@ -123,11 +123,8 @@ static void sensing_task (INT start_code, void * p_extra)
     bool b_console_was_ready = false;
     ir_line_filter_t filter = {0};
     ir_line_state_t line = {0};
-    ir_barcode_edge_t capture[IR_BARCODE_EDGE_CAPACITY] = {0};
-    uint32_t capture_count = 0u;
-    uint32_t capture_start_us = 0u;
+    ir_barcode_window_t window = {0};
     uint32_t seen_overflows = 0u;
-    bool b_capture_invalid = false;
 
     (void)start_code;
     (void)p_extra;
@@ -139,6 +136,7 @@ static void sensing_task (INT start_code, void * p_extra)
 
     /* The standalone sensing task owns the core-1 GPIO callback. */
     ir_barcode_gpio_start();
+    ir_barcode_window_reset(&window);
 
     ir_line_filter_reset(&filter);
     ir_line_state_reset(&line);
@@ -157,57 +155,29 @@ static void sensing_task (INT start_code, void * p_extra)
         if (ir_barcode_gpio_overflows() != seen_overflows)
         {
             seen_overflows = ir_barcode_gpio_overflows();
-            b_capture_invalid = true;
+            ir_barcode_window_invalidate(&window);
         }
 
         while (ir_barcode_gpio_pop(&edge))
         {
-            if (0u == capture_count)
+            if (ir_barcode_window_expired(&window, edge.time_us))
             {
-                if (!edge.b_high)
-                {
-                    continue;
-                }
-                capture_start_us = edge.time_us;
+                print_capture(window.edges, window.count, window.b_invalid);
+                ir_barcode_window_reset(&window);
             }
-
-            if ((capture_count > 0u) &&
-                ((edge.time_us - capture_start_us) >= IR_CAPTURE_LIMIT_US))
-            {
-                print_capture(capture, capture_count, b_capture_invalid);
-                capture_count = 0u;
-                b_capture_invalid = false;
-                if (!edge.b_high)
-                {
-                    continue;
-                }
-                capture_start_us = edge.time_us;
-            }
-
-            if (edge.b_ambiguous ||
-                ((capture_count > 0u) &&
-                 (edge.b_high == capture[capture_count - 1u].b_high)))
-            {
-                b_capture_invalid = true;
-            }
-
-            if (capture_count < IR_BARCODE_EDGE_CAPACITY)
-            {
-                capture[capture_count] = edge;
-                ++capture_count;
-            }
-            else
-            {
-                b_capture_invalid = true;
-            }
+            ir_barcode_window_feed(&window, edge);
         }
 
-        if ((capture_count > 0u) &&
-            ((sample_us - capture_start_us) >= IR_CAPTURE_LIMIT_US))
+        if (ir_barcode_gpio_overflows() != seen_overflows)
         {
-            print_capture(capture, capture_count, b_capture_invalid);
-            capture_count = 0u;
-            b_capture_invalid = false;
+            seen_overflows = ir_barcode_gpio_overflows();
+            ir_barcode_window_invalidate(&window);
+        }
+
+        if (ir_barcode_window_expired(&window, ir_time_us()))
+        {
+            print_capture(window.edges, window.count, window.b_invalid);
+            ir_barcode_window_reset(&window);
         }
 
         if (b_have_previous)

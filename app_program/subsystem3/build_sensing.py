@@ -19,6 +19,7 @@ SOURCES = (
     "ir_time.c", "ir_time.h",
     "ir_barcode_capture.c", "ir_barcode_capture.h",
     "ir_barcode_gpio.c", "ir_barcode_gpio.h",
+    "ir_barcode_window.c", "ir_barcode_window.h",
     "ir_sensing_main.c", "ir_sensing_main.h",
 )
 

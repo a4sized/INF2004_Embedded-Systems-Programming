@@ -121,3 +121,14 @@ queue behavior, overflow counting, FIFO order and ring wrap. The isolated
 ARM UF2 compiled at `build_make/buddy3_ir_sensing_smp1_usb_cdc_wifi_cyw43.uf2`.
 No Pico flash, USB edge trace, pulse-width measurement or integrated robot
 test was performed in this change.
+
+## Host-side edge-window verification (22 October 2026)
+
+The two-second task-side collection rules were moved into
+`ir_barcode_window.c` so they can be checked independently of Pico hardware.
+`ir_barcode_window_test.c` passed with strict Clang warnings, AddressSanitizer
+and UndefinedBehaviorSanitizer. It exercises leading white edges, alternating
+edge durations, the exact timeout boundary, 32-bit microsecond timer wrap,
+duplicate/ambiguous edges, explicit invalidation and the 64-edge limit.
+The isolated ARM UF2 rebuilt with this module. This verifies host logic and
+compilation only; the open physical capture and timing checks above remain.
