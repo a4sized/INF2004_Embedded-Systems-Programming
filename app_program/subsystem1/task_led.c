@@ -64,6 +64,10 @@ EXPORT void s1_set_line_mask(UW mask) {
 
 /* Centralized Fault Reporting */
 EXPORT void s1_report_fault(UW fault_bit) {
+    /* Broadcast to the universal event flag for instant task wakeups */
+    tk_set_flg(flg_s1_isr_fault, fault_bit); 
+
+    /* Immediately update the telemetry mask */
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
     s1_telemetry.fault_mask |= fault_bit;
     tk_unl_mtx(mtx_telemetry);
@@ -135,12 +139,15 @@ EXPORT void led_task(INT stacd, void *exinf) {
         level = !level;
         gpio_set_val(S1_LED_PIN, level);
 
-        /* 1. Drain pending ISR faults via event flag */
+        /* Drain pending ISR faults via event flag */
         if (tk_wai_flg(flg_s1_isr_fault, 0xFFFFFFFF, TWF_ORW | TWF_CLR, &isr_faults, TMO_POL) == E_OK) {
-            s1_report_fault(isr_faults);
+            /* Apply ISR faults directly to the mask to avoid a recursive flag loop */
+            tk_loc_mtx(mtx_telemetry, TMO_FEVR);
+            s1_telemetry.fault_mask |= isr_faults;
+            tk_unl_mtx(mtx_telemetry);
         }
 
-        /* 2. Drain binary MQTT commands */
+        /* Drain binary MQTT commands */
         while ((len = tk_rcv_mbf(mbf_mqtt_rx, rx_buf, TMO_POL)) > 0) {
             S1_CMD_TYPE cmd = s1_parse_command(rx_buf, len);
             if (cmd != S1_CMD_NONE) {
