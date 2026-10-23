@@ -592,8 +592,10 @@ void imu_task(INT stacd, void *exinf)
             fail = 0;
         }
 
-        tk_dly_tsk(S4_SAMPLE_MS);
+        /* 1. Record exactly when we start the work */
+        UW start_time = now_ms();
 
+        /* 2. Do the physical I2C reading */
         if (process_sample()) {
             fail = 0;
             if (++tick >= S4_REPORT_EVERY) {
@@ -607,5 +609,10 @@ void imu_task(INT stacd, void *exinf)
             send_fault_msg();
             ok = FALSE;
         }
+        
+        /* 3. Calculate how long the work took, and only sleep for the remainder of the 20ms */
+        UW elapsed_time = now_ms() - start_time;
+        INT wait_time = (INT)S4_SAMPLE_MS - (INT)elapsed_time;
+        tk_dly_tsk((wait_time > 0) ? wait_time : 1);
     }
 }
