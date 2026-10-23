@@ -81,10 +81,7 @@ static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 
         for(i = 0; i < len; i++) {
                 if(rx_len < (MQTT_UTK_RX_DATA_MAX - 1)) {
-                        /* The console is a terminal -- keep raw bytes from a
-                         * payload this demo did not publish from scrambling it. */
-                        UB c = data[i];
-                        rx_data[rx_len++] = (c >= 0x20 && c < 0x7f)? c: '.';
+                        rx_data[rx_len++] = data[i];
                 } else {
                         rx_truncated = 1;
                 }

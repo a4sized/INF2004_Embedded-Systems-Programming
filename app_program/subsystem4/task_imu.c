@@ -592,8 +592,8 @@ void imu_task(INT stacd, void *exinf)
             fail = 0;
         }
 
-        /* 1. Record exactly when we start the work */
-        UW start_time = now_ms();
+       /* 1. Record exactly when we start the work using the 1 MHz hardware timer */
+        UW start_us = TIMER_US();
 
         /* 2. Do the physical I2C reading */
         if (process_sample()) {
@@ -610,9 +610,9 @@ void imu_task(INT stacd, void *exinf)
             ok = FALSE;
         }
         
-        /* 3. Calculate how long the work took, and only sleep for the remainder of the 20ms */
-        UW elapsed_time = now_ms() - start_time;
-        INT wait_time = (INT)S4_SAMPLE_MS - (INT)elapsed_time;
-        tk_dly_tsk((wait_time > 0) ? wait_time : 1);
+        /* 3. Calculate time spent in microseconds, convert to milliseconds, and sleep the remainder */
+        UW elapsed_us = TIMER_US() - start_us;
+        INT wait_time_ms = (INT)S4_SAMPLE_MS - (INT)(elapsed_us / 1000U);
+        tk_dly_tsk((wait_time_ms > 0) ? wait_time_ms : 1);
     }
 }
