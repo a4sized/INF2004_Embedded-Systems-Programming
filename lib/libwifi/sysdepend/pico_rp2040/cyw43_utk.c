@@ -51,6 +51,14 @@ extern volatile uint32_t cyw43_utk_poll_requested;
 extern int32_t tk_dly_tsk(uint32_t delay);
 extern uint64_t time_us_64(void);
 
+/* Fault bridge: route WiFi link events through Subsystem 1's fault API.
+ * Cannot include systemFaults.h here (it pulls tk/tkernel.h which conflicts
+ * with pico-sdk/cyw43 headers), so we forward-declare the two functions
+ * and the one fault bit we need directly. */
+extern void s1_report_fault(uint32_t fault_bit);
+extern void s1_clear_fault(uint32_t fault_bit);
+#define FAULT_WIFI (1U << 5)   /* must match systemFaults.h */
+
 #if CNF_SMP
 extern int32_t tk_get_prc(void);
 extern void mp_memory_barrir(void);
@@ -298,14 +306,14 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
                           (int)((ip >> 16) & 0xff), (int)((ip >> 24) & 0xff));
 
                 /* Clear the Wi-Fi disconnect fault when the link comes up */
-                CLEAR_FAULT(active_fault_mask, FAULT_WIFI_DISCONNECTED);
+                s1_clear_fault(FAULT_WIFI);
             } else {
                 tm_printf((UB*)"wifi: link status -> %s (%d)\n",
                           link_status_str(radio_status.link_status),
                           (int)radio_status.link_status);
 
                 /* Set the Wi-Fi disconnect fault whenever the link drops or fails */
-                SET_FAULT(active_fault_mask, FAULT_WIFI_DISCONNECTED);
+                s1_report_fault(FAULT_WIFI);
             }
 
             /* Negative == the association attempt is over and lost. Arm a

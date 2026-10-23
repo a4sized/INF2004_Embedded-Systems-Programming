@@ -156,7 +156,7 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
                 err_t   err;
 
                 /* Connection successful: Clear the MQTT drop fault */
-                CLEAR_FAULT(active_fault_mask, FAULT_MQTT_DROPPED);
+                s1_clear_fault(FAULT_WIFI);
 
                 /* No longer *connecting* -- clear the guard so that if this
                  * connection later drops, the poll loop's mqtt_utk_start() call
@@ -190,7 +190,7 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
                 sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
         } else {
                 /* Connection failed or dropped: Set the MQTT drop fault */
-                SET_FAULT(active_fault_mask, FAULT_MQTT_DROPPED);
+                s1_report_fault(FAULT_WIFI);
                 
                 /* mqtt_client_connect() reconnects on its own for a dropped
                  * keepalive; a rejected/never-established connection does not
