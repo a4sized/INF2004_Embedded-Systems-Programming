@@ -15,6 +15,7 @@
 #include "subsystem2.h"
 #include "../systemFaults.h"
 #include "buzzer.h"
+#include "../subsystem1/subsystem1.h" 
 
 /* RTOS Synchronization & IPC Objects */
 EXPORT ID   sem_slots;
@@ -140,9 +141,21 @@ LOCAL void motor_speed(int16_t left_speed, int16_t right_speed) {
  * -------------------------------------------------------------------------- */
 LOCAL bool has_active_fault(void) {
     UINT flgptn = 0;
-    /* Non-blocking check of the 6-bit RTOS Event Flag */
-    ER err = tk_wai_flg(fault_flag, (TIER1_FATAL_MASK | TIER2_HAZARD_MASK),
+
+    /* Primary check: global fault_flag (ISR/SET_FAULT path) */
+    ER err = tk_wai_flg(fault_flag,
+                        (TIER1_FATAL_MASK | TIER2_HAZARD_MASK),
                         TWF_ORW, &flgptn, TMO_POL);
+    if (err == E_OK && flgptn != 0U) return true;
+
+    /* Secondary check: S1's task-context fault flag.
+     * s1_report_fault() posts here; the led_task eventually mirrors
+     * it to fault_mask, but we can't wait for that — check directly.
+     * Non-destructive poll (no TWF_CLR): S1 led_task still drains it. */
+    flgptn = 0;
+    err = tk_wai_flg(flg_s1_isr_fault,
+                     (TIER1_FATAL_MASK | TIER2_HAZARD_MASK),
+                     TWF_ORW, &flgptn, TMO_POL);
     return (err == E_OK && flgptn != 0U);
 }
 
