@@ -181,7 +181,6 @@ ER subsystem4_init(void)
 ER subsystem4_start(void)
 {
     ID tid;
-
     tid = app_start_task(imu_task, S4_PRI_IMU, 0, "imu_task");
     if (tid < E_OK) {
         return tid;

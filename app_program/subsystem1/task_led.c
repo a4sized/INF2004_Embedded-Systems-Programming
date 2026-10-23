@@ -83,7 +83,7 @@ EXPORT void s1_get_telemetry(S1_TELEMETRY_PKT *out) {
 }
 
 EXPORT void s1_report_fault_isr(UW fault_bit) {
-    tk_set_flg(fault_flag, fault_bit); /* Does not use mtx_telemetry, ISR safe */
+    tk_set_flg(flg_s1_isr_fault, fault_bit); /* Does not use mtx_telemetry, ISR safe */
 }
 
 /* Parse 1-byte binary command payload */
