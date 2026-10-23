@@ -1,11 +1,11 @@
-#include "pico/stdlib.h"
-#include "hardware/pwm.h"
-
 #ifndef __size_t_defined
 #define __size_t_defined
 #endif
 
+#include <stdint.h>
 #include <tk/tkernel.h>
+#include <bsp/libbsp.h>
+#include "../app.h"
 #include "buzzer.h"
 
 #define NOTE_C5  523
@@ -21,12 +21,11 @@
 #define REST     0
 
 typedef struct {
-    uint16_t frequency; // hz
+    uint16_t frequency; // Hz
     uint16_t duration;  // ms
 } Note;
 
-static const Note samsung_melody[] = {
-    
+LOCAL const Note samsung_melody[] = {
     {NOTE_C5, 150}, {NOTE_E5, 150}, {NOTE_G5, 300}, {NOTE_G5, 300},
     {NOTE_A5, 150}, {NOTE_G5, 150}, {NOTE_E5, 300}, {NOTE_C5, 300},
     {NOTE_D5, 150}, {NOTE_E5, 150}, {NOTE_F5, 300}, {NOTE_D5, 300},
@@ -37,49 +36,69 @@ static const Note samsung_melody[] = {
     {NOTE_D5, 300}, {NOTE_C5, 450}, {REST,    200}
 };
 
-void buzzer_init(void){
-    gpio_init(BUZZER_PIN);
-    gpio_set_dir(BUZZER_PIN, GPIO_OUT);
-    gpio_put(BUZZER_PIN, 0);
+EXPORT void buzzer_init(void) {
+    gpio_set_pin(BUZZER_PIN, GPIO_MODE_OUT);
+    gpio_set_val(BUZZER_PIN, 0);
 }
 
-void buzzer_play_tone(uint32_t frequency_hz, uint32_t duration_ms){
-
-    if (frequency_hz == 0){
+EXPORT void buzzer_play_tone(uint32_t frequency_hz, uint32_t duration_ms) {
+    if (frequency_hz == 0) {
         tk_dly_tsk(duration_ms);
         return;
     }
 
-    gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
-    uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
+    // Set GP22 as standard digital output
+    gpio_set_pin(BUZZER_PIN, GPIO_MODE_OUT);
 
-    uint32_t clock_freq = 125000000U;
-    uint32_t divider = 125U; 
-    uint32_t wrap = clock_freq / (divider * frequency_hz) - 1U;
+    // Calculate half-period in microseconds
+    // Period = 1,000,000 / frequency_hz
+    uint32_t half_period_us = 500000UL / frequency_hz;
+    uint32_t total_cycles = (frequency_hz * duration_ms) / 1000UL;
 
-    pwm_config config = pwm_get_default_config();
-    pwm_config_set_clkdiv(&config, (float)divider);
-    pwm_config_set_wrap(&config, wrap);
+    for (uint32_t i = 0; i < total_cycles; i++) {
+        gpio_set_val(BUZZER_PIN, 1);
+        
+        // Busy-wait delay for half period
+        for (volatile uint32_t d = 0; d < half_period_us * 3; d++) {
+            __asm__("nop");
+        }
 
-    pwm_init(slice_num, &config, true);
-    pwm_set_chan_level(slice_num, pwm_gpio_to_channel(BUZZER_PIN), wrap / 2U);
+        gpio_set_val(BUZZER_PIN, 0);
+
+        // Busy-wait delay for half period
+        for (volatile uint32_t d = 0; d < half_period_us * 3; d++) {
+            __asm__("nop");
+        }
+    }
+
+    gpio_set_val(BUZZER_PIN, 0);
+}
+
+/*EXPORT void buzzer_play_tone(uint32_t frequency_hz, uint32_t duration_ms) {
+    if (frequency_hz == 0) {
+        tk_dly_tsk(duration_ms);
+        return;
+    }
+
+     
+    pwm_set_pin(BUZZER_PIN);
+
+  
+     
+    UW wrap = 1000000U / frequency_hz; 
+    pwm_set_wrap(BUZZER_PIN, wrap);
+    pwm_set_cc(BUZZER_PIN, wrap / 2);   
+
+    pwm_set_enabled(BUZZER_PIN, TRUE);
 
     tk_dly_tsk(duration_ms);
 
-    pwm_set_chan_level(slice_num, pwm_gpio_to_channel(BUZZER_PIN), 0U);
-    gpio_set_function(BUZZER_PIN, GPIO_FUNC_SIO);
-    gpio_set_dir(BUZZER_PIN, GPIO_OUT);
-    gpio_put(BUZZER_PIN, 0);
-}
+    pwm_set_enabled(BUZZER_PIN, FALSE);
+    gpio_set_pin(BUZZER_PIN, GPIO_MODE_OUT);
+    gpio_set_val(BUZZER_PIN, 0);
+}*/
 
-
-
-
-
-
-
-
-void buzzer_play_boot_chime(void){
+EXPORT void buzzer_play_boot_chime(void) {
     buzzer_play_tone(523, 80);  // C5
     tk_dly_tsk(20);
     buzzer_play_tone(659, 80);  // E5
@@ -87,12 +106,12 @@ void buzzer_play_boot_chime(void){
     buzzer_play_tone(784, 120); // G5
 }
 
-void buzzer_play_beep(void){
-    buzzer_play_tone(2000, 60); // short beep
+EXPORT void buzzer_play_beep(void) {
+    buzzer_play_tone(2000, 60); // Short beep
 }
 
-void buzzer_play_alarm(void){ // can be used for faults
-    for (int i = 0; i < 3; i++){
+EXPORT void buzzer_play_alarm(void) {
+    for (SZ i = 0; i < 3; i++) {
         buzzer_play_tone(3000, 60); 
         tk_dly_tsk(30);
         buzzer_play_tone(1500, 60); 
@@ -100,16 +119,16 @@ void buzzer_play_alarm(void){ // can be used for faults
     }
 }
 
-void buzzer_samsung_washing_machine(void){
-    size_t num_notes = sizeof(samsung_melody) / sizeof(samsung_melody[0]);
+EXPORT void buzzer_samsung_washing_machine(void) {
+    SZ num_notes = sizeof(samsung_melody) / sizeof(samsung_melody[0]);
 
-    for (size_t i = 0; i < num_notes; i++){
+    for (SZ i = 0; i < num_notes; i++) {
         uint16_t freq = samsung_melody[i].frequency;
         uint16_t duration = samsung_melody[i].duration;
 
-        if (freq == REST){
+        if (freq == REST) {
             tk_dly_tsk(duration);
-        } else{
+        } else {
             uint16_t tone_dur = (duration > 15) ? (duration - 15) : duration;
             buzzer_play_tone(freq, tone_dur);
             tk_dly_tsk(15);

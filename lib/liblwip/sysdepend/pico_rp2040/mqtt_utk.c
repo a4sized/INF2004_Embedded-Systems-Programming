@@ -19,6 +19,7 @@
 #include "lwip/ip_addr.h"
 #include "lwip/timeouts.h"
 #include "wifi_secrets.h"
+#include "../../../../app_program/systemFaults.h"
 #include "mqtt_utk.h"
 #include <tm/tmonitor.h>
 
@@ -154,6 +155,9 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
         if(status == MQTT_CONNECT_ACCEPTED) {
                 err_t   err;
 
+                /* Connection successful: Clear the MQTT drop fault */
+                CLEAR_FAULT(active_fault_mask, FAULT_MQTT_DROPPED);
+
                 /* No longer *connecting* -- clear the guard so that if this
                  * connection later drops, the poll loop's mqtt_utk_start() call
                  * is allowed to reconnect. Leaving it set would wedge the client
@@ -185,6 +189,9 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
                 sys_untimeout(heartbeat_timeout, NULL);
                 sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
         } else {
+                /* Connection failed or dropped: Set the MQTT drop fault */
+                SET_FAULT(active_fault_mask, FAULT_MQTT_DROPPED);
+                
                 /* mqtt_client_connect() reconnects on its own for a dropped
                  * keepalive; a rejected/never-established connection does not
                  * retry itself, so do that here -- on a delay, so a broker

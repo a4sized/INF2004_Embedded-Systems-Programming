@@ -20,7 +20,7 @@ subsystem, ask its owner or open a pull request for them to review.
 | 1 | Wi-Fi & MQTT Telemetry: Aggregates sensor data, publishes JSON telemetry, decodes MQTT commands, CSV logging, and heartbeat LED. |2501283|ray15rk| `app_program/subsystem1/` | `testing/subsystem1/` |
 | 2 | *example:* Producer: makes a sample every 300 ms | | | `app_program/subsystem2/` | `testing/subsystem2/` |
 | 3 | *example:* Consumer: collects samples into statistics | | | `app_program/subsystem3/` | `testing/subsystem3/` |
-| 4 | *example:* Monitor: prints reports, pauses the LED | | | `app_program/subsystem4/` | `testing/subsystem4/` |
+| 4 | IMU motion and terrain monitoring. `imu_task` reads an LSM303D accelerometer/magnetometer through `lsm303d` every 20 ms, calibrates it, and works out tilt, turn rate, humps with their peak height, and collisions; `report_task` decides the motion state and reports it. `subsystem4.c/.h` hold the start-up, shared data and the links to other subsystems: pitch, motion state and hump state go to Subsystem 1 through its setters, the IMU fault is reported to Subsystem 1 as FAULT_IMU_SENS, and data between the two tasks is packed into 8-byte messages. All tuning values are in `s4_config.h`. On-target self-tests are in `subsystem4_test.c`. |2500787|DariusKong| `app_program/subsystem4/` | `testing/subsystem4/` |
 | 5 | | | | `app_program/subsystem5/` | `testing/subsystem5/` |
 
 Shared files (`app_program/app_main.c`, `app_program/app.h`, this file)
@@ -68,11 +68,11 @@ fixed.
 | GP17 | | |
 | GP18 | | |
 | GP19 |S1| Heartbeat status LED (LED + 330 Ω to GND) |
-| GP20 | | |
-| GP21 | | |
+| GP20 | S4 | I2C0 SDA, parked and unused: the kernel configures I2C0 at boot when `DEVCNF_USE_IIC` = 1, and the default GP8/GP9 are the motor 1 pins |
+| GP21 | S4 | I2C0 SCL, parked and unused (same reason) |
 | GP22 | | |
-| GP26 | | (ADC0 capable) |
-| GP27 | | (ADC1 capable) |
+| GP26 | S4 | IMU (GY-511 board, LSM303D chip), I2C1 SDA (Grove 6) |
+| GP27 | S4 | IMU (GY-511 board, LSM303D chip), I2C1 SCL (Grove 6) |
 | GP28 | | (ADC2 capable) |
 
 ## 3. Peripherals
@@ -106,8 +106,8 @@ the drivers have no locking to stop it.
 | Peripheral | Owner subsystem | Owning task | Pins |
 |---|---|---|---|
 | UART1 | | | |
-| I2C0 | | | |
-| I2C1 | | | |
+| I2C0 | S4 (parked) | none: unused. Kernel I2C driver switched ON (`DEVCNF_USE_IIC` = 1) | GP20, GP21 |
+| I2C1 | S4 | `imu_task` | GP26 (SDA), GP27 (SCL) |
 | SPI0 | | | |
 | SPI1 | | | |
 | ADC | | | GP26–GP28 |
@@ -149,7 +149,7 @@ change it only by team agreement. Write down every task you create.
 | 1 | 12–13 | led_task – 12 – any |
 | 2 | 14–15 | *example:* producer_task – 14 – core 1 |
 | 3 | 16–17 | *example:* consumer_task – 16 – core 0 |
-| 4 | 18–19 | *example:* monitor_task – 18 – any |
+| 4 | 11, 18 (11 is outside the 18–19 band: needs team agreement) | imu_task – 11 – any; report_task – 18 – any |
 | 5 | 20–21 | |
 
 Core: `TP_PRC1` = core 0, `TP_PRC2` = core 1, or "any".
@@ -162,17 +162,20 @@ sends to it or waits on it. Agree on the data format before coding.
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning | Agreed by |
 |---|---|---|---|---|---|
-| IF-01 | Any -> S1 | Shared data under mutex (S1) | mtx_telemetry | S1_TELEMETRY struct containing speed, distance, pitch, faults and barcode via s1_update_telemetry() | 2501283
+| IF-01 | Any -> S1 | Shared data under mutex (S1) | mtx_telemetry | S1_TELEMETRY_PKT updated via Gatekeeper setters | 2501283
 | IF-02 | S1 -> Any | Event flag | flg_s1_cmd | S1_FLG_CMD_START, STOP, ESTOP, CLEAR, PING bits set upon remote MQTT command | 2501283
-| IF-03 | IwIp -> S1 | Message Buffer | mbf_mqtt_rx | Incoming raw string payloads mapped to S1_CMD_TYPE by led_task via s1_mqtt_push_rx() | 2501283
-| IF-04 | S1 -> IwIP | Message Buffer | mbf_mqtt_tx | Formatted JSON telemetry string (96 bytes max) queued every 1 second using s1_mqttt_pop_tx() | 2501283
-| IF-05 | S4 -> S1 | Task Control | tid_ed | tl_sus_tsk / ts_rsm_tsk / tk_cng_pri | 2501283
+| IF-03 | IwIp -> S1 | Message Buffer | mbf_mqtt_rx | Incoming 1-byte binary command payloads mapped to S1_CMD_TYPE by led_task via s1_mqtt_push_rx() | 2501283
+| IF-04 | S1 -> IwIP | Message Buffer | mbf_mqtt_tx | Packed 8-byte binary telemetry payload (S1_TELEMETRY_PKT) queued every 1 second using s1_mqtt_pop_tx() | 2501283
+| IF-05 | S4 -> S1 | Task Control | tid_led | tk_sus_tsk / tk_rsm_tsk / tk_chg_pri | 2501283
 #| IF-01 | S2 → S3 | mailbox (owned by S3) | `mbx_samples` | `SAMPLE_MSG` in `subsystem2.h` | *example* |
 #| IF-02 | S3 → S2 | semaphore + fixed memory pool (owned by S2) | `sem_slots`, `mpf_samples` | receiver returns the block, then 1 slot | *example* |
 #| IF-03 | S3 → S4 | message buffer + event flag (owned by S4) | `mbf_summary`, `flg_events` | text line ≤ `S4_SUMMARY_MAX` bytes, then `FLG_BATCH` | *example* |
 #| IF-04 | S4 → S3 | shared data under a mutex (owned by S3) | `app_stats`, `mtx_stats` | `APP_STATS`, read only while locked | *example* |
 #| IF-05 | S4 → S1 | task control | `tid_led` | `tk_sus_tsk` / `tk_rsm_tsk` / `tk_chg_pri` | *example* |
-| IF-06 | | | | | |
+| IF-06 | S2 -> S4 | Function calls (S2) | `get_left_encoder_ticks()`, `get_right_encoder_ticks()` | Signed ticks; S4 uses the mean of both wheels times `S4_CM_PER_TICK` (`s4_config.h`) as distance in cm. Ticks must count up when driving forward. | 2500787 |
+| IF-07 | S4 -> S1 | Function calls (S1) | `s1_report_fault(FAULT_IMU_SENS)`, `s1_clear_fault(FAULT_IMU_SENS)` | One IMU bit (bit 4), set while the IMU is not answering or a collision is active; collision released after `S4_COLLISION_HOLD_MS` (3 s, 0 = until `s4_clear_collision()` is called) | 2500787 |
+| IF-08 | S4 -> S1 | Function call (S1) | `s1_csv_log_event()` | Event names `HUMP`, `COLLISION`, `IMU_FAULT`, `RUN_SUMMARY`, with a short details string (heights in millimetres) | 2500787 |
+| IF-09 | S4 -> S1 | Function calls (S1) | `s1_set_pitch()`, `s1_set_car_state()` | pitch (8 bits signed, degrees, clipped); car_state (3 bits) = Subsystem 4's motion state 0..6; hump_state (2 bits): 0 flat, 1 going up, 2 going down | pending 2501283 |
 
 Each interface is tested by at least one integration test
 (`testing/integration/TEST_LOG.md`).
@@ -184,16 +187,16 @@ limit there. The numbers below are the example's usage.
 
 | Object | Limit | S1 | S2 | S3 | S4 | S5 |
 |---|---|---|---|---|---|---|
-| Task | 32 | 1 | 1 | 1 | 1 | |
-| Semaphore | 16 | 0 | 1 | | | |
+| Task | 32 | 1 | 1 | 1 | 2 | |
+| Semaphore | 16 | 0 | 1 | | 0 | |
 | Event flag | 16 | 1 | | | 1 | |
-| Mailbox | 12 | 0 | | 1 | | |
-| Mutex | 12 | 1 | | 1 | | |
+| Mailbox | 12 | 0 | | 1 | 0 | |
+| Mutex | 12 | 1 | | 1 | 0 | |
 | Message buffer | 12 | 2 | | | 1 | |
-| Fixed memory pool | 12 | 0 | 1 | | | |
-| Variable memory pool | 12 | 0 | | | | |
-| Cyclic handler | 12 | 1 | | | | |
-| Alarm handler | 12 | 0 | | | 1 | |
+| Fixed memory pool | 12 | 0 | 1 | | 0 | |
+| Variable memory pool | 12 | 0 | | | 0 | |
+| Cyclic handler | 12 | 1 | | | 0 | |
+| Alarm handler | 12 | 0 | | | 0 | |
 
 (The kernel's USB and WiFi service tasks also use a few of these.)
 
