@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an isolated Buddy 3 sensing UF2 without changing team examples."""
+"""Build the isolated sensing UF2 with Buddy 1's fault Gatekeeper."""
 
 from pathlib import Path
 import os
@@ -20,6 +20,8 @@ SOURCES = (
     "ir_barcode_capture.c", "ir_barcode_capture.h",
     "ir_barcode_gpio.c", "ir_barcode_gpio.h",
     "ir_barcode_window.c", "ir_barcode_window.h",
+    "ir_barcode_segments.c", "ir_barcode_segments.h",
+    "ir_fault_status.c", "ir_fault_status.h",
     "ir_sensing_main.c", "ir_sensing_main.h",
 )
 
@@ -42,6 +44,8 @@ def main():
         build.mkdir()
         (build / "tools").mkdir()
         app.mkdir()
+        (app / "subsystem1").mkdir()
+        (app / "subsystem3").mkdir()
 
         for name in ("config", "device", "etc", "include", "kernel", "lib",
                      "tools"):
@@ -58,8 +62,13 @@ def main():
         if count != 1:
             raise RuntimeError("Expected one kernel timer setting in config.h.")
         config.write_text(configured)
+        for name in ("app.h", "systemFaults.h"):
+            stage_source(REPO / "app_program" / name, app / name)
+        for name in ("subsystem1.c", "subsystem1.h", "task_led.c"):
+            stage_source(REPO / "app_program" / "subsystem1" / name,
+                         app / "subsystem1" / name)
         for name in SOURCES:
-            stage_source(SUBSYSTEM / name, app / name)
+            stage_source(SUBSYSTEM / name, app / "subsystem3" / name)
 
         recipes = REPO / "build_make"
         for source in recipes.rglob("*.mk"):
@@ -68,7 +77,7 @@ def main():
             shutil.copyfile(source, destination)
 
         makefile = (recipes / "makefile").read_text()
-        makefile += "\nmtkernel_3/app_program/%.o: CFLAGS += "
+        makefile += "\nmtkernel_3/app_program/subsystem3/%.o: CFLAGS += "
         makefile += "-DBUDDY3_SENSING_STANDALONE=1 "
         makefile += "-Wall -Wextra -Werror -Wconversion -Wshadow\n"
         (build / "makefile").write_text(makefile)

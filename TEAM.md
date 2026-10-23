@@ -223,10 +223,13 @@ pending hardware checks.
 ## 8. Buddy 3 three-sensor digital readout (13 October 2026)
 
 `app_program/subsystem3/` contains a sensing-only application for GP7 left,
-GP4 right and GP16 barcode DO. `build_sensing.py` stages only Buddy 3 sources
-in a temporary build tree; it does not start the example consumer, producer
-or monitor. The output UF2 is placed in `build_make/`. The profile has a USB
-console and disables Wi-Fi, lwIP and MQTT.
+GP4 right and GP16 barcode DO. `build_sensing.py` stages Buddy 3 sensing and
+Buddy 1 Gatekeeper sources in a temporary build tree; it does not start the
+example consumer, producer or monitor. The output UF2 is placed in
+`build_make/`. The profile has a USB
+console and builds the Pico SDK GPIO interrupt implementation through
+`WIFI=cyw43`, with `NET=none` and MQTT disabled. The sensing code makes no
+network calls.
 
 The standalone sensing build stages a 5 ms kernel tick and wakes the
 sensing task with a 5 ms cyclic handler. It prints raw GPIO levels about

@@ -132,3 +132,54 @@ edge durations, the exact timeout boundary, 32-bit microsecond timer wrap,
 duplicate/ambiguous edges, explicit invalidation and the 64-edge limit.
 The isolated ARM UF2 rebuilt with this module. This verifies host logic and
 compilation only; the open physical capture and timing checks above remain.
+
+## Provisional bar/gap proportions (22 October 2026)
+
+`ir_barcode_segments.c` now derives edge-to-edge bar and internal-white-gap
+durations and normalizes them to parts per million of the observed span.
+It excludes unmeasured leading/trailing white areas. It rejects invalid,
+odd-ended, zero-duration and over-two-second windows. The standalone USB
+trace labels structurally valid vectors `PROVISIONAL`; this is not a complete
+barcode decision and cannot produce a symbol or motion request.
+
+The host test passed with strict Clang warnings, AddressSanitizer and
+UndefinedBehaviorSanitizer for speed scaling, 32-bit timer wrap, incomplete
+and invalid windows, zero duration and excessive span. The isolated ARM UF2
+rebuilt. No recorded physical scan exists, so end framing, minimum pulse
+width, tolerances, dictionary, and scan-speed range remain unverified.
+
+The complete pending barcode list is maintained in
+`UNTESTED_BARCODE_CHECKLIST.md`. Host test passes do not mark those hardware
+and integration checks complete.
+
+## Local IR fault status (23 October 2026)
+
+`ir_fault_status.c` now latches a failed GPIO initialization until explicit
+reset and counts sample gaps above 10,000 us. The isolated USB readout shows
+the local initialization flag and cumulative late-sample count. This is
+fault-source evidence only: it does not set a shared system bit, call Buddy
+1 telemetry, or request motor stop. Barcode overflow remains an invalid
+capture, not an automatic system fault.
+
+The host test passed with strict Clang warnings, AddressSanitizer and
+UndefinedBehaviorSanitizer for initialization failure, reset, exact gap
+boundary and timer wrap. The isolated ARM UF2 rebuilt. No Buddy 1 integration,
+fault arbitration, physical stop or reset test has run.
+
+## Gatekeeper fault wiring (23 October 2026)
+
+The isolated sensing image now links the actual Subsystem 1 implementation
+and initializes its kernel objects before starting the IR sensing task. If
+GPIO initialization fails, the task reports `FAULT_IR_SENS` with
+`s1_report_fault`, logs `IR_SENSOR_FAULT` through `s1_csv_log_event`, and
+reasserts the fault every 250 ms while sensing remains stopped. The call is
+task-context only. No IR fault is raised from the barcode GPIO interrupt.
+The late-sample counter remains a timing diagnostic, not a sensor fault.
+
+Local checks: the fault-status and provisional barcode-segment host tests
+passed with strict Clang warnings, AddressSanitizer and
+UndefinedBehaviorSanitizer. `python3 app_program/subsystem3/build_sensing.py`
+produced the isolated ARM UF2 with strict application warnings and linked
+Buddy 1's sources. No fault injection on Pico, cloud observation, robot stop,
+or clear/reset test was performed. See the pending cases in
+`testing/integration/FAULT_INTEGRATION_PENDING.md`.
