@@ -62,16 +62,29 @@ EXPORT void s2_set_us_clearance(uint8_t max_speed) {
  * PUBLIC ODOMETRY GETTERS & RESET
  * -------------------------------------------------------------------------- */
 EXPORT void motor_reset_ticks(void) {
+    UINT intsts;
+    DI(intsts);
     left_encoder_ticks  = 0;
     right_encoder_ticks = 0;
+    EI(intsts);
 }
 
 EXPORT int32_t get_left_encoder_ticks(void) {
-    return left_encoder_ticks;
+    int32_t ticks;
+    UINT intsts;
+    DI(intsts);
+    ticks = left_encoder_ticks;
+    EI(intsts);
+    return ticks;
 }
 
 EXPORT int32_t get_right_encoder_ticks(void) {
-    return right_encoder_ticks;
+    int32_t ticks;
+    UINT intsts;
+    DI(intsts);
+    ticks = right_encoder_ticks;
+    EI(intsts);
+    return ticks;
 }
 
 /* --------------------------------------------------------------------------
