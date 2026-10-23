@@ -153,23 +153,12 @@ LOCAL void motor_speed(int16_t left_speed, int16_t right_speed) {
  * SAFETY & FSM STATE HANDLERS
  * -------------------------------------------------------------------------- */
 LOCAL bool has_active_fault(void) {
-    UINT flgptn = 0;
-
-    /* Primary check: global fault_flag (ISR/SET_FAULT path) */
-    ER err = tk_wai_flg(fault_flag,
-                        (TIER1_FATAL_MASK | TIER2_HAZARD_MASK),
-                        TWF_ORW, &flgptn, TMO_POL);
-    if (err == E_OK && flgptn != 0U) return true;
-
-    /* Secondary check: S1's task-context fault flag.
-     * s1_report_fault() posts here; the led_task eventually mirrors
-     * it to fault_mask, but we can't wait for that — check directly.
-     * Non-destructive poll (no TWF_CLR): S1 led_task still drains it. */
-    flgptn = 0;
-    err = tk_wai_flg(flg_s1_isr_fault,
-                     (TIER1_FATAL_MASK | TIER2_HAZARD_MASK),
-                     TWF_ORW, &flgptn, TMO_POL);
-    return (err == E_OK && flgptn != 0U);
+    S1_TELEMETRY_PKT t;
+    s1_get_telemetry(&t); /* Safely grabs the persistent, latched mask via Mutex */
+    
+    /* If Subsystem 1 says there is a FATAL or HAZARD fault, we halt. */
+    /* If Subsystem 1 clears the fault via MQTT, this automatically becomes false! */
+    return ((t.fault_mask & (TIER1_FATAL_MASK | TIER2_HAZARD_MASK)) != 0U);
 }
 
 EXPORT void motion_trigger_safety_halt(UINT fault_bit) {
