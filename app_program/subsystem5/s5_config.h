@@ -1,45 +1,44 @@
 /**
  * @file    s5_config.h
- * @brief   Ultrasonic sensor pins and timing.
+ * @brief   Settings for subsystem 5: servo + ultrasonic obstacle scanner.
+ *
+ * Change the numbers here to tune the scanner; the .c files read them.
  */
 #ifndef S5_CONFIG_H
 #define S5_CONFIG_H
 
-/* GPIO numbers refer to Pico/Robo Pico GP labels; servo signal is on GP12. */
-#define S5_PIN_TRIG                 (1u)
-#define S5_PIN_ECHO                 (0u)
-#define S5_PIN_SERVO                (12u)
+/* ---------------- Pins (Pico / Robo Pico "GP" numbers) ---------------- */
+#define S5_PIN_SERVO                (12u)   /* servo signal wire          */
+#define S5_PIN_TRIG                 (1u)    /* HC-SR04 "Trig"             */
+#define S5_PIN_ECHO                 (0u)    /* HC-SR04 "Echo" (3.3 V safe) */
 
-#define S5_TRIG_PULSE_US            (10u)
-#define S5_ECHO_START_TIMEOUT_US    (3000u)
-#define S5_ECHO_TIMEOUT_US          (8750u)
-#define S5_US_SOUND_NUM             (343u)
-#define S5_US_SOUND_DEN             (2000u)
-#define S5_DIST_NONE                (0xFFFFu)
-#define S5_SAMPLE_PERIOD_MS         (500u)
-#define S5_TASK_PRI                 (20)
-#define S5_SCAN_ANGLE_COUNT         (5u)   /* 30, 60, 90, 120, 150 deg */
+/* ---------------- Ultrasonic sensor ---------------- */
+/* Longest echo we wait for. 8750 us is about 1.5 m of range.
+ * Raise to 23500 for the sensor's full ~4 m range. */
+#define ECHO_TIMEOUT_US             (8750u)
 
-/* Servo speed = S5_SERVO_STEP_DEG per S5_SERVO_STEP_MS (1 deg / 30 ms is
- * about 33 deg/s). Raise STEP_MS to go slower, lower it to go faster. */
-#define S5_SERVO_STEP_DEG           (1u)
-#define S5_SERVO_STEP_MS            (30u)
-#define S5_SERVO_FINAL_SETTLE_MS    (150u) /* let the horn stop before a ping */
+/* Value returned by drv_ultrasonic_read_distance_mm() when nothing echoes back. */
+#define NO_OBSTACLE                 (0xFFFFu)
 
-/* Servo calibration. HOME is the angle the horn snaps to at power-up.
- * 90 is the middle of travel and points right on this mount, so the front is
- * probably near 0 or 180. Try one, reflash, and see where it points; adjust
- * until it faces straight ahead, then use that value as the scan centre.
- * HOLD=1 keeps the servo at HOME and just pings (no scan). Set 0 to scan. */
-#define S5_SERVO_HOME_DEG           (90u)
-#define S5_CALIBRATE_HOLD           (1)
+/* ---------------- Servo movement ---------------- */
+/* The servo moves SERVO_STEP_DEGREES every SERVO_STEP_DELAY_MS.
+ * 1 degree every 30 ms is about 33 degrees per second.
+ * Bigger delay = slower, smaller delay = faster. */
+#define SERVO_STEP_DEGREES          (1u)
+#define SERVO_STEP_DELAY_MS         (30u)
 
-/* Wiggle demo (takes priority over HOLD and the scan). From the centre
- * (S5_SERVO_HOME_DEG, treated as 90) it goes left, left, right, right back to
- * centre, then right, right, left, left back to centre, and repeats. Left is
- * the higher angle. Each move is S5_WIGGLE_STEP_DEG. Set 0 to disable. */
-#define S5_WIGGLE_DEMO              (1)
-#define S5_WIGGLE_STEP_DEG          (30u)
-#define S5_WIGGLE_PAUSE_MS          (500u)
+/* Extra wait after the servo arrives, so it has stopped before we measure. */
+#define SERVO_SETTLE_MS             (150u)
+
+/* Fine-tune where "straight ahead" is. If the 90 degree position does not
+ * face forward, change this (e.g. 10 or -10) until it does. */
+#define SERVO_TRIM_DEGREES          (0)
+
+/* ---------------- Scanning ---------------- */
+/* Pause at each angle after taking a reading. */
+#define PAUSE_AT_EACH_ANGLE_MS      (500u)
+
+/* Priority of the scanning task (lower number = more important). */
+#define SCANNER_TASK_PRIORITY       (20)
 
 #endif /* S5_CONFIG_H */

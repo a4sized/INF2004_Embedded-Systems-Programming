@@ -1,9 +1,8 @@
 /**
  * @file    drv_ultrasonic.h
- * @brief   HC-SR04 style ultrasonic ranger (trigger + echo pulse width).
+ * @brief   HC-SR04 ultrasonic distance sensor driver.
  *
- * Call from a single task at a time. The echo pin must be 3.3 V safe
- * (Robo Pico header or a divider on a bare HC-SR04).
+ * Only call these from one task at a time.
  */
 #ifndef DRV_ULTRASONIC_H
 #define DRV_ULTRASONIC_H
@@ -12,9 +11,11 @@
 #include <tk/tkernel.h>
 #include "s5_config.h"
 
+/* Set up the trigger and echo pins. Call once before reading. */
 ER       drv_ultrasonic_init(void);
 
-/** One measurement in mm, or S5_DIST_NONE if no echo within range. */
-uint16_t drv_ultrasonic_ping_mm(void);
+/* Take one measurement. Returns the distance in millimetres,
+ * or NO_OBSTACLE if nothing was detected within range. */
+uint16_t drv_ultrasonic_read_distance_mm(void);
 
 #endif /* DRV_ULTRASONIC_H */

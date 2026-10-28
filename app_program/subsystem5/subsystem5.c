@@ -1,179 +1,165 @@
 /**
  * @file    subsystem5.c
- * @brief   Subsystem 5 ultrasonic sensor initialization.
+ * @brief   Subsystem 5: servo-mounted ultrasonic obstacle scanner.
+ *
+ * A task turns the servo through 5 angles, back and forth forever:
+ *     30 -> 60 -> 90 -> 120 -> 150 -> 120 -> 90 -> 60 -> 30 -> ...
+ * At each angle it measures the distance and prints it, e.g.
+ *     "S5 scan 90 deg: 342 mm"   or   "S5 scan 90 deg: no obstacle"
+ * 90 degrees is straight ahead; below 90 is one side, above 90 the other.
  */
 #include <tk/tkernel.h>
 #include <stdbool.h>
 #include "../app.h"
 #include "subsystem5.h"
 #include "drv_servo.h"
+#include "drv_ultrasonic.h"
 
-static bool s_initialized;
+/* The angles the scanner stops at, in order. */
+static const uint16_t scan_angles[] = { 30u, 60u, 90u, 120u, 150u };
 
-/* Scan angles, swept back and forth: 30..150, then 120..60, and repeat. */
-static const uint16_t k_scan_deg[S5_SCAN_ANGLE_COUNT] =
+#define NUMBER_OF_ANGLES   (sizeof(scan_angles) / sizeof(scan_angles[0]))
+#define START_POSITION     (2u)   /* index of 90 degrees: start facing ahead */
+
+/* Set to true only when both the servo and the sensor started correctly. */
+static bool hardware_ready = false;
+
+/*
+ * Turn the servo to target_degrees gently, SERVO_STEP_DEGREES at a time,
+ * instead of jumping there at full speed (which jerks the sensor around).
+ */
+static ER s5_servo_move_slowly(const uint16_t target_degrees)
 {
-    30u, 60u, 90u, 120u, 150u
-};
+    uint16_t angle_now = drv_servo_get_angle();
+    ER       result;
 
-/* Turn the servo to target_deg slowly, S5_SERVO_STEP_DEG at a time. */
-static ER s5_servo_move_slowly(const uint16_t target_deg)
-{
-    uint16_t current = drv_servo_get_angle();
-    ER       er = E_OK;
-
-    while ((current != target_deg) && (er >= E_OK))
+    while (angle_now != target_degrees)
     {
-        if (current < target_deg)
+        /* Take one step toward the target, without overshooting it. */
+        if (angle_now < target_degrees)
         {
-            current = (uint16_t)(current + S5_SERVO_STEP_DEG);
-            if (current > target_deg)
+            if ((uint16_t)(target_degrees - angle_now) > SERVO_STEP_DEGREES)
             {
-                current = target_deg;
+                angle_now = (uint16_t)(angle_now + SERVO_STEP_DEGREES);
             }
-        }
-        else if ((current - target_deg) > S5_SERVO_STEP_DEG)
-        {
-            current = (uint16_t)(current - S5_SERVO_STEP_DEG);
+            else
+            {
+                angle_now = target_degrees;
+            }
         }
         else
         {
-            current = target_deg;
-        }
-
-        er = drv_servo_set_angle(current);
-        (void)tk_dly_tsk(S5_SERVO_STEP_MS);
-    }
-
-    (void)tk_dly_tsk(S5_SERVO_FINAL_SETTLE_MS);
-    return er;
-}
-
-#if S5_WIGGLE_DEMO
-/* Offsets from centre in steps: left (+) is the higher angle. */
-static const int8_t k_wiggle_steps[8] =
-{
-    1, 1, -1, -1, -1, -1, 1, 1
-};
-
-static void s5_wiggle_task(void)
-{
-    const uint16_t centre = S5_SERVO_HOME_DEG;
-    int32_t  target;
-    uint8_t  i;
-    ER       er;
-
-    (void)s5_servo_move_slowly(centre);
-
-    for (;;)
-    {
-        target = (int32_t)centre;
-        for (i = 0u; i < 8u; i++)
-        {
-            target += ((int32_t)k_wiggle_steps[i] *
-                       (int32_t)S5_WIGGLE_STEP_DEG);
-            er = s5_servo_move_slowly((uint16_t)target);
-            tm_printf((UB*)"S5 wiggle %u deg\n", (unsigned int)target);
-            if (er < E_OK)
+            if ((uint16_t)(angle_now - target_degrees) > SERVO_STEP_DEGREES)
             {
-                tm_printf((UB*)"S5 servo move failed: %d\n", (int)er);
+                angle_now = (uint16_t)(angle_now - SERVO_STEP_DEGREES);
             }
-            (void)tk_dly_tsk(S5_WIGGLE_PAUSE_MS);
+            else
+            {
+                angle_now = target_degrees;
+            }
         }
+
+        result = drv_servo_set_angle(angle_now);
+        if (result < E_OK)
+        {
+            return result;
+        }
+        (void)tk_dly_tsk(SERVO_STEP_DELAY_MS);
     }
+
+    /* Let the servo stop wobbling before anyone takes a reading. */
+    (void)tk_dly_tsk(SERVO_SETTLE_MS);
+    return E_OK;
 }
-#endif
 
-static void s5_sensor_task(INT stacd, void *p_exinf)
+/*
+ * The scanning task. Runs forever: move to an angle, measure, print,
+ * then go to the next angle, reversing direction at either end.
+ */
+static void s5_sensor_task(INT start_code, void *extra_info)
 {
+    uint8_t  position = START_POSITION;   /* index into scan_angles[] */
+    int8_t   direction = 1;               /* +1 = towards 150, -1 = towards 30 */
+    uint16_t angle_degrees;
     uint16_t distance_mm;
-    uint16_t target_deg;
-    uint8_t  idx = 2u;
-    int8_t   dir = 1;
-    ER       er;
+    ER       result;
 
-    (void)stacd;
-    (void)p_exinf;
-
-#if S5_WIGGLE_DEMO
-    s5_wiggle_task();
-#endif
+    (void)start_code;   /* not used */
+    (void)extra_info;   /* not used */
 
     for (;;)
     {
-#if S5_CALIBRATE_HOLD
-        /* Calibration: stay at the snap angle and just report distance. */
-        distance_mm = drv_ultrasonic_ping_mm();
-        tm_printf((UB*)"S5 hold %u deg: %u mm\n",
-                  (unsigned int)drv_servo_get_angle(),
-                  (unsigned int)distance_mm);
-        (void)tk_dly_tsk(S5_SAMPLE_PERIOD_MS);
-        continue;
-#endif
-        target_deg = k_scan_deg[idx];
-        er = s5_servo_move_slowly(target_deg);
-        if (er < E_OK)
+        /* 1. Turn the sensor to the next angle. */
+        angle_degrees = scan_angles[position];
+        result = s5_servo_move_slowly(angle_degrees);
+        if (result < E_OK)
         {
-            tm_printf((UB*)"S5 servo move failed: %d\n", (int)er);
-            (void)tk_dly_tsk(S5_SAMPLE_PERIOD_MS);
-            continue;
+            tm_printf((UB*)"S5 servo move failed: %d\n", (int)result);
+            (void)tk_dly_tsk(PAUSE_AT_EACH_ANGLE_MS);
+            continue;   /* try the same angle again */
         }
 
-        distance_mm = drv_ultrasonic_ping_mm();
-        if (distance_mm == S5_DIST_NONE)
+        /* 2. Measure and print the distance. */
+        distance_mm = drv_ultrasonic_read_distance_mm();
+        if (distance_mm == NO_OBSTACLE)
         {
-            tm_printf((UB*)"S5 scan %u deg: no echo\n",
-                      (unsigned int)target_deg);
+            tm_printf((UB*)"S5 scan %u deg: no obstacle\n",
+                      (unsigned int)angle_degrees);
         }
         else
         {
             tm_printf((UB*)"S5 scan %u deg: %u mm\n",
-                      (unsigned int)target_deg, (unsigned int)distance_mm);
+                      (unsigned int)angle_degrees, (unsigned int)distance_mm);
         }
-        (void)tk_dly_tsk(S5_SAMPLE_PERIOD_MS);
+        (void)tk_dly_tsk(PAUSE_AT_EACH_ANGLE_MS);
 
-        /* Move to the next angle, reversing at either end. */
-        if ((dir > 0) && (idx >= (S5_SCAN_ANGLE_COUNT - 1u)))
+        /* 3. Pick the next angle. Turn around at the last or first angle. */
+        if ((direction > 0) && (position == (NUMBER_OF_ANGLES - 1u)))
         {
-            dir = -1;
+            direction = -1;
         }
-        else if ((dir < 0) && (idx == 0u))
+        else if ((direction < 0) && (position == 0u))
         {
-            dir = 1;
+            direction = 1;
         }
-        idx = (uint8_t)((int8_t)idx + dir);
+        position = (uint8_t)((int8_t)position + direction);
     }
 }
 
 EXPORT ER subsystem5_init(void)
 {
-    ER er = drv_servo_init();
+    ER result;
 
-    if (er < E_OK)
+    /* Servo first: it also moves to the 90 degree (ahead) position. */
+    result = drv_servo_init();
+    if (result < E_OK)
     {
-        tm_printf((UB*)"S5 servo init failed: %d\n", (int)er);
-        return er;
+        tm_printf((UB*)"S5 servo init failed: %d\n", (int)result);
+        return result;
     }
 
-    er = drv_ultrasonic_init();
-    if (er < E_OK)
+    result = drv_ultrasonic_init();
+    if (result < E_OK)
     {
-        tm_printf((UB*)"S5 ultrasonic init failed: %d\n", (int)er);
+        tm_printf((UB*)"S5 ultrasonic init failed: %d\n", (int)result);
+        return result;
     }
 
-    s_initialized = (er == E_OK);
-    return er;
+    hardware_ready = true;
+    return E_OK;
 }
 
 EXPORT ER subsystem5_start(void)
 {
-    ID tid;
+    ID task_id;
 
-    if (!s_initialized)
+    /* Don't start scanning if the hardware failed to set up. */
+    if (!hardware_ready)
     {
         return E_OBJ;
     }
 
-    tid = app_start_task((FP)s5_sensor_task, S5_TASK_PRI, 0u, "s5_sensor");
-    return (tid < E_OK) ? (ER)tid : E_OK;
+    task_id = app_start_task((FP)s5_sensor_task, SCANNER_TASK_PRIORITY, 0u,
+                             "s5_sensor");
+    return (task_id < E_OK) ? (ER)task_id : E_OK;
 }

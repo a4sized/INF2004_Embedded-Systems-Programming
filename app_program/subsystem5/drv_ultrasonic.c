@@ -1,81 +1,108 @@
 /**
  * @file    drv_ultrasonic.c
- * @brief   HC-SR04 style ultrasonic ranger.
+ * @brief   HC-SR04 ultrasonic distance sensor driver.
  *
- * The echo is timed by polling the 1 MHz hardware timer. The wait is
- * bounded by S5_ECHO_TIMEOUT_US (about 9 ms) so it never hangs.
- * Kernel ticks that preempt the poll add a few mm of jitter.
+ * How the sensor works:
+ *   1. We send a 10 us HIGH pulse on the trigger pin.
+ *   2. The sensor sends out a sound burst and sets the echo pin HIGH.
+ *   3. The echo pin goes LOW again when the sound bounces back.
+ *   4. How long echo stayed HIGH tells us how far away the obstacle is.
+ *
+ * Timing uses the RP2040's free-running 1 MHz timer (1 count = 1 us).
+ * Every wait has a timeout, so a missing sensor can never hang the task.
  */
 #include "drv_ultrasonic.h"
 #include "s5_config.h"
 #include <bsp/libbsp.h>
 #include <stdbool.h>
 
-static uint32_t drv_us_elapsed(const uint32_t t_start)
+/* Length of the trigger pulse the sensor needs. */
+#define TRIGGER_PULSE_US        (10u)
+
+/* How long to wait for the echo pin to go HIGH after triggering. */
+#define ECHO_START_TIMEOUT_US   (3000u)
+
+/* Distance (mm) = echo time (us) * 343 / 2000.
+ * Sound travels 0.343 mm per us, and we divide by 2 because the
+ * sound goes to the obstacle and back. */
+#define SOUND_SPEED_NUMERATOR   (343u)
+#define SOUND_SPEED_DENOMINATOR (2000u)
+
+/* Read the current time from the 1 MHz hardware timer, in microseconds. */
+static uint32_t current_time_us(void)
 {
-    return (uint32_t)(in_w(TIMER_TIMERAWL) - t_start);
+    return (uint32_t)in_w(TIMER_TIMERAWL);
+}
+
+/* Microseconds that have passed since start_time_us. */
+static uint32_t time_since_us(const uint32_t start_time_us)
+{
+    return current_time_us() - start_time_us;
 }
 
 ER drv_ultrasonic_init(void)
 {
-    ER er;
+    ER result;
 
-    er = gpio_set_pin(S5_PIN_TRIG, GPIO_MODE_OUT);
-    if (er < E_OK)
+    /* Trigger pin is an output, starting LOW. */
+    result = gpio_set_pin(S5_PIN_TRIG, GPIO_MODE_OUT);
+    if (result < E_OK)
     {
-        return er;
+        return result;
     }
-    er = gpio_set_val(S5_PIN_TRIG, 0u);
-    if (er < E_OK)
+    result = gpio_set_val(S5_PIN_TRIG, 0u);
+    if (result < E_OK)
     {
-        return er;
+        return result;
     }
 
+    /* Echo pin is an input that the sensor drives. */
     return gpio_set_pin(S5_PIN_ECHO, GPIO_MODE_IN);
 }
 
-uint16_t drv_ultrasonic_ping_mm(void)
+uint16_t drv_ultrasonic_read_distance_mm(void)
 {
-    uint16_t result = S5_DIST_NONE;
-    uint32_t t_trig;
-    uint32_t t_rise;
-    uint32_t width_us;
-    bool     b_ok = true;
+    uint32_t start_time_us;
+    uint32_t echo_duration_us;
+    bool     echo_received = true;
 
-    /* 10 us trigger pulse. */
+    /* Step 1: send the 10 us trigger pulse. */
     (void)gpio_set_val(S5_PIN_TRIG, 1u);
-    t_trig = (uint32_t)in_w(TIMER_TIMERAWL);
-    while (drv_us_elapsed(t_trig) < S5_TRIG_PULSE_US)
+    start_time_us = current_time_us();
+    while (time_since_us(start_time_us) < TRIGGER_PULSE_US)
     {
-        /* wait */
+        /* busy-wait 10 us */
     }
     (void)gpio_set_val(S5_PIN_TRIG, 0u);
 
-    /* Wait for echo to go high. */
-    t_trig = (uint32_t)in_w(TIMER_TIMERAWL);
+    /* Step 2: wait for the echo pin to go HIGH (sensor started listening). */
+    start_time_us = current_time_us();
     while (gpio_get_val(S5_PIN_ECHO) == 0u)
     {
-        if (drv_us_elapsed(t_trig) > S5_ECHO_START_TIMEOUT_US)
+        if (time_since_us(start_time_us) > ECHO_START_TIMEOUT_US)
         {
-            b_ok = false;
+            echo_received = false;   /* sensor never responded */
             break;
         }
     }
 
-    /* Time the echo pulse. */
-    t_rise = (uint32_t)in_w(TIMER_TIMERAWL);
-    while (b_ok && gpio_get_val(S5_PIN_ECHO) != 0u)
+    /* Step 3: measure how long the echo pin stays HIGH. */
+    start_time_us = current_time_us();
+    while (echo_received && (gpio_get_val(S5_PIN_ECHO) != 0u))
     {
-        if (drv_us_elapsed(t_rise) > S5_ECHO_TIMEOUT_US)
+        if (time_since_us(start_time_us) > ECHO_TIMEOUT_US)
         {
-            b_ok = false;
+            echo_received = false;   /* nothing within range */
         }
     }
 
-    if (b_ok)
+    if (!echo_received)
     {
-        width_us = drv_us_elapsed(t_rise);
-        result = (uint16_t)((width_us * S5_US_SOUND_NUM) / S5_US_SOUND_DEN);
+        return NO_OBSTACLE;
     }
-    return result;
+
+    /* Step 4: convert the echo time into a distance. */
+    echo_duration_us = time_since_us(start_time_us);
+    return (uint16_t)((echo_duration_us * SOUND_SPEED_NUMERATOR) /
+                      SOUND_SPEED_DENOMINATOR);
 }

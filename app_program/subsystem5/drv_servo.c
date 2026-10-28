@@ -1,8 +1,13 @@
 /**
  * @file    drv_servo.c
- * @brief   Hobby-servo driver (50 Hz PWM).
+ * @brief   Hobby servo driver (50 Hz PWM, 0-180 degrees).
  *
- * Uses the project BSP for PWM pin, wrap, compare, and enable operations.
+ * A hobby servo is controlled by a pulse sent every 20 ms (50 Hz).
+ * The pulse width sets the angle:
+ *     500 us = 0 degrees,  1500 us = 90 degrees,  2500 us = 180 degrees.
+ *
+ * We clock the PWM at 1 MHz so that 1 PWM count = 1 microsecond,
+ * which lets us write pulse widths directly in microseconds.
  */
 #include <tk/tkernel.h>
 #include <tm/tmonitor.h>
@@ -11,165 +16,159 @@
 #include "drv_servo.h"
 #include "s5_config.h"
 
-#define S5_SERVO_SYS_CLK_HZ          (125000000u)
-#define S5_SERVO_TICK_HZ             (1000000u)
-#define S5_SERVO_PERIOD_US           (20000u)
-#define S5_SERVO_MIN_US              (500u)
-#define S5_SERVO_MAX_US              (2500u)
-#define S5_SERVO_INVERT              (0)
-#define S5_SERVO_MID_US              (1500u)
-#define S5_ANGLE_MAX_DEG             (180u)
-#define S5_ANGLE_CENTRE_DEG          (90u)
-#define S5_SERVO_SETTLE_BASE_MS      (20u)
-#define S5_SERVO_SETTLE_PER_DEG_MS   (3u)
+/* PWM clock: divide the 125 MHz system clock down to 1 MHz. */
+#define SYSTEM_CLOCK_HZ         (125000000u)
+#define PWM_CLOCK_HZ            (1000000u)
 
-static uint16_t s_angle_deg = S5_SERVO_HOME_DEG;
-static bool     s_initialized;
+/* One full PWM cycle = 20000 us = 20 ms = 50 Hz. */
+#define PWM_PERIOD_US           (20000u)
 
-#define S5_PWM_RESET_WAIT_LOOPS      (100000u)
+/* Pulse widths for the two ends of the servo's travel. */
+#define PULSE_AT_0_DEGREES_US   (500u)
+#define PULSE_AT_180_DEGREES_US (2500u)
+#define MAX_ANGLE_DEGREES       (180u)
+#define CENTRE_ANGLE_DEGREES    (90u)
 
-#define S5_SERVO_SLICE \
-    ((S5_PIN_SERVO >> 1u) & 0x07u)
-#define S5_SERVO_DIV_REG \
-    (PWM_BASE + PWM_CHx_DIV + (S5_SERVO_SLICE * 0x14u))
+/* How many loops to wait for the PWM hardware to come out of reset. */
+#define RESET_WAIT_LOOPS        (100000u)
 
-static uint16_t drv_servo_pulse_us(const uint16_t angle_deg)
+/* The RP2040 has 8 PWM "slices"; each drives 2 pins. Find the slice for our
+ * pin and the address of its clock-divider register. */
+#define SERVO_PWM_SLICE         ((S5_PIN_SERVO >> 1u) & 0x07u)
+#define SERVO_CLOCK_DIVIDER_REGISTER \
+    (PWM_BASE + PWM_CHx_DIV + (SERVO_PWM_SLICE * 0x14u))
+
+static uint16_t current_angle_degrees = CENTRE_ANGLE_DEGREES;
+static bool     servo_ready = false;
+
+/* Turn an angle (0-180) into a pulse width in microseconds.
+ * SERVO_TRIM_DEGREES shifts every angle to correct the mounting. */
+static uint16_t angle_to_pulse_width_us(const uint16_t angle_degrees)
 {
-    int32_t offset = (int32_t)angle_deg - (int32_t)S5_SERVO_HOME_DEG;
-    int32_t pulse;
+    int32_t trimmed_angle = (int32_t)angle_degrees + SERVO_TRIM_DEGREES;
 
-#if S5_SERVO_INVERT
-    offset = -offset;
-#endif
-    pulse = (int32_t)S5_SERVO_MID_US +
-            ((offset * (int32_t)(S5_SERVO_MAX_US - S5_SERVO_MIN_US)) /
-             180);
-    if (pulse < (int32_t)S5_SERVO_MIN_US)
+    /* Keep within the servo's 0-180 degree range. */
+    if (trimmed_angle < 0)
     {
-        pulse = (int32_t)S5_SERVO_MIN_US;
+        trimmed_angle = 0;
     }
-    if (pulse > (int32_t)S5_SERVO_MAX_US)
+    if (trimmed_angle > (int32_t)MAX_ANGLE_DEGREES)
     {
-        pulse = (int32_t)S5_SERVO_MAX_US;
+        trimmed_angle = (int32_t)MAX_ANGLE_DEGREES;
     }
-    return (uint16_t)pulse;
+
+    /* Linear mapping: 0 deg -> 500 us, 180 deg -> 2500 us. */
+    return (uint16_t)(PULSE_AT_0_DEGREES_US +
+                      ((uint32_t)trimmed_angle *
+                       (PULSE_AT_180_DEGREES_US - PULSE_AT_0_DEGREES_US)) /
+                      MAX_ANGLE_DEGREES);
 }
 
 /*
- * The BSP only releases the PWM block from reset when USE_PTMR is 1, and
- * config.h sets it to 0. A block held in reset ignores every register write,
- * so release it here (harmless if it is already running).
+ * The board support package only takes the PWM hardware out of reset when
+ * USE_PTMR is 1, and config.h sets it to 0. While in reset the PWM ignores
+ * every register write, so we release it ourselves here.
  */
-static ER drv_servo_release_pwm_reset(void)
+static ER release_pwm_from_reset(void)
 {
-    uint32_t wait = S5_PWM_RESET_WAIT_LOOPS;
+    uint32_t loops_left = RESET_WAIT_LOOPS;
 
-    set_w(RESETS_RESET, RESETS_RESET_PWM);
-    clr_w(RESETS_RESET, RESETS_RESET_PWM);
+    set_w(RESETS_RESET, RESETS_RESET_PWM);    /* hold in reset   */
+    clr_w(RESETS_RESET, RESETS_RESET_PWM);    /* then release it */
+
+    /* Wait until the hardware reports that the reset has finished. */
     while (((in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM) == 0u) &&
-           (wait > 0u))
+           (loops_left > 0u))
     {
-        wait--;
+        loops_left--;
     }
-    return (wait > 0u) ? E_OK : E_TMOUT;
+    return (loops_left > 0u) ? E_OK : E_TMOUT;
 }
 
 ER drv_servo_init(void)
 {
-    ER     er;
-    uint32_t divider;
+    ER       result;
+    uint32_t clock_divider = SYSTEM_CLOCK_HZ / PWM_CLOCK_HZ;   /* = 125 */
 
-    divider = S5_SERVO_SYS_CLK_HZ / S5_SERVO_TICK_HZ;
-    if ((divider == 0u) || (divider > 255u))
+    /* The divider register only holds 1..255. */
+    if ((clock_divider == 0u) || (clock_divider > 255u))
     {
         return E_PAR;
     }
 
-    er = drv_servo_release_pwm_reset();
-    if (er < E_OK)
+    result = release_pwm_from_reset();
+    if (result < E_OK)
     {
-        return er;
+        return result;
     }
 
-    er = pwm_set_pin(S5_PIN_SERVO);
-    if (er < E_OK)
+    /* Route the servo pin to the PWM hardware, keep it off while we set up. */
+    result = pwm_set_pin(S5_PIN_SERVO);
+    if (result < E_OK)
     {
-        return er;
+        return result;
     }
-    er = pwm_set_enabled(S5_PIN_SERVO, FALSE);
-    if (er < E_OK)
+    result = pwm_set_enabled(S5_PIN_SERVO, FALSE);
+    if (result < E_OK)
     {
-        return er;
-    }
-
-    /* RP2040 DIV uses 8 integer bits and 4 fractional bits. */
-    out_w(S5_SERVO_DIV_REG, divider << 4u);
-    er = pwm_set_wrap(S5_PIN_SERVO, S5_SERVO_PERIOD_US - 1u);
-    if (er < E_OK)
-    {
-        return er;
-    }
-    er = pwm_set_cc(S5_PIN_SERVO, drv_servo_pulse_us(s_angle_deg));
-    if (er < E_OK)
-    {
-        return er;
-    }
-    er = pwm_set_enabled(S5_PIN_SERVO, TRUE);
-    if (er < E_OK)
-    {
-        return er;
+        return result;
     }
 
-    s_initialized = true;
-    tm_printf((UB*)"S5 servo initialized at %u degrees\n",
-              (unsigned int)s_angle_deg);
+    /* Slow the PWM clock to 1 MHz. The register has 8 whole-number bits
+     * followed by 4 fraction bits, hence the shift by 4. */
+    out_w(SERVO_CLOCK_DIVIDER_REGISTER, clock_divider << 4u);
+
+    /* Count 0..19999 then restart: one 20 ms cycle. */
+    result = pwm_set_wrap(S5_PIN_SERVO, PWM_PERIOD_US - 1u);
+    if (result < E_OK)
+    {
+        return result;
+    }
+
+    /* Start at the centre position, then switch the PWM on. */
+    result = pwm_set_cc(S5_PIN_SERVO,
+                        angle_to_pulse_width_us(current_angle_degrees));
+    if (result < E_OK)
+    {
+        return result;
+    }
+    result = pwm_set_enabled(S5_PIN_SERVO, TRUE);
+    if (result < E_OK)
+    {
+        return result;
+    }
+
+    servo_ready = true;
+    tm_printf((UB*)"S5 servo ready at %u degrees\n",
+              (unsigned int)current_angle_degrees);
     return E_OK;
 }
 
-ER drv_servo_set_angle(const uint16_t angle_deg)
+ER drv_servo_set_angle(const uint16_t angle_degrees)
 {
-    uint16_t a = angle_deg;
-    ER       er;
+    uint16_t new_angle = angle_degrees;
+    ER       result;
 
-    if (!s_initialized)
+    if (!servo_ready)
     {
-        return E_OBJ;
+        return E_OBJ;   /* drv_servo_init() has not been called */
     }
 
-    if (a > S5_ANGLE_MAX_DEG)
+    if (new_angle > MAX_ANGLE_DEGREES)
     {
-        a = S5_ANGLE_MAX_DEG;
+        new_angle = MAX_ANGLE_DEGREES;
     }
-    er = pwm_set_cc(S5_PIN_SERVO, drv_servo_pulse_us(a));
-    if (er == E_OK)
+
+    /* Changing the compare value changes the pulse width = new angle. */
+    result = pwm_set_cc(S5_PIN_SERVO, angle_to_pulse_width_us(new_angle));
+    if (result == E_OK)
     {
-        s_angle_deg = a;
+        current_angle_degrees = new_angle;
     }
-    return er;
+    return result;
 }
 
 uint16_t drv_servo_get_angle(void)
 {
-    return s_angle_deg;
-}
-
-uint16_t drv_servo_settle_ms(const uint16_t target_deg)
-{
-    uint16_t delta;
-    uint16_t settle = 0u;
-
-    if (target_deg >= s_angle_deg)
-    {
-        delta = (uint16_t)(target_deg - s_angle_deg);
-    }
-    else
-    {
-        delta = (uint16_t)(s_angle_deg - target_deg);
-    }
-    if (delta > 0u)
-    {
-        settle = (uint16_t)(S5_SERVO_SETTLE_BASE_MS +
-                            (delta * S5_SERVO_SETTLE_PER_DEG_MS));
-    }
-    return settle;
+    return current_angle_degrees;
 }
