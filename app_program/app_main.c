@@ -119,7 +119,6 @@ T_CFLG cflg = {0};
 cflg.flgatr  = TA_TFIFO | TA_WMUL; /* Allow multiple subsystems to wait on or set it */
 cflg.iflgptn = 0U;                 /* Start with 0 (no faults active) */
 
-
 if (fault_flag < E_OK) {
     tm_printf((UB*)"FATAL: Failed to create fault_flag\n");
 }
