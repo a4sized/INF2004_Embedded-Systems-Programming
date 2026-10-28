@@ -217,6 +217,7 @@ clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow \
   testing/subsystem3/ir_line_snapshot_test.c \
   app_program/subsystem3/ir_line_snapshot.c \
   app_program/subsystem3/ir_line_snapshot_shared.c \
+  app_program/subsystem3/ir_motion_handoff.c \
   -o /tmp/ir_line_snapshot_test && /tmp/ir_line_snapshot_test
 ```
 
@@ -226,3 +227,25 @@ measure the effect of the new mutex on timing, define and perform startup
 sensor readiness verification, and replace the normal example consumer
 through a coordinated team integration. These are not claimed by the host
 test or ARM build.
+
+## Opt-in team IR and Buddy 2 zero-intent handoff (28 October 2026)
+
+`build_team_ir.py` stages the team sources with a 5 ms kernel tick and
+`BUDDY3_TEAM_IR`. That profile selects the IR sensing service in
+`subsystem3_init/start` and starts a 20 ms latest-snapshot consumer. The
+consumer calls Buddy 2's current `s2_set_ir_velocity()` API, but uses
+following permission=false and base/correction speeds=0. The sensing task
+also keeps `b_ready=false`, so this only sends zero velocity intent. The
+normal team build still starts the example consumer at the 10 ms tick.
+
+The host test checks zero targets for paused, stale and unready data, plus
+bounded left/right targets with simulated permission and speeds. It passed
+with strict Clang warnings and ASan/UBSan. The opt-in team UF2, isolated
+sensing UF2 and ordinary team ARM image compiled. No integrated image ran
+on the Pico.
+
+Open checks: agree Vehicle Controller permission ownership and revocation,
+startup readiness/calibration, wheel orientation and safe speeds with Buddy
+2, and the production freshness limit. Then measure 5 ms sensing and 20 ms
+handoff timing on the Pico, inject stale/unready/lost readings, and verify
+zero intent and fault behavior before allowing nonzero targets.

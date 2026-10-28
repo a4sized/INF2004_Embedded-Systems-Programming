@@ -1,10 +1,10 @@
 /**
  * @file ir_sensing_main.c
- * @brief USB readout for three digital sensors, without motion or network.
+ * @brief Three-sensor IR service and diagnostic readout.
  */
 #include "ir_sensing_main.h"
 
-#if defined(BUDDY3_SENSING_STANDALONE)
+#if defined(BUDDY3_SENSING_STANDALONE) || defined(BUDDY3_TEAM_IR)
 
 #include "../subsystem1/subsystem1.h"
 #include "../systemFaults.h"
@@ -52,10 +52,14 @@ static void sensing_task (INT start_code, void * p_extra);
 static void sensing_tick (void * p_extra);
 static void print_capture (ir_barcode_window_t const * p_window);
 static void halt_task (void);
+#if defined(BUDDY3_SENSING_STANDALONE)
 static char const * surface_name (ir_surface_t surface);
 static char const * position_name (ir_line_position_t position);
 static char const * steer_name (ir_line_steer_t steer);
+#endif
 static ID sensing_task_id;
+static ID sensing_tick_id;
+#if defined(BUDDY3_SENSING_STANDALONE)
 EXPORT ID fault_flag;
 
 EXPORT ID app_start_task (FP entry, PRI priority, UW processor,
@@ -94,8 +98,6 @@ EXPORT ID app_start_task (FP entry, PRI priority, UW processor,
 
 INT usermain (void)
 {
-    T_CTSK task_config = {0};
-    T_CCYC tick_config = {0};
     T_CFLG fault_config = {0};
 
     fault_config.flgatr = TA_TFIFO | TA_WMUL;
@@ -108,15 +110,31 @@ INT usermain (void)
     {
         halt_task();
     }
-    if (E_OK != ir_line_snapshot_shared_init())
+    if (E_OK != ir_sensing_service_init())
     {
         halt_task();
     }
-    if (E_OK != subsystem1_start())
+    if ((E_OK != subsystem1_start()) ||
+        (E_OK != ir_sensing_service_start()))
     {
         halt_task();
     }
 
+    halt_task();
+    return 0;
+}
+#endif
+
+ER ir_sensing_service_init (void)
+{
+    T_CTSK task_config = {0};
+    T_CCYC tick_config = {0};
+    ER status = ir_line_snapshot_shared_init();
+
+    if (E_OK != status)
+    {
+        return status;
+    }
     task_config.task = (FP)sensing_task;
     task_config.itskpri = IR_TASK_PRIORITY;
     task_config.stksz = IR_TASK_STACK;
@@ -131,7 +149,7 @@ INT usermain (void)
 
     if (sensing_task_id <= E_OK)
     {
-        halt_task();
+        return sensing_task_id;
     }
 
     tick_config.cycatr = TA_HLNG;
@@ -143,25 +161,30 @@ INT usermain (void)
     tick_config.cyctim = IR_SAMPLE_PERIOD_MS;
     tick_config.cycphs = IR_SAMPLE_PERIOD_MS;
 
-    ID const tick_id = tk_cre_cyc(&tick_config);
+    sensing_tick_id = tk_cre_cyc(&tick_config);
 
-    if (tick_id <= E_OK)
+    if (sensing_tick_id <= E_OK)
     {
-        halt_task();
+        return sensing_tick_id;
     }
 
-    if (E_OK != tk_sta_tsk(sensing_task_id, 0))
+    return E_OK;
+}
+
+ER ir_sensing_service_start (void)
+{
+    ER status = tk_sta_tsk(sensing_task_id, 0);
+    if (E_OK != status)
     {
-        halt_task();
+        return status;
     }
 
-    if (E_OK != tk_sta_cyc(tick_id))
+    status = tk_sta_cyc(sensing_tick_id);
+    if (E_OK != status)
     {
-        halt_task();
+        return status;
     }
-
-    halt_task();
-    return 0;
+    return E_OK;
 }
 
 static void sensing_task (INT start_code, void * p_extra)
@@ -172,8 +195,9 @@ static void sensing_task (INT start_code, void * p_extra)
         IR_RIGHT_BLACK_LEVEL,
         IR_BARCODE_BLACK_LEVEL
     };
-    uint32_t samples = 0u;
     uint32_t snapshot_sequence = 0u;
+#if defined(BUDDY3_SENSING_STANDALONE)
+    uint32_t samples = 0u;
     uint32_t previous_sample_us = 0u;
     uint32_t min_gap_us = UINT32_MAX;
     uint32_t max_gap_us = 0u;
@@ -182,6 +206,7 @@ static void sensing_task (INT start_code, void * p_extra)
     uint32_t over_limit = 0u;
     bool b_have_previous = false;
     bool b_console_was_ready = false;
+#endif
     ir_line_filter_t filter = {0};
     ir_line_state_t line = {0};
     ir_fault_status_t fault_status = {0};
@@ -208,7 +233,7 @@ static void sensing_task (INT start_code, void * p_extra)
         }
     }
 
-    /* The standalone sensing task owns the core-1 GPIO callback. */
+    /* This service owns the core-1 GPIO callback for GP16. */
     ir_barcode_gpio_start();
     ir_barcode_window_reset(&window);
 
@@ -255,6 +280,7 @@ static void sensing_task (INT start_code, void * p_extra)
             ir_barcode_window_reset(&window);
         }
 
+#if defined(BUDDY3_SENSING_STANDALONE)
         if (b_have_previous)
         {
             uint32_t const gap_us = sample_us - previous_sample_us;
@@ -273,6 +299,7 @@ static void sensing_task (INT start_code, void * p_extra)
         }
         previous_sample_us = sample_us;
         b_have_previous = true;
+#endif
 
         if (E_OK != tk_get_tim(&now))
         {
@@ -306,6 +333,7 @@ static void sensing_task (INT start_code, void * p_extra)
             s1_report_fault(FAULT_IR_SENS);
             halt_task();
         }
+#if defined(BUDDY3_SENSING_STANDALONE)
         bool const b_console_ready = (IR_USB_READY == tm_usb_state());
 
         if (b_console_ready && !b_console_was_ready)
@@ -360,6 +388,7 @@ static void sensing_task (INT start_code, void * p_extra)
             min_gap_us = UINT32_MAX;
             max_gap_us = 0u;
         }
+#endif
 
         if (tk_can_wup(TSK_SELF) < E_OK)
         {
@@ -376,6 +405,7 @@ static void sensing_tick (void * p_extra)
 
 static void print_capture (ir_barcode_window_t const * p_window)
 {
+#if defined(BUDDY3_SENSING_STANDALONE)
     ir_barcode_segments_t segments = {0};
     bool const b_candidate = ir_barcode_segments_make(p_window, &segments);
 
@@ -408,6 +438,9 @@ static void print_capture (ir_barcode_window_t const * p_window)
                   (UW)p_window->edges[index].b_high,
                   duration_us, fraction_ppm);
     }
+#else
+    (void)p_window;
+#endif
 }
 
 static void halt_task (void)
@@ -418,6 +451,7 @@ static void halt_task (void)
     }
 }
 
+#if defined(BUDDY3_SENSING_STANDALONE)
 static char const * surface_name (ir_surface_t surface)
 {
     char const * p_name = "?";
@@ -469,6 +503,7 @@ static char const * steer_name (ir_line_steer_t steer)
 
     return p_name;
 }
+#endif
 
 #endif
 

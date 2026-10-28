@@ -1,4 +1,5 @@
 #include "ir_line_snapshot_shared.h"
+#include "ir_motion_handoff.h"
 
 #include <assert.h>
 #include <pthread.h>
@@ -120,6 +121,43 @@ int main (void)
         &readback, 10u, 20u, true));
     assert(IR_STEERING_STALE == ir_line_snapshot_steering_status(
         &readback, 11u, 20u, true));
+
+    /* Motion intent is zero unless every gate passes. */
+    readback.sampled_at_ms = 100u;
+    ir_motion_target_t target = ir_motion_target_for_snapshot(
+        &readback, 100u, 20u, false, 80u, 25u);
+    assert(IR_STEERING_PAUSED == target.status);
+    assert((0 == target.left) && (0 == target.right));
+    target = ir_motion_target_for_snapshot(&readback, 121u, 20u,
+                                           true, 80u, 25u);
+    assert(IR_STEERING_STALE == target.status);
+    assert((0 == target.left) && (0 == target.right));
+    readback.position = IR_LINE_LEFT_BLACK;
+    readback.steer = IR_LINE_STEER_LEFT;
+    target = ir_motion_target_for_snapshot(&readback, 100u, 20u,
+                                           true, 80u, 25u);
+    assert(IR_STEERING_AVAILABLE == target.status);
+    assert((55 == target.left) && (105 == target.right));
+    readback.position = IR_LINE_RIGHT_BLACK;
+    readback.steer = IR_LINE_STEER_RIGHT;
+    target = ir_motion_target_for_snapshot(&readback, 100u, 20u,
+                                           true, 250u, 50u);
+    assert((255 == target.left) && (200 == target.right));
+    readback.position = IR_LINE_CENTERED;
+    readback.steer = IR_LINE_STEER_NONE;
+    target = ir_motion_target_for_snapshot(&readback, 100u, 20u,
+                                           true, 80u, 25u);
+    assert((80 == target.left) && (80 == target.right));
+    readback.position = IR_LINE_BOTH_WHITE;
+    target = ir_motion_target_for_snapshot(&readback, 100u, 20u,
+                                           true, 80u, 25u);
+    assert(IR_STEERING_NO_LINE == target.status);
+    assert((0 == target.left) && (0 == target.right));
+    readback.b_ready = false;
+    target = ir_motion_target_for_snapshot(&readback, 100u, 20u,
+                                           true, 80u, 25u);
+    assert(IR_STEERING_UNREADY == target.status);
+    assert((0 == target.left) && (0 == target.right));
 
     /* Concurrent writer/reader must never expose a mixed struct copy. */
     snapshot.sequence = 1u;

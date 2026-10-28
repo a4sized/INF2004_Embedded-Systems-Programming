@@ -7,9 +7,34 @@
 
 #include "subsystem3.h"
 
-EXPORT ID		mbx_samples;	/* IF-01 */
-EXPORT ID		mtx_stats;	/* IF-04 */
-EXPORT APP_STATS	app_stats;
+/* Legacy example objects remain linkable in the team image, but are idle. */
+EXPORT ID mbx_samples;
+EXPORT ID mtx_stats;
+EXPORT APP_STATS app_stats;
+
+#if defined(BUDDY3_TEAM_IR)
+#include "ir_sensing_main.h"
+#include "ir_motion_consumer.h"
+
+EXPORT ER subsystem3_init(void)
+{
+    return ir_sensing_service_init();
+}
+
+EXPORT ER subsystem3_start(void)
+{
+    ER const status = ir_sensing_service_start();
+    if (E_OK != status)
+    {
+        return status;
+    }
+    ID const task_id = app_start_task(ir_motion_consumer_task,
+                                      S3_PRI_CONSUMER, TP_PRC1,
+                                      "ir_motion_consumer_task");
+    return (task_id < E_OK) ? task_id : E_OK;
+}
+
+#else
 
 EXPORT ER subsystem3_init(void)
 {
@@ -40,3 +65,4 @@ EXPORT ER subsystem3_start(void)
 				"consumer_task");
 	return (tid < E_OK) ? tid : E_OK;
 }
+#endif

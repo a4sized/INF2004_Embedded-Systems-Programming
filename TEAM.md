@@ -265,6 +265,16 @@ permission and agreed maximum age before applying a correction. The current
 normal team image still runs the example consumer and does not initialize or
 publish this IR snapshot.
 
+`python3 app_program/subsystem3/build_team_ir.py` builds an opt-in team
+image with a staged 5 ms kernel tick. In that image, Subsystem 3 starts the
+IR sensing service and a 20 ms reader. The reader sends zero velocity
+intent through Buddy 2's `s2_set_ir_velocity()` until Vehicle Controller
+permission, mounted-sensor readiness, speed tuning and freshness limits
+are agreed. A pure handoff function produces bounded wheel targets from
+fresh, valid snapshots for host tests. This opt-in image has only been
+compiled, not run on the Pico or car. The normal 10 ms team build and its
+example startup are unchanged.
+
 The user found a narrow sweet spot with both line sensors black when centered.
 Left black/right white points to a left correction; right black/left white
 points to a right correction. Both black is centered/no correction. Both
