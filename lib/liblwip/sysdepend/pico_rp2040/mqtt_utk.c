@@ -19,13 +19,18 @@
 #include "lwip/ip_addr.h"
 #include "lwip/timeouts.h"
 #include "wifi_secrets.h"
-#include "../../../../app_program/systemFaults.h"
 #include "mqtt_utk.h"
 #include <tm/tmonitor.h>
 
-/* Subsystem 1 non-blocking bridge functions (defined in subsystem1.c) */
+/* Subsystem 1 non-blocking bridge functions (defined in subsystem1.c).
+ * systemFaults.h is intentionally NOT included here: it pulls tk/tkernel.h
+ * which conflicts with lwIP's size_t (see file header comment).
+ * Forward-declare what we need with namespace-safe types instead. */
 extern void s1_mqtt_push_rx(const UB *data, INT len);
 extern INT  s1_mqtt_pop_tx(UB *buf, INT max_len);
+extern void s1_report_fault(UW fault_bit);
+extern void s1_clear_fault(UW fault_bit);
+#define FAULT_WIFI (1U << 5)   /* must match systemFaults.h */
 
 #define MQTT_UTK_HEARTBEAT_MS   1000
 #define MQTT_UTK_KEEPALIVE_S    60
@@ -102,7 +107,7 @@ static void subscribe_done_cb(void *arg, err_t result)
 {
         (void)arg;
         if(result == ERR_OK) {
-                tm_printf((UB*)"mqtt: subscribed to " MQTT_TOPIC "\n");
+                tm_printf((UB*)"mqtt: subscribed to " MQTT_TOPIC_CMD "\n");
         } else {
                 tm_printf((UB*)"mqtt: subscribe failed, err=%d\n", (int)result);
         }
@@ -127,8 +132,8 @@ static void heartbeat_timeout(void *arg)
                 /* Drain queued telemetry packets from Subsystem 1 */
                 while((len = s1_mqtt_pop_tx(payload, sizeof(payload) - 1)) > 0) {
                         payload[len] = '\0';
-                        tm_printf((UB*)"mqtt: TX [" MQTT_TOPIC "] %s\n", payload);
-                        (void)mqtt_publish(client, MQTT_TOPIC, payload, (u16_t)len,
+                        tm_printf((UB*)"mqtt: TX [" MQTT_TOPIC_TELEMETRY "] %s\n", payload);
+                        (void)mqtt_publish(client, MQTT_TOPIC_TELEMETRY, payload, (u16_t)len,
                                            0 /* qos */, 0 /* retain */,
                                            publish_done_cb, NULL);
                 }
@@ -175,7 +180,7 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
                 mqtt_set_inpub_callback(client, incoming_publish_cb,
                                         incoming_data_cb, NULL);
 
-                err = mqtt_subscribe(client, MQTT_TOPIC, 0 /* qos */,
+                err = mqtt_subscribe(client, MQTT_TOPIC_CMD, 0 /* qos */,
                                      subscribe_done_cb, NULL);
                 if(err != ERR_OK) {
                         tm_printf((UB*)"mqtt: mqtt_subscribe() failed, err=%d\n",
