@@ -162,14 +162,13 @@ LOCAL bool has_active_fault(void) {
 }
 
 EXPORT void motion_trigger_safety_halt(UINT fault_bit) {
-    SET_FAULT(fault_bit);
-
+    /* Report to Subsystem 1's centralized fault mask */
+    s1_report_fault(fault_bit);
     tk_loc_mtx(mtx_motor_intent, TMO_FEVR);
     motor_ctrl.current_state      = MOTOR_SAFETY_HALT;
     motor_ctrl.active_left_speed  = 0;
     motor_ctrl.active_right_speed = 0;
     tk_unl_mtx(mtx_motor_intent);
-
     motor_speed(0, 0);
 }
 
