@@ -4,6 +4,7 @@
 
 #include "subsystem1.h"
 #include "../systemFaults.h"
+#include <tstdlib.h>
 
 EXPORT UW               s1_tx_queued = 0;
 EXPORT UW               s1_rx_commands = 0;
@@ -86,13 +87,40 @@ EXPORT void s1_report_fault_isr(UW fault_bit) {
     tk_set_flg(flg_s1_isr_fault, fault_bit);
 }
 
-/* Parse 1-byte binary command payload */
+/* Parse binary (1-byte) or ASCII text command payload */
 EXPORT S1_CMD_TYPE s1_parse_command(const UB *payload, INT len) {
+    INT i;
+    char txt[16];
+    INT clen;
     if (payload == NULL || len < 1) return S1_CMD_NONE;
-    S1_CMD_PKT *cmd = (S1_CMD_PKT*)payload;
-    if (cmd->cmd_id >= S1_CMD_START && cmd->cmd_id <= S1_CMD_PING) {
-        return (S1_CMD_TYPE)cmd->cmd_id;
+
+    /* 1. Direct binary packet (1 byte: cmd_id 1..5) */
+    if (len == 1) {
+        S1_CMD_PKT *cmd = (S1_CMD_PKT*)payload;
+        if (cmd->cmd_id >= S1_CMD_START && cmd->cmd_id <= S1_CMD_PING) {
+            return (S1_CMD_TYPE)cmd->cmd_id;
+        }
+        if (payload[0] >= '1' && payload[0] <= '5') {
+            return (S1_CMD_TYPE)(payload[0] - '0');
+        }
     }
+
+    /* 2. Plain ASCII text strings (case-insensitive prefix match) */
+    clen = (len < 15) ? len : 15;
+    for (i = 0; i < clen; i++) {
+        char c = (char)payload[i];
+        if (c >= 'a' && c <= 'z') c -= 32;
+        if (c == '\r' || c == '\n' || c == ' ' || c == '\t' || c == '\0') break;
+        txt[i] = c;
+    }
+    txt[i] = '\0';
+
+    if (knl_strcmp(txt, "START") == 0) return S1_CMD_START;
+    if (knl_strcmp(txt, "STOP")  == 0) return S1_CMD_STOP;
+    if (knl_strcmp(txt, "ESTOP") == 0) return S1_CMD_ESTOP;
+    if (knl_strcmp(txt, "CLEAR") == 0) return S1_CMD_CLEAR;
+    if (knl_strcmp(txt, "PING")  == 0) return S1_CMD_PING;
+
     return S1_CMD_NONE;
 }
 

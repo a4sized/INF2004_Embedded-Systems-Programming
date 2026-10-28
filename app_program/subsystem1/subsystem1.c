@@ -68,7 +68,7 @@ EXPORT ER subsystem1_start(void)
 EXPORT void s1_mqtt_push_rx(const UB *data, INT len)
 {
         if (data == NULL || len <= 0 || mbf_mqtt_rx <= 0) return;
-        if (len > S1_CMD_MAX) len = S1_CMD_MAX; /* Truncate to 1 byte limit */
+        if (len > S1_CMD_MAX) len = S1_CMD_MAX; /* Truncate to buffer limit */
         (void)tk_snd_mbf(mbf_mqtt_rx, (void *)data, len, TMO_POL);
 }
 

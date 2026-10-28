@@ -129,7 +129,12 @@ static void heartbeat_timeout(void *arg)
                 /* Drain queued telemetry packets from Subsystem 1 */
                 while((len = s1_mqtt_pop_tx(payload, sizeof(payload) - 1)) > 0) {
                         payload[len] = '\0';
-                        tm_printf((UB*)"mqtt: TX [" MQTT_TOPIC "] %s\n", payload);
+                        INT k;
+                        tm_printf((UB*)"mqtt: TX [" MQTT_TOPIC "] (%d bytes: ", len);
+                        for(k = 0; k < len; k++) {
+                                tm_printf((UB*)"%02X ", payload[k]);
+                        }
+                        tm_printf((UB*)")\n");
                         (void)mqtt_publish(client, MQTT_TOPIC, payload, (u16_t)len,
                                            0 /* qos */, 0 /* retain */,
                                            publish_done_cb, NULL);

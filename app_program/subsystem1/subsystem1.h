@@ -18,7 +18,7 @@
 #define S1_TELEM_TICKS          4
 
 #define S1_MQTT_MSG_MAX         8               /* Shrunk from 96 to 8 for minimum-bit binary payload */
-#define S1_CMD_MAX              1               /* Commands are now 1 byte */
+#define S1_CMD_MAX              16              /* Inbound commands: 1 byte binary or short ASCII */
 
 /* Remote command event flag bits (published on flg_s1_cmd) */
 #define S1_FLG_CMD_START        0x0001U
