@@ -183,3 +183,46 @@ produced the isolated ARM UF2 with strict application warnings and linked
 Buddy 1's sources. No fault injection on Pico, cloud observation, robot stop,
 or clear/reset test was performed. See the pending cases in
 `testing/integration/FAULT_INTEGRATION_PENDING.md`.
+
+## Latest IR snapshot and 20 ms host consumer (28 October 2026)
+
+`ir_line_snapshot_shared.c` now keeps one complete latest IR reading behind
+a micro T-Kernel mutex. The isolated sensing task initializes the mutex
+before starting, then publishes raw and filtered levels, interpreted
+surfaces, line position/correction, loss state, sequence and sample time
+after each 5 ms wake. Readers take one coherent copy. The source does not
+queue old steering decisions or request motor movement.
+
+The isolated image publishes `b_gpio_ready=true` after successful GPIO
+configuration but leaves `b_ready=false`. Sensor readiness needs a
+mounted black/white verification or an agreed fixed-polarity acceptance
+procedure. `ir_line_snapshot_steering_status()` also requires explicit
+following permission and a caller-supplied freshness limit. Both-white,
+confirmed loss, mismatched position/correction and stale readings are
+rejected; centered returns an available reading with no correction.
+
+A host test simulates 5 ms publication and a 20 ms consumer, verifies each
+read sees the newest sequence, exercises readiness, permission, missing
+line, exact age boundary, 32-bit timer wrap and explicit invalidation, and runs concurrent
+producer/reader copies through a pthread-backed mutex substitute. It passed
+with strict Clang warnings, AddressSanitizer and UndefinedBehaviorSanitizer.
+The isolated ARM UF2 and standard team ARM image compiled after the change.
+
+Host command from the repository root:
+
+```sh
+clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow \
+  -fsanitize=address,undefined -fno-omit-frame-pointer -pthread \
+  -I testing/subsystem3/fakes -I app_program/subsystem3 \
+  testing/subsystem3/ir_line_snapshot_test.c \
+  app_program/subsystem3/ir_line_snapshot.c \
+  app_program/subsystem3/ir_line_snapshot_shared.c \
+  -o /tmp/ir_line_snapshot_test && /tmp/ir_line_snapshot_test
+```
+
+Open physical/integration checks: run the reader on the Pico under the real
+5 ms sensing load, save a trace showing coherent latest values and age,
+measure the effect of the new mutex on timing, define and perform startup
+sensor readiness verification, and replace the normal example consumer
+through a coordinated team integration. These are not claimed by the host
+test or ARM build.

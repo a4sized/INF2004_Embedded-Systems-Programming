@@ -15,6 +15,7 @@
 #include "ir_barcode_segments.h"
 #include "ir_barcode_window.h"
 #include "ir_line_filter.h"
+#include "ir_line_snapshot_shared.h"
 #include "ir_line_state.h"
 #include "ir_sensing.h"
 #include "ir_time.h"
@@ -107,6 +108,10 @@ INT usermain (void)
     {
         halt_task();
     }
+    if (E_OK != ir_line_snapshot_shared_init())
+    {
+        halt_task();
+    }
     if (E_OK != subsystem1_start())
     {
         halt_task();
@@ -168,6 +173,7 @@ static void sensing_task (INT start_code, void * p_extra)
         IR_BARCODE_BLACK_LEVEL
     };
     uint32_t samples = 0u;
+    uint32_t snapshot_sequence = 0u;
     uint32_t previous_sample_us = 0u;
     uint32_t min_gap_us = UINT32_MAX;
     uint32_t max_gap_us = 0u;
@@ -190,6 +196,9 @@ static void sensing_task (INT start_code, void * p_extra)
     ir_fault_status_note_gpio_init(&fault_status, b_ir_ready);
     if (!b_ir_ready)
     {
+        ir_line_snapshot_t const unavailable = {0};
+
+        (void)ir_line_snapshot_shared_publish(&unavailable);
         s1_report_fault(FAULT_IR_SENS);
         s1_csv_log_event("IR_SENSOR_FAULT", "GPIO_INIT_FAILED");
         for (;;)
@@ -275,6 +284,28 @@ static void sensing_task (INT start_code, void * p_extra)
             &filter, raw, now.lo, IR_LINE_STABLE_MS);
         ir_sensing_result_t const result = ir_sensing_read(stable, &map);
         ir_line_state_update(&line, stable, now.lo);
+        ir_line_snapshot_t const snapshot =
+        {
+            .sequence = ++snapshot_sequence,
+            .sampled_at_ms = now.lo,
+            .raw = raw,
+            .stable = stable,
+            .left_surface = result.left,
+            .right_surface = result.right,
+            .barcode_surface = result.barcode,
+            .position = line.position,
+            .steer = line.latest_steer,
+            .b_lost = line.b_lost,
+            .b_gpio_ready = fault_status.b_gpio_configured,
+            /* A configured GPIO is not a verified mounted sensor. */
+            .b_ready = false
+        };
+
+        if (!ir_line_snapshot_shared_publish(&snapshot))
+        {
+            s1_report_fault(FAULT_IR_SENS);
+            halt_task();
+        }
         bool const b_console_ready = (IR_USB_READY == tm_usb_state());
 
         if (b_console_ready && !b_console_was_ready)

@@ -247,12 +247,23 @@ levels in this standalone readout. It accepts a changed level only after a
 second observation at least 10 ms later; the barcode level remains raw.
 The USB line now shows each line sensor as `raw>stable`. This bench value is
 not a calibrated moving-robot filter setting. No motion request is sent.
-The later steering interface must give Motion Control the latest correction
-for its own cycle, subject to the team's unfinished queue contract.
-The 20 ms Motion State cycle is a design target and is not present in the
-current Buddy 2 application. The earlier GP16 encoder-power output was
+The snapshot supplies the latest correction, but the Motion Control handoff
+and controller permission contract are still unfinished. Buddy 2 now has a
+20 ms Motion State loop; this isolated image does not call it. The earlier
+GP16 encoder-power output was
 removed on this local branch; GP16 belongs to Buddy 3's barcode input.
 The isolated Buddy 3 UF2 still excludes Buddy 2 code.
+
+The sensing task now publishes one latest timestamped IR snapshot through
+`ir_line_snapshot_shared_read()`. A mutex protects the whole copy for readers
+on either core. The snapshot includes raw and filtered levels, interpreted
+surfaces, line position, latest correction, loss state and readiness flags.
+GPIO configuration alone does not establish mounted-sensor readiness, so
+the isolated image keeps `b_ready=false`. A future motion consumer must use
+`ir_line_snapshot_steering_status()` with a controller-supplied following
+permission and agreed maximum age before applying a correction. The current
+normal team image still runs the example consumer and does not initialize or
+publish this IR snapshot.
 
 The user found a narrow sweet spot with both line sensors black when centered.
 Left black/right white points to a left correction; right black/left white
