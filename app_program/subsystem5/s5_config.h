@@ -35,10 +35,58 @@
 #define SERVO_TRIM_DEGREES          (0)
 
 /* ---------------- Scanning ---------------- */
+/* Number of angles in one sweep (scan_angles[] in subsystem5.c). */
+#define S5_SCAN_POSITIONS           (5u)
+
 /* Pause at each angle after taking a reading. */
 #define PAUSE_AT_EACH_ANGLE_MS      (500u)
 
-/* Priority of the scanning task (lower number = more important). */
+/* Priority of the scanning task (lower number = more important).
+ * S5's band is 20-21 (TEAM.md). */
 #define SCANNER_TASK_PRIORITY       (20)
+
+/* ---------------- Reporting to Subsystem 1 (s5_report.c) ---------------- */
+/* FAULT_US_SENS is reported after this many failed readings in a row, and
+ * cleared after S5_US_RECOVER_LIMIT good ones, so a single glitch does not
+ * pause the car (FAULT_US_SENS is a Tier-2 "pause and resume" fault). */
+#define S5_US_FAIL_LIMIT            (3u)
+#define S5_US_RECOVER_LIMIT         (3u)
+
+/* Telemetry obstacle_cm is 9 bits (0..511 cm). "Nothing in range" is sent
+ * as the top value. */
+#define S5_OBSTACLE_NONE_CM         (511u)
+#define S5_MM_PER_CM                (10u)
+
+/* ---------------- Obstacle stop / slow-down (s5_guard.c) ---------------- */
+/* Ping the sensor this often while scanning (HC-SR04 needs >= 60 ms
+ * between pings so old echoes die out). */
+#define S5_PING_INTERVAL_MS         (60u)
+
+/* The car should come to rest this far from the obstacle. */
+#define S5_STOP_DISTANCE_CM         (5u)
+
+/* Start stopping this much earlier, because S2 ramps down instead of
+ * stopping instantly and a reading is up to S5_PING_INTERVAL_MS old.
+ * Tune on the track: raise it if the car stops closer than 5 cm. */
+#define S5_BRAKE_MARGIN_CM          (2u)
+
+/* Distance from the sensor's face to the front of the car. Measure this:
+ * all distances above are from the front of the car. */
+#define S5_SENSOR_TO_FRONT_CM       (0u)
+
+/* Once stopped, stay stopped until the gap is this much wider than the
+ * stop point, so noisy readings do not make the car creep. */
+#define S5_RESUME_HYSTERESIS_CM     (5u)
+
+/* Slow down when an obstacle is within this distance... */
+#define S5_SLOW_DISTANCE_CM         (30u)
+/* ...to at most this speed (S2's 0..255 PWM scale). */
+#define S5_SLOW_SPEED_CAP           (80u)
+/* No obstacle near: no limit. */
+#define S5_FULL_SPEED_CAP           (255u)
+
+/* Derived: do not edit. */
+#define S5_STOP_TRIGGER_CM          (S5_STOP_DISTANCE_CM + S5_BRAKE_MARGIN_CM)
+#define S5_RESUME_GAP_CM            (S5_STOP_TRIGGER_CM + S5_RESUME_HYSTERESIS_CM)
 
 #endif /* S5_CONFIG_H */
