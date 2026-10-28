@@ -1,17 +1,16 @@
-/*
- *	subsystem5.h
- *	Subsystem 5 -- <name>.  Student ID: <student ID>.
- *
- *	EMPTY TEMPLATE.  Subsystems 1-4 show a complete example; copy their
- *	pattern.  Put here only what OTHER subsystems may use (object IDs,
- *	message formats, priorities); keep everything else LOCAL in the .c.
+/**
+ * @file    subsystem5.h
+ * @brief   Subsystem 5: servo-mounted ultrasonic obstacle scanner.
  */
-
 #ifndef SUBSYSTEM5_H
 #define SUBSYSTEM5_H
 
-#include "../app.h"
+#include <tk/tkernel.h>
 
-#define S5_PRI_MAIN	20		/* priority band 20-21 (TEAM.md) */
+/* Set up the servo and ultrasonic sensor (called once at startup). */
+ER subsystem5_init(void);
+
+/* Start the scanning task (called after every subsystem's init). */
+ER subsystem5_start(void);
 
 #endif /* SUBSYSTEM5_H */

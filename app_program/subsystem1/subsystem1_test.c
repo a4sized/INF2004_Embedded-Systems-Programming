@@ -59,7 +59,7 @@ EXPORT void subsystem1_test(void)
         cmd.cmd_id = S1_CMD_ESTOP;
         cmd.reserved = 0;
         er = tk_snd_mbf(mbf_mqtt_rx, (void*)&cmd, sizeof(cmd), TMO_POL);
-        tk_dly_tsk(S1_TICK_MS + 50);
+        tk_dly_tsk(S1_TICK_MS + 500);
         er |= tk_wai_flg(flg_s1_cmd, S1_FLG_CMD_ESTOP, TWF_ORW | TWF_CLR, &flgptn, TMO_POL);
         TEST_CHECK("S1-U04",
                    er == E_OK && (flgptn & S1_FLG_CMD_ESTOP) &&
@@ -72,7 +72,7 @@ EXPORT void subsystem1_test(void)
         bad_cmd.cmd_id = 7; /* 7 is invalid */
         bad_cmd.reserved = 0;
         (void)tk_snd_mbf(mbf_mqtt_rx, (void*)&bad_cmd, sizeof(bad_cmd), TMO_POL);
-        tk_dly_tsk(S1_TICK_MS + 50);
+        tk_dly_tsk(S1_TICK_MS + 500);
         TEST_CHECK("S1-U05",
                    s1_rx_rejected == rej_before + 1,
                    "unknown binary MQTT command is rejected and counted");

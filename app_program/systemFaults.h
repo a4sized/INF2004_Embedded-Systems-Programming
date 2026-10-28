@@ -21,7 +21,5 @@ IMPORT ID fault_flag;
 // motor pauses and resumes once flag is cleared
 #define TIER2_HAZARD_MASK (FAULT_WIFI | FAULT_US_SENS)
 
-#define SET_FAULT(fault)   tk_set_flg(fault_flag, (fault))
-#define CLEAR_FAULT(fault) tk_clr_flg(fault_flag, ~(fault))
 
 #endif 

@@ -19,13 +19,18 @@
 #include "lwip/ip_addr.h"
 #include "lwip/timeouts.h"
 #include "wifi_secrets.h"
-#include "../../../../app_program/systemFaults.h"
 #include "mqtt_utk.h"
 #include <tm/tmonitor.h>
 
-/* Subsystem 1 non-blocking bridge functions (defined in subsystem1.c) */
+/* Subsystem 1 non-blocking bridge functions (defined in subsystem1.c).
+ * systemFaults.h is intentionally NOT included here: it pulls tk/tkernel.h
+ * which conflicts with lwIP's size_t (see file header comment).
+ * Forward-declare what we need with namespace-safe types instead. */
 extern void s1_mqtt_push_rx(const UB *data, INT len);
 extern INT  s1_mqtt_pop_tx(UB *buf, INT max_len);
+extern void s1_report_fault(UW fault_bit);
+extern void s1_clear_fault(UW fault_bit);
+#define FAULT_WIFI (1U << 5)   /* must match systemFaults.h */
 
 #define MQTT_UTK_HEARTBEAT_MS   1000
 #define MQTT_UTK_KEEPALIVE_S    60
@@ -76,10 +81,7 @@ static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 
         for(i = 0; i < len; i++) {
                 if(rx_len < (MQTT_UTK_RX_DATA_MAX - 1)) {
-                        /* The console is a terminal -- keep raw bytes from a
-                         * payload this demo did not publish from scrambling it. */
-                        UB c = data[i];
-                        rx_data[rx_len++] = (c >= 0x20 && c < 0x7f)? c: '.';
+                        rx_data[rx_len++] = data[i];
                 } else {
                         rx_truncated = 1;
                 }
@@ -102,7 +104,7 @@ static void subscribe_done_cb(void *arg, err_t result)
 {
         (void)arg;
         if(result == ERR_OK) {
-                tm_printf((UB*)"mqtt: subscribed to " MQTT_TOPIC "\n");
+                tm_printf((UB*)"mqtt: subscribed to " MQTT_TOPIC_CMD "\n");
         } else {
                 tm_printf((UB*)"mqtt: subscribe failed, err=%d\n", (int)result);
         }
@@ -156,7 +158,7 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
                 err_t   err;
 
                 /* Connection successful: Clear the MQTT drop fault */
-                CLEAR_FAULT(active_fault_mask, FAULT_MQTT_DROPPED);
+                s1_clear_fault(FAULT_WIFI);
 
                 /* No longer *connecting* -- clear the guard so that if this
                  * connection later drops, the poll loop's mqtt_utk_start() call
@@ -175,7 +177,7 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
                 mqtt_set_inpub_callback(client, incoming_publish_cb,
                                         incoming_data_cb, NULL);
 
-                err = mqtt_subscribe(client, MQTT_TOPIC, 0 /* qos */,
+                err = mqtt_subscribe(client, MQTT_TOPIC_CMD, 0 /* qos */,
                                      subscribe_done_cb, NULL);
                 if(err != ERR_OK) {
                         tm_printf((UB*)"mqtt: mqtt_subscribe() failed, err=%d\n",
@@ -190,7 +192,7 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
                 sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
         } else {
                 /* Connection failed or dropped: Set the MQTT drop fault */
-                SET_FAULT(active_fault_mask, FAULT_MQTT_DROPPED);
+                s1_report_fault(FAULT_WIFI);
                 
                 /* mqtt_client_connect() reconnects on its own for a dropped
                  * keepalive; a rejected/never-established connection does not

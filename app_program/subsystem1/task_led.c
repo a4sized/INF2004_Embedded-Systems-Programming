@@ -64,16 +64,13 @@ EXPORT void s1_set_line_mask(UW mask) {
 
 /* Centralized Fault Reporting */
 EXPORT void s1_report_fault(UW fault_bit) {
-    /* Broadcast to the universal event flag for instant task wakeups */
-    tk_set_flg(flg_s1_isr_fault, fault_bit); 
-
-    /* Immediately update the telemetry mask */
+    /* Immediately update the persistent telemetry mask under Mutex */
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
     s1_telemetry.fault_mask |= fault_bit;
     tk_unl_mtx(mtx_telemetry);
 }
-
 EXPORT void s1_clear_fault(UW fault_bit) {
+    /* Clear from persistent telemetry mask under Mutex */
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
     s1_telemetry.fault_mask &= ~fault_bit;
     tk_unl_mtx(mtx_telemetry);

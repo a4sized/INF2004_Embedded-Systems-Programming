@@ -26,14 +26,14 @@ EXPORT ER subsystem1_init(void)
 
         /* 2. Outbound MQTT TX (8-byte packets now) */
         cmbf.mbfatr = TA_TFIFO;
-        cmbf.bufsz  = 4 * S1_MQTT_MSG_MAX; 
+        cmbf.bufsz  = 256;
         cmbf.maxmsz = S1_MQTT_MSG_MAX;
         mbf_mqtt_tx = tk_cre_mbf(&cmbf);
         if (mbf_mqtt_tx < E_OK) return mbf_mqtt_tx;
 
         /* 3. Inbound MQTT RX (1-byte commands) */
         cmbf.mbfatr = TA_TFIFO;
-        cmbf.bufsz  = 4 * S1_CMD_MAX; 
+        cmbf.bufsz  = 256;
         cmbf.maxmsz = S1_CMD_MAX;
         mbf_mqtt_rx = tk_cre_mbf(&cmbf);
         if (mbf_mqtt_rx < E_OK) return mbf_mqtt_rx;
