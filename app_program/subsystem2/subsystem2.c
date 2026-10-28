@@ -15,6 +15,7 @@
 #include "subsystem2.h"
 #include "../systemFaults.h"
 #include "buzzer.h"
+#include "encoder.h"      /* wheel encoder counting (encoder.c) */
 #include "../subsystem1/subsystem1.h" 
 
 /* RTOS Synchronization & IPC Objects */
@@ -22,9 +23,8 @@ EXPORT ID   sem_slots;
 EXPORT ID   mpf_samples;
 EXPORT ID   mtx_motor_intent; /* Priority-Inheritance Mutex (TA_INHERIT) */
 
-/* Encapsulated Encoder Odometry Counters */
-LOCAL volatile int32_t left_encoder_ticks  = 0;
-LOCAL volatile int32_t right_encoder_ticks = 0;
+/* The encoder counters live in encoder.c (see encoder.h): an interrupt counts
+ * every edge of both channels of both wheels. */
 
 /* Minimum-Bit Packed Navigation Blackboard & FSM State */
 LOCAL MotorControl_t motor_ctrl = {
@@ -62,29 +62,15 @@ EXPORT void s2_set_us_clearance(uint8_t max_speed) {
  * PUBLIC ODOMETRY GETTERS & RESET
  * -------------------------------------------------------------------------- */
 EXPORT void motor_reset_ticks(void) {
-    UINT intsts;
-    DI(intsts);
-    left_encoder_ticks  = 0;
-    right_encoder_ticks = 0;
-    EI(intsts);
+    encoder_reset();
 }
 
 EXPORT int32_t get_left_encoder_ticks(void) {
-    int32_t ticks;
-    UINT intsts;
-    DI(intsts);
-    ticks = left_encoder_ticks;
-    EI(intsts);
-    return ticks;
+    return encoder_get_left();
 }
 
 EXPORT int32_t get_right_encoder_ticks(void) {
-    int32_t ticks;
-    UINT intsts;
-    DI(intsts);
-    ticks = right_encoder_ticks;
-    EI(intsts);
-    return ticks;
+    return encoder_get_right();
 }
 
 /* --------------------------------------------------------------------------
@@ -117,6 +103,15 @@ LOCAL void motor_init(void) {
     gpio_set_pin(RIGHT_ENC_B, GPIO_MODE_IN);
 
     motor_reset_ticks();
+
+    /* Start counting: the interrupt on all four encoder pins (encoder.c). */
+    {
+        ER enc_err = encoder_init();
+        if (enc_err != E_OK) {
+            tm_printf((UB*)"[S2] encoder_init failed: %d\n", (int)enc_err);
+        }
+    }
+
     motor_ctrl.current_state = MOTOR_STOPPED;
 }
 
@@ -170,6 +165,7 @@ EXPORT void motion_trigger_safety_halt(UINT fault_bit) {
     tk_unl_mtx(mtx_motor_intent);
     motor_speed(0, 0);
 }
+
 
 LOCAL int16_t ramp_step(int16_t current, int16_t target, int16_t step_size) {
     if (current < target) {
@@ -315,11 +311,29 @@ EXPORT MotionState_t motion_fsm_get_state(void) {
  * RTOS CONTROL LOOP TASK & SUBSYSTEM INIT
  * -------------------------------------------------------------------------- */
 LOCAL void s2_motor_task(INT stacd, void *exinf) {
+#if ENC_PRINT_MS > 0
+    UINT print_n = 0;
+#endif
     (void)stacd;
     (void)exinf;
 
     while (1) {
         motion_fsm_update();
+
+#if ENC_PRINT_MS > 0
+        /* Show the encoder counters on the serial monitor (every ENC_PRINT_MS).
+         * "interrupts 0" means no edge ever arrived: check the wiring/pins.
+         * "pins L=ab R=cd" are the live levels of the four channels. */
+        if (++print_n >= (UINT)(ENC_PRINT_MS / S2_PERIOD_MS)) {
+            print_n = 0;
+            tm_printf((UB*)"[S2] encoder ticks: left %d  right %d   (interrupts %d, pins L=%d%d R=%d%d)\n",
+                      (int)get_left_encoder_ticks(), (int)get_right_encoder_ticks(),
+                      (int)encoder_irq_count(),
+                      (int)gpio_get_val(LEFT_ENC_A),  (int)gpio_get_val(LEFT_ENC_B),
+                      (int)gpio_get_val(RIGHT_ENC_A), (int)gpio_get_val(RIGHT_ENC_B));
+        }
+#endif
+
         tk_dly_tsk(S2_PERIOD_MS); /* 20ms (50Hz) deterministic control loop */
     }
 }
