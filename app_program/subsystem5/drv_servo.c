@@ -38,8 +38,15 @@
 #define SERVO_CLOCK_DIVIDER_REGISTER \
     (PWM_BASE + PWM_CHx_DIV + (SERVO_PWM_SLICE * 0x14u))
 
-static uint16_t current_angle_degrees = CENTRE_ANGLE_DEGREES;
-static bool     servo_ready = false;
+/* Minimum-bit servo state (9 bits): angle 0..180 needs 8 bits, ready 1 bit.
+ * Written and read only by the scanning task (after init), so no lock. */
+typedef struct
+{
+    uint16_t angle_degrees : 8;   /* 0..180 */
+    uint16_t b_ready       : 1;   /* 1 = drv_servo_init() succeeded */
+} servo_state_t;
+
+static servo_state_t g_servo = { CENTRE_ANGLE_DEGREES, 0u };
 
 /* Turn an angle (0-180) into a pulse width in microseconds.
  * SERVO_TRIM_DEGREES shifts every angle to correct the mounting. */
@@ -127,7 +134,7 @@ ER drv_servo_init(void)
 
     /* Start at the centre position, then switch the PWM on. */
     result = pwm_set_cc(S5_PIN_SERVO,
-                        angle_to_pulse_width_us(current_angle_degrees));
+                        angle_to_pulse_width_us(g_servo.angle_degrees));
     if (result < E_OK)
     {
         return result;
@@ -138,9 +145,9 @@ ER drv_servo_init(void)
         return result;
     }
 
-    servo_ready = true;
+    g_servo.b_ready = 1u;
     tm_printf((UB*)"S5 servo ready at %u degrees\n",
-              (unsigned int)current_angle_degrees);
+              (unsigned int)g_servo.angle_degrees);
     return E_OK;
 }
 
@@ -149,7 +156,7 @@ ER drv_servo_set_angle(const uint16_t angle_degrees)
     uint16_t new_angle = angle_degrees;
     ER       result;
 
-    if (!servo_ready)
+    if (0u == g_servo.b_ready)
     {
         return E_OBJ;   /* drv_servo_init() has not been called */
     }
@@ -163,12 +170,12 @@ ER drv_servo_set_angle(const uint16_t angle_degrees)
     result = pwm_set_cc(S5_PIN_SERVO, angle_to_pulse_width_us(new_angle));
     if (result == E_OK)
     {
-        current_angle_degrees = new_angle;
+        g_servo.angle_degrees = new_angle;
     }
     return result;
 }
 
 uint16_t drv_servo_get_angle(void)
 {
-    return current_angle_degrees;
+    return (uint16_t)g_servo.angle_degrees;
 }
