@@ -24,8 +24,4 @@ ER       drv_ultrasonic_init(void);
  * On any error *p_distance_mm is set to NO_OBSTACLE. */
 ER       drv_ultrasonic_measure(uint16_t * const p_distance_mm);
 
-/* Take one measurement. Returns the distance in millimetres,
- * or NO_OBSTACLE if nothing was detected or the sensor failed. */
-uint16_t drv_ultrasonic_read_distance_mm(void);
-
 #endif /* DRV_ULTRASONIC_H */

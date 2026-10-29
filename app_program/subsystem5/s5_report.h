@@ -34,6 +34,10 @@ void s5_report_scanner_failed (void);
 uint16_t s5_report_distance (const uint8_t position,
                              const uint16_t distance_mm);
 
+/* Convert a reading in mm (NO_OBSTACLE = nothing seen) to the 9-bit cm
+ * scale: 0..510 cm, S5_OBSTACLE_NONE_CM = nothing seen. */
+uint16_t s5_report_mm_to_cm (const uint16_t distance_mm);
+
 /* Forget the distances at every scan position except keep_position (set
  * them to "nothing seen"). Used after the start-up scan, when the sensor
  * stays facing ahead and old side readings must not hold the car. */

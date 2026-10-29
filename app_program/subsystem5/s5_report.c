@@ -57,7 +57,6 @@ typedef struct
  * Only the scanning task touches it, so no lock. */
 #define CM_FIELD_BITS           (9u)
 #define CM_FIELD_MASK           (0x1FFu)
-#define CM_MAX_REAL             (S5_OBSTACLE_NONE_CM - 1u)   /* 510 cm */
 #define CM_ALL_NONE             ((1ull << (S5_SCAN_POSITIONS * \
                                            CM_FIELD_BITS)) - 1ull)
 
@@ -166,22 +165,28 @@ bool s5_report_is_faulted (void)
     return (0u != g_health.b_faulted);
 }
 
-uint16_t s5_report_distance (const uint8_t position,
-                             const uint16_t distance_mm)
+uint16_t s5_report_mm_to_cm (const uint16_t distance_mm)
 {
-    uint16_t cm_now     = S5_OBSTACLE_NONE_CM;
-    uint16_t nearest_cm = S5_OBSTACLE_NONE_CM;
+    uint16_t distance_cm = S5_OBSTACLE_NONE_CM;
 
-    /* Convert this reading to the 9-bit cm scale. */
     if (NO_OBSTACLE != distance_mm)
     {
         /* Cast is safe: dividing a 16-bit value cannot make it bigger. */
-        cm_now = (uint16_t)(distance_mm / S5_MM_PER_CM);
-        if (cm_now > CM_MAX_REAL)
+        distance_cm = (uint16_t)(distance_mm / S5_MM_PER_CM);
+        if (distance_cm > S5_OBSTACLE_MAX_CM)
         {
-            cm_now = CM_MAX_REAL;   /* clip, keep 511 for "none" */
+            distance_cm = S5_OBSTACLE_MAX_CM;   /* clip, keep 511 for "none" */
         }
     }
+
+    return distance_cm;
+}
+
+uint16_t s5_report_distance (const uint8_t position,
+                             const uint16_t distance_mm)
+{
+    uint16_t cm_now     = s5_report_mm_to_cm(distance_mm);
+    uint16_t nearest_cm = S5_OBSTACLE_NONE_CM;
 
     if (position < S5_SCAN_POSITIONS)
     {

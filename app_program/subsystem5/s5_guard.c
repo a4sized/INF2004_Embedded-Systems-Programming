@@ -30,7 +30,7 @@ typedef struct
     uint16_t last_cap   : 8;   /* 0..255, last cap sent to Subsystem 2     */
     uint16_t b_stopped  : 1;   /* 1 = holding the car for an obstacle      */
     uint16_t b_cap_sent : 1;   /* 1 = a cap has been sent at least once    */
-    uint16_t b_hold     : 1;   /* 1 = start-up scan running: cap forced 0  */
+    uint16_t b_hold     : 1;   /* 1 = sensor busy scanning: cap forced 0   */
 } guard_state_t;
 
 static volatile guard_state_t g_guard = { S5_FULL_SPEED_CAP, 0u, 0u, 0u };
@@ -96,7 +96,7 @@ void s5_guard_update (const uint16_t nearest_cm)
 
     if (0u != g_guard.b_hold)
     {
-        speed_cap = 0u;   /* start-up scan not finished: do not move off */
+        speed_cap = 0u;   /* sensor busy scanning: do not move */
     }
 
     if (b_now_stopped != b_was_stopped)
@@ -129,7 +129,7 @@ bool s5_guard_is_stopped (void)
     return (0u != g_guard.b_stopped);
 }
 
-void s5_guard_set_startup_hold (const bool b_hold)
+void s5_guard_set_hold (const bool b_hold)
 {
     if (b_hold)
     {

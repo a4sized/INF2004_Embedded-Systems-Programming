@@ -11,8 +11,8 @@
  * Once stopped, the car stays stopped until the gap is wider than
  * S5_RESUME_GAP_CM, so it does not creep forward on noisy readings.
  *
- * Start-up hold: while the start-up scan runs, the cap is forced to 0 so the
- * car cannot move off before the path has been checked.
+ * Hold: while the sensor is not watching the path (start-up scan, fine
+ * scan), the cap is forced to 0 so the car cannot move.
  */
 #ifndef S5_GUARD_H
 #define S5_GUARD_H
@@ -38,10 +38,10 @@ void s5_guard_update (const uint16_t nearest_cm);
 /* True while the guard is holding the car stopped for an obstacle. */
 bool s5_guard_is_stopped (void);
 
-/* b_hold = true: send cap 0 now and keep it there (start-up scan running).
+/* b_hold = true: send cap 0 now and keep it there (sensor busy scanning).
  * b_hold = false: stop forcing; the next s5_guard_update() sends the normal
  * cap. Call only from subsystem5_start() (before the scanning task exists)
  * or from the scanning task. */
-void s5_guard_set_startup_hold (const bool b_hold);
+void s5_guard_set_hold (const bool b_hold);
 
 #endif /* S5_GUARD_H */

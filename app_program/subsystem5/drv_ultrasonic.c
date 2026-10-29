@@ -147,11 +147,3 @@ ER drv_ultrasonic_measure(uint16_t * const p_distance_mm)
     }
     return E_OK;
 }
-
-uint16_t drv_ultrasonic_read_distance_mm(void)
-{
-    uint16_t distance_mm = NO_OBSTACLE;
-
-    (void)drv_ultrasonic_measure(&distance_mm);
-    return distance_mm;
-}

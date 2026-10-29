@@ -8,6 +8,10 @@
  *              scanner has been running for a few seconds by then).
  *   S5-U03..08 Obstacle guard stop / slow-down decisions (pure function,
  *              no hardware or motion needed).
+ *   S5-U09..11 Obstacle profile geometry: sideways distance of a point
+ *              (pure function).
+ *
+ * Lateral checks assume S5_EDGE_TRIM_DEG = 0 (sin 30 deg = 0.5 exactly).
  */
 #include <stdint.h>
 #include <stdbool.h>
@@ -19,6 +23,7 @@
 #include "s5_config.h"
 #include "s5_report.h"
 #include "s5_guard.h"
+#include "s5_profile.h"
 
 #if APP_TEST
 
@@ -68,6 +73,14 @@ EXPORT void subsystem5_test (void)
                                    true, &b_stopped);
     TEST_CHECK("S5-U08", (0u != speed_cap) && (!b_stopped),
                "stopped: resumes once the obstacle is beyond the resume gap");
+
+    /* Obstacle profile geometry */
+    TEST_CHECK("S5-U09", 0u == s5_profile_lateral_cm(20u, 90u),
+               "point straight ahead is 0 cm to the side");
+    TEST_CHECK("S5-U10", 10u == s5_profile_lateral_cm(20u, 60u),
+               "20 cm away, 30 deg off axis (low side): 10 cm to the side");
+    TEST_CHECK("S5-U11", 10u == s5_profile_lateral_cm(20u, 120u),
+               "20 cm away, 30 deg off axis (high side): 10 cm to the side");
 
     TEST_SUMMARY("subsystem5");
 }
