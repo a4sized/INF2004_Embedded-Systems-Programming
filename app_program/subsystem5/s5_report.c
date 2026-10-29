@@ -17,10 +17,15 @@
  *   The latest distance (cm, 9 bits) at each scan position is kept, and the
  *   nearest one (in cm) is sent with s1_set_obstacle() after every reading,
  *   so telemetry always shows the closest thing the scanner currently sees.
+ *   After the start-up scan only the straight-ahead position is kept
+ *   (s5_report_keep_only), since the sensor then stays facing forward.
+ *
+ * Casts in this file: (UB *) only retypes a string literal for the T-Kernel
+ * tm_printf() API. The other casts are commented where they are made.
  */
-#include <tk/tkernel.h>
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <tk/tkernel.h>
 #include "../app.h"
 #include "../systemFaults.h"
 #include "../subsystem1/subsystem1.h"
@@ -34,17 +39,17 @@
  * one writer, so a reader always sees a whole old or a whole new value. */
 #define STREAK_MAX              (3u)    /* largest value a 2-bit field holds */
 
-_Static_assert(S5_US_FAIL_LIMIT <= STREAK_MAX, "fail streak needs > 2 bits");
-_Static_assert(S5_US_RECOVER_LIMIT <= STREAK_MAX, "good streak needs > 2 bits");
+_Static_assert(S5_US_FAIL_LIMIT <= STREAK_MAX,
+               "fail streak needs > 2 bits");
+_Static_assert(S5_US_RECOVER_LIMIT <= STREAK_MAX,
+               "good streak needs > 2 bits");
 
 typedef struct
 {
-    uint8_t fail_streak : 2;   /* 0..S5_US_FAIL_LIMIT    */
-    uint8_t good_streak : 2;   /* 0..S5_US_RECOVER_LIMIT */
+    uint8_t fail_streak : 2;   /* 0..S5_US_FAIL_LIMIT        */
+    uint8_t good_streak : 2;   /* 0..S5_US_RECOVER_LIMIT     */
     uint8_t b_faulted   : 1;   /* 1 = FAULT_US_SENS reported */
 } us_health_t;
-
-static volatile us_health_t g_health = { 0u, 0u, 0u };
 
 /* Latest distance per scan position, in cm, 9 bits each (0..510 cm,
  * 511 = nothing seen, same scale as telemetry obstacle_cm).
@@ -53,32 +58,42 @@ static volatile us_health_t g_health = { 0u, 0u, 0u };
 #define CM_FIELD_BITS           (9u)
 #define CM_FIELD_MASK           (0x1FFu)
 #define CM_MAX_REAL             (S5_OBSTACLE_NONE_CM - 1u)   /* 510 cm */
-#define CM_ALL_NONE             ((1ull << (S5_SCAN_POSITIONS * CM_FIELD_BITS)) - 1ull)
+#define CM_ALL_NONE             ((1ull << (S5_SCAN_POSITIONS * \
+                                           CM_FIELD_BITS)) - 1ull)
 
 _Static_assert((S5_SCAN_POSITIONS * CM_FIELD_BITS) <= 64u,
                "scan distances do not fit in 64 bits");
 _Static_assert(CM_FIELD_MASK == S5_OBSTACLE_NONE_CM,
                "9-bit field must match the telemetry 'none' value");
 
-static uint64_t g_latest_cm = CM_ALL_NONE;
+static volatile us_health_t g_health    = { 0u, 0u, 0u };
+static uint64_t             g_latest_cm = CM_ALL_NONE;
 
-/* Read one 9-bit distance field. */
-static uint16_t s5_latest_cm_get(const uint8_t position)
+/* Bit position of one scan position's 9-bit field. */
+static uint32_t s5_field_shift (const uint8_t position)
 {
-    return (uint16_t)((g_latest_cm >> (position * CM_FIELD_BITS)) &
+    return ((uint32_t)position * CM_FIELD_BITS);   /* widening: always fits */
+}
+
+/* Read one 9-bit distance field. The cast is safe: the mask leaves at most
+ * 9 bits. */
+static uint16_t s5_latest_cm_get (const uint8_t position)
+{
+    return (uint16_t)((g_latest_cm >> s5_field_shift(position)) &
                       CM_FIELD_MASK);
 }
 
-/* Write one 9-bit distance field, leaving the others untouched. */
-static void s5_latest_cm_set(const uint8_t position, const uint16_t cm)
+/* Write one 9-bit distance field, leaving the others untouched. The casts
+ * only widen to 64 bits before shifting, so nothing is lost. */
+static void s5_latest_cm_set (const uint8_t position, const uint16_t cm)
 {
-    uint32_t shift = (uint32_t)position * CM_FIELD_BITS;
+    uint32_t shift = s5_field_shift(position);
 
     g_latest_cm = (g_latest_cm & ~((uint64_t)CM_FIELD_MASK << shift)) |
                   ((uint64_t)(cm & CM_FIELD_MASK) << shift);
 }
 
-void s5_report_sensor_ok(void)
+void s5_report_sensor_ok (void)
 {
     g_health.fail_streak = 0u;
 
@@ -94,12 +109,13 @@ void s5_report_sensor_ok(void)
             s1_clear_fault(FAULT_US_SENS);
             g_health.b_faulted   = 0u;
             g_health.good_streak = 0u;
-            tm_printf((UB*)"S5 ultrasonic recovered: FAULT_US_SENS cleared\n");
+            tm_printf((UB *)"S5 ultrasonic recovered: "
+                      "FAULT_US_SENS cleared\n");
         }
     }
 }
 
-void s5_report_sensor_error(void)
+void s5_report_sensor_error (void)
 {
     g_health.good_streak = 0u;
 
@@ -116,41 +132,50 @@ void s5_report_sensor_error(void)
         if (0u == g_health.b_faulted)
         {
             g_health.b_faulted = 1u;
-            tm_printf((UB*)"S5 ultrasonic fault: FAULT_US_SENS reported\n");
+            tm_printf((UB *)"S5 ultrasonic fault: FAULT_US_SENS reported\n");
             s1_csv_log_event("S5_FAULT", "US_SENS");
         }
     }
 }
 
-void s5_report_scanner_failed(void)
+void s5_report_scanner_failed (void)
 {
     g_health.fail_streak = S5_US_FAIL_LIMIT;
     g_health.good_streak = 0u;
     g_health.b_faulted   = 1u;
     s1_report_fault(FAULT_US_SENS);
-    tm_printf((UB*)"S5 scanner hardware failed: FAULT_US_SENS reported\n");
+    tm_printf((UB *)"S5 scanner hardware failed: FAULT_US_SENS reported\n");
     s1_csv_log_event("S5_FAULT", "SCANNER_INIT");
 }
 
-bool s5_report_is_faulted(void)
+void s5_report_keep_only (const uint8_t keep_position)
+{
+    uint64_t keep_mask = 0u;   /* invalid position: forget everything */
+
+    if (keep_position < S5_SCAN_POSITIONS)
+    {
+        /* Cast only widens to 64 bits before shifting. */
+        keep_mask = (uint64_t)CM_FIELD_MASK << s5_field_shift(keep_position);
+    }
+
+    g_latest_cm = (g_latest_cm & keep_mask) | (CM_ALL_NONE & ~keep_mask);
+}
+
+bool s5_report_is_faulted (void)
 {
     return (0u != g_health.b_faulted);
 }
 
-uint16_t s5_report_distance(const uint8_t position, const uint16_t distance_mm)
+uint16_t s5_report_distance (const uint8_t position,
+                             const uint16_t distance_mm)
 {
-    uint16_t cm_now;
+    uint16_t cm_now     = S5_OBSTACLE_NONE_CM;
     uint16_t nearest_cm = S5_OBSTACLE_NONE_CM;
-    uint16_t field_cm;
-    uint8_t  index;
 
     /* Convert this reading to the 9-bit cm scale. */
-    if (NO_OBSTACLE == distance_mm)
+    if (NO_OBSTACLE != distance_mm)
     {
-        cm_now = S5_OBSTACLE_NONE_CM;
-    }
-    else
-    {
+        /* Cast is safe: dividing a 16-bit value cannot make it bigger. */
         cm_now = (uint16_t)(distance_mm / S5_MM_PER_CM);
         if (cm_now > CM_MAX_REAL)
         {
@@ -163,15 +188,16 @@ uint16_t s5_report_distance(const uint8_t position, const uint16_t distance_mm)
         s5_latest_cm_set(position, cm_now);
     }
 
-    for (index = 0u; index < S5_SCAN_POSITIONS; index++)
+    for (uint8_t index = 0u; index < S5_SCAN_POSITIONS; index++)
     {
-        field_cm = s5_latest_cm_get(index);
+        uint16_t field_cm = s5_latest_cm_get(index);
+
         if (field_cm < nearest_cm)
         {
             nearest_cm = field_cm;
         }
     }
 
-    s1_set_obstacle((INT)nearest_cm);
+    s1_set_obstacle((INT)nearest_cm);   /* 0..511 always fits in INT */
     return nearest_cm;
 }

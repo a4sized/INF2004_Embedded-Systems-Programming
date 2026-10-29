@@ -17,29 +17,43 @@
  * Raise to 23500 for the sensor's full ~4 m range. */
 #define ECHO_TIMEOUT_US             (8750u)
 
-/* Value returned by drv_ultrasonic_read_distance_mm() when nothing echoes back. */
+/* Value returned by drv_ultrasonic_read_distance_mm() when nothing echoes
+ * back. */
 #define NO_OBSTACLE                 (0xFFFFu)
 
 /* ---------------- Servo movement ---------------- */
 /* The servo moves SERVO_STEP_DEGREES every SERVO_STEP_DELAY_MS.
- * 1 degree every 30 ms is about 33 degrees per second.
+ * 2 degrees every 10 ms is about 200 degrees per second: fast enough for a
+ * short start-up scan, still gentle enough not to jerk the sensor.
  * Bigger delay = slower, smaller delay = faster. */
-#define SERVO_STEP_DEGREES          (1u)
-#define SERVO_STEP_DELAY_MS         (30u)
+#define SERVO_STEP_DEGREES          (2u)
+#define SERVO_STEP_DELAY_MS         (10u)
 
-/* Extra wait after the servo arrives, so it has stopped before we measure. */
-#define SERVO_SETTLE_MS             (150u)
+/* Extra wait after the servo arrives, so it has stopped before we measure.
+ * Raise it if the reading right after a move looks wrong. */
+#define SERVO_SETTLE_MS             (100u)
 
 /* Fine-tune where "straight ahead" is. If the 90 degree position does not
  * face forward, change this (e.g. 10 or -10) until it does. */
 #define SERVO_TRIM_DEGREES          (0)
 
 /* ---------------- Scanning ---------------- */
-/* Number of angles in one sweep (scan_angles[] in subsystem5.c). */
+/* Number of angles in the start-up sweep (g_scan_angles[] in subsystem5.c).
+ * The sweep runs only at start-up, with the car held still, to check the
+ * path is clear before moving off. After that the sensor faces straight
+ * ahead (90 degrees) and stays there. */
 #define S5_SCAN_POSITIONS           (5u)
 
-/* Pause at each angle after taking a reading. */
-#define PAUSE_AT_EACH_ANGLE_MS      (500u)
+/* Pause at each angle of the start-up sweep after taking a reading.
+ * Two ping intervals: enough to retry once if the first reading fails. */
+#define PAUSE_AT_EACH_ANGLE_MS      (120u)
+
+/* After the start-up scan: print the straight-ahead distance this often.
+ * Printing is only for people watching the console. The sensor is still
+ * pinged every S5_PING_INTERVAL_MS in between, and every one of those
+ * readings goes to the obstacle guard and telemetry. Printing all of them
+ * (about 16 lines a second) would flood the console and slow the task. */
+#define S5_FORWARD_PRINT_MS         (500u)
 
 /* Priority of the scanning task (lower number = more important).
  * S5's band is 20-21 (TEAM.md). */
@@ -87,6 +101,7 @@
 
 /* Derived: do not edit. */
 #define S5_STOP_TRIGGER_CM          (S5_STOP_DISTANCE_CM + S5_BRAKE_MARGIN_CM)
-#define S5_RESUME_GAP_CM            (S5_STOP_TRIGGER_CM + S5_RESUME_HYSTERESIS_CM)
+#define S5_RESUME_GAP_CM            (S5_STOP_TRIGGER_CM + \
+                                     S5_RESUME_HYSTERESIS_CM)
 
 #endif /* S5_CONFIG_H */

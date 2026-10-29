@@ -8,9 +8,10 @@
 #include <tk/tkernel.h>
 
 /* Set up the servo and ultrasonic sensor (called once at startup). */
-ER subsystem5_init(void);
+ER subsystem5_init (void);
 
-/* Start the scanning task (called after every subsystem's init). */
-ER subsystem5_start(void);
+/* Hold the car still and start the scanning task, which runs the start-up
+ * scan (called after every subsystem's init). */
+ER subsystem5_start (void);
 
 #endif /* SUBSYSTEM5_H */

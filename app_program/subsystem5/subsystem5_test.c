@@ -22,7 +22,7 @@
 
 #if APP_TEST
 
-EXPORT void subsystem5_test(void)
+EXPORT void subsystem5_test (void)
 {
     S1_TELEMETRY_PKT telemetry;
     bool             b_stopped = false;
@@ -63,7 +63,8 @@ EXPORT void subsystem5_test(void)
     TEST_CHECK("S5-U07", (0u == speed_cap) && b_stopped,
                "stopped: stays stopped inside the resume gap");
 
-    speed_cap = s5_guard_speed_cap(S5_SENSOR_TO_FRONT_CM + S5_RESUME_GAP_CM + 1u,
+    speed_cap = s5_guard_speed_cap((S5_SENSOR_TO_FRONT_CM +
+                                    S5_RESUME_GAP_CM) + 1u,
                                    true, &b_stopped);
     TEST_CHECK("S5-U08", (0u != speed_cap) && (!b_stopped),
                "stopped: resumes once the obstacle is beyond the resume gap");

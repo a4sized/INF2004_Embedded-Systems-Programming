@@ -18,22 +18,28 @@
 #include <tk/tkernel.h>
 
 /* One reading worked: counts toward clearing FAULT_US_SENS. */
-void s5_report_sensor_ok(void);
+void s5_report_sensor_ok (void);
 
 /* One reading (or servo move) failed: counts toward FAULT_US_SENS. */
-void s5_report_sensor_error(void);
+void s5_report_sensor_error (void);
 
 /* Scanner hardware did not start: report FAULT_US_SENS at once. It stays
  * set because the scanning task (which would clear it) never runs. */
-void s5_report_scanner_failed(void);
+void s5_report_scanner_failed (void);
 
 /* Record the latest GOOD distance at one scan position, send the nearest
  * obstacle over all positions to telemetry, and return it in cm
  * (S5_OBSTACLE_NONE_CM if nothing is seen). NO_OBSTACLE = nothing seen.
  * Never call it for a failed reading. */
-uint16_t s5_report_distance(const uint8_t position, const uint16_t distance_mm);
+uint16_t s5_report_distance (const uint8_t position,
+                             const uint16_t distance_mm);
+
+/* Forget the distances at every scan position except keep_position (set
+ * them to "nothing seen"). Used after the start-up scan, when the sensor
+ * stays facing ahead and old side readings must not hold the car. */
+void s5_report_keep_only (const uint8_t keep_position);
 
 /* True while Subsystem 5 has FAULT_US_SENS reported. */
-bool s5_report_is_faulted(void);
+bool s5_report_is_faulted (void);
 
 #endif /* S5_REPORT_H */
