@@ -27,12 +27,10 @@ void s5_report_sensor_error (void);
  * set because the scanning task (which would clear it) never runs. */
 void s5_report_scanner_failed (void);
 
-/* Record the latest GOOD distance at one scan position, send the nearest
- * obstacle over all positions to telemetry, and return it in cm
- * (S5_OBSTACLE_NONE_CM if nothing is seen). NO_OBSTACLE = nothing seen.
- * Never call it for a failed reading. */
-uint16_t s5_report_distance (const uint8_t position,
-                             const uint16_t distance_mm);
+/* Record the latest GOOD distance (mm, NO_OBSTACLE = nothing seen) at one
+ * scan position and send the nearest obstacle over all positions to
+ * telemetry. Never call it for a failed reading. */
+void s5_report_distance (const uint8_t position, const uint16_t distance_mm);
 
 /* Convert a reading in mm (NO_OBSTACLE = nothing seen) to the 9-bit cm
  * scale: 0..510 cm, S5_OBSTACLE_NONE_CM = nothing seen. */

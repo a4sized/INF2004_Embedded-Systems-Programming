@@ -182,8 +182,7 @@ uint16_t s5_report_mm_to_cm (const uint16_t distance_mm)
     return distance_cm;
 }
 
-uint16_t s5_report_distance (const uint8_t position,
-                             const uint16_t distance_mm)
+void s5_report_distance (const uint8_t position, const uint16_t distance_mm)
 {
     uint16_t cm_now     = s5_report_mm_to_cm(distance_mm);
     uint16_t nearest_cm = S5_OBSTACLE_NONE_CM;
@@ -204,5 +203,4 @@ uint16_t s5_report_distance (const uint8_t position,
     }
 
     s1_set_obstacle((INT)nearest_cm);   /* 0..511 always fits in INT */
-    return nearest_cm;
 }
