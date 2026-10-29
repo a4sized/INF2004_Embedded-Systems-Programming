@@ -80,6 +80,7 @@ EXPORT void subsystem1_test(void)
         /* S1-U06: CSV logger */
         s1_csv_log_event("TEST_FAULT", "Simulated hardware failure");
         TEST_CHECK("S1-U06", 1, "CSV logger called safely");
+        s1_clear_fault(0x01 | FAULT_CMD_REJECTED);
         TEST_SUMMARY("subsystem1");
 }
 

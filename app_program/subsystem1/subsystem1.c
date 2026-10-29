@@ -79,3 +79,4 @@ EXPORT INT s1_mqtt_pop_tx(UB *buf, INT max_len)
         len = tk_rcv_mbf(mbf_mqtt_tx, buf, TMO_POL);
         return (len > 0) ? len : 0;
 }
+

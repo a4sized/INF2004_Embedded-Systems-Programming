@@ -183,7 +183,7 @@ EXPORT void led_task(INT stacd, void *exinf) {
                 case S1_CMD_ESTOP: tk_set_flg(flg_s1_cmd, S1_FLG_CMD_ESTOP); break;
                 case S1_CMD_CLEAR: 
                     tk_set_flg(flg_s1_cmd, S1_FLG_CMD_CLEAR); 
-                    s1_clear_fault(FAULT_CMD_REJECTED);
+                    s1_clear_fault(FAULT_CMD_REJECTED | FAULT_ESTOP);
                     break;
                 case S1_CMD_PING:  tk_set_flg(flg_s1_cmd, S1_FLG_CMD_PING); break;
                 default: break;
