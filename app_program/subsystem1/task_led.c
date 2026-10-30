@@ -1,17 +1,20 @@
 /*
  *      task_led.c
+ *      Subsystem 1: LED heartbeat, telemetry gatekeeper, centralized fault manager,
+ *      and inbound command processing task.
  */
 
 #include "subsystem1.h"
 #include "../systemFaults.h"
 #include <tstdlib.h>
 
-EXPORT UW               s1_tx_queued = 0;
-EXPORT UW               s1_rx_commands = 0;
-EXPORT UW               s1_rx_rejected = 0;
-EXPORT S1_CMD_TYPE      s1_last_cmd = S1_CMD_NONE;
+/* Telemetry and command counters */
+EXPORT UW               s1_tx_queued = 0;          /* Total telemetry packets queued for TX */
+EXPORT UW               s1_rx_commands = 0;        /* Total valid commands received and executed */
+EXPORT UW               s1_rx_rejected = 0;        /* Total malformed or rejected commands */
+EXPORT S1_CMD_TYPE      s1_last_cmd = S1_CMD_NONE; /* Last successfully parsed command */
 
-/* Minimum-Bit telemetry struct (Gatekeeper controlled) */
+/* Minimum-bit telemetry state (protected by mtx_telemetry) */
 LOCAL S1_TELEMETRY_PKT  s1_telemetry = {
         .seq         = 0,
         .speed_mm_s  = 0,
@@ -24,8 +27,7 @@ LOCAL S1_TELEMETRY_PKT  s1_telemetry = {
         .fault_mask  = 0
 };
 
-/* --- GATEKEEPER APIs (Thread-Safe Bit-Field Setters) --- */
-
+/* Gatekeeper APIs: Thread-safe setters for telemetry state under mtx_telemetry */
 EXPORT void s1_set_speed(INT speed_mm_s) {
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
     s1_telemetry.speed_mm_s = speed_mm_s;
@@ -63,19 +65,21 @@ EXPORT void s1_set_line_mask(UW mask) {
     tk_unl_mtx(mtx_telemetry);
 }
 
-/* Centralized Fault Reporting */
+/* Sets one or more fault bits in the consolidated telemetry fault mask */
 EXPORT void s1_report_fault(UW fault_bit) {
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
     s1_telemetry.fault_mask |= fault_bit;
     tk_unl_mtx(mtx_telemetry);
 }
+
+/* Clears specified fault bits in the telemetry fault mask */
 EXPORT void s1_clear_fault(UW fault_bit) {
-    /* Clears the mask cleanly. The fault is gone immediately and permanently. */
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
     s1_telemetry.fault_mask &= ~fault_bit;
     tk_unl_mtx(mtx_telemetry);
 }
 
+/* Returns an atomic snapshot of current telemetry data */
 EXPORT void s1_get_telemetry(S1_TELEMETRY_PKT *out) {
     if (out == NULL) return;
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
@@ -83,18 +87,19 @@ EXPORT void s1_get_telemetry(S1_TELEMETRY_PKT *out) {
     tk_unl_mtx(mtx_telemetry);
 }
 
+/* Reports fault bits safely from ISR context via non-blocking event flag */
 EXPORT void s1_report_fault_isr(UW fault_bit) {
     tk_set_flg(flg_s1_isr_fault, fault_bit);
 }
 
-/* Parse binary (1-byte) or ASCII text command payload */
+/* Parses 1-byte binary command or ASCII string into S1_CMD_TYPE */
 EXPORT S1_CMD_TYPE s1_parse_command(const UB *payload, INT len) {
     INT i;
     char txt[16];
     INT clen;
     if (payload == NULL || len < 1) return S1_CMD_NONE;
 
-    /* 1. Direct binary packet (1 byte: cmd_id 1..5) */
+    /* Binary packet (1-byte cmd_id or ASCII digit '1'..'5') */
     if (len == 1) {
         S1_CMD_PKT *cmd = (S1_CMD_PKT*)payload;
         if (cmd->cmd_id >= S1_CMD_START && cmd->cmd_id <= S1_CMD_PING) {
@@ -105,7 +110,7 @@ EXPORT S1_CMD_TYPE s1_parse_command(const UB *payload, INT len) {
         }
     }
 
-    /* 2. Plain ASCII text strings (case-insensitive prefix match) */
+    /* Plain ASCII text command string (case-insensitive prefix match) */
     clen = (len < 15) ? len : 15;
     for (i = 0; i < clen; i++) {
         char c = (char)payload[i];
@@ -124,11 +129,12 @@ EXPORT S1_CMD_TYPE s1_parse_command(const UB *payload, INT len) {
     return S1_CMD_NONE;
 }
 
+/* Logs event and telemetry state in CSV format over USB serial */
 EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
     S1_TELEMETRY_PKT snap;
     s1_get_telemetry(&snap);
 
-    /* Only log to slow USB serial if there is a fault or a command event */
+    /* Output CSV log only on active faults or command events to avoid serial bus congestion */
     if (snap.fault_mask != 0 ||
         (event_type != NULL && (event_type[0] == 'C' && event_type[1] == 'M' && event_type[2] == 'D'))) {
 
@@ -140,11 +146,13 @@ EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
     }
 }
 
+/* Cyclic handler: Wakes up LED task every 250 ms */
 EXPORT void led_cyclic_handler(void *exinf) {
     (void)exinf;
     tk_wup_tsk(tid_led);
 }
 
+/* Core task: Heartbeat LED toggle, ISR fault draining, command dispatch, and 1s telemetry queuing */
 EXPORT void led_task(INT stacd, void *exinf) {
     UINT            level = 0;
     UW              ticks = 0;
@@ -157,21 +165,22 @@ EXPORT void led_task(INT stacd, void *exinf) {
     gpio_set_pin(S1_LED_PIN, GPIO_MODE_OUT);
 
     while (1) {
+        /* Wait for periodic wakeup from cyclic timer */
         tk_slp_tsk(TMO_FEVR);
         tk_can_wup(TSK_SELF);
 
+        /* Toggle status LED */
         level = !level;
         gpio_set_val(S1_LED_PIN, level);
 
-        /* Drain pending ISR faults via event flag */
+        /* Drain pending ISR faults via event flag into telemetry mask */
         if (tk_wai_flg(flg_s1_isr_fault, 0xFFFFFFFF, TWF_ORW | TWF_CLR, &isr_faults, TMO_POL) == E_OK) {
-            /* Apply ISR faults directly to the mask to avoid a recursive flag loop */
             tk_loc_mtx(mtx_telemetry, TMO_FEVR);
             s1_telemetry.fault_mask |= isr_faults;
             tk_unl_mtx(mtx_telemetry);
         }
 
-        /* Drain binary MQTT commands */
+        /* Drain and execute inbound MQTT commands from message buffer */
         while ((len = tk_rcv_mbf(mbf_mqtt_rx, rx_buf, TMO_POL)) > 0) {
             S1_CMD_TYPE cmd = s1_parse_command(rx_buf, len);
             if (cmd != S1_CMD_NONE) {
@@ -196,7 +205,7 @@ EXPORT void led_task(INT stacd, void *exinf) {
             }
         }
 
-        /* 3. Send Compact Binary Telemetry (8 bytes) every S1_TELEM_TICKS */
+        /* Queue 8-byte telemetry packet every S1_TELEM_TICKS (1 second) */
         if (++ticks % S1_TELEM_TICKS == 0) {
             tk_loc_mtx(mtx_telemetry, TMO_FEVR);
             s1_telemetry.seq++;

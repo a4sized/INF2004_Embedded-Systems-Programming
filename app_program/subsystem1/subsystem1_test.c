@@ -1,5 +1,6 @@
 /*
  *      subsystem1_test.c
+ *      Unit tests for Subsystem 1 (LED task, telemetry bitfields, and MQTT commands).
  */
 
 #include "subsystem1.h"
@@ -19,7 +20,7 @@ EXPORT void subsystem1_test(void)
 
         TEST_INIT();
 
-        /* S1-U01 */
+        /* S1-U01: Verify cyclic handler and kernel synchronization objects are active */
         er = tk_ref_cyc(cyc_led, &rcyc);
         TEST_CHECK("S1-U01",
                    er == E_OK && (rcyc.cycstat & TCYC_STA) &&
@@ -27,7 +28,7 @@ EXPORT void subsystem1_test(void)
                    mtx_telemetry > 0 && flg_s1_cmd > 0 && flg_s1_isr_fault > 0,
                    "cyclic handler and S1 kernel objects are active");
 
-        /* S1-U02 */
+        /* S1-U02: Verify telemetry task sleeps between cyclic ticks */
         {
                 INT     i, waiting = 0;
                 for (i = 0; i < 10; i++) {
@@ -41,7 +42,7 @@ EXPORT void subsystem1_test(void)
                            "telemetry task sleeps between cyclic ticks");
         }
 
-        /* S1-U03: Verify Minimum-Bit 8-byte Struct and Setters */
+        /* S1-U03: Verify 8-byte packed telemetry struct and thread-safe setters */
         s1_set_speed(150);
         s1_set_obstacle(42);
         s1_set_pitch(-3);
@@ -54,7 +55,7 @@ EXPORT void subsystem1_test(void)
                    snap.pitch_deg == -3 && (snap.fault_mask & 0x01),
                    "binary bit-field setters succeed, payload is 8 bytes");
 
-        /* S1-U04: inbound valid binary command via mbf_mqtt_rx */
+        /* S1-U04: Inbound valid binary command via mbf_mqtt_rx */
         S1_CMD_PKT cmd;
         cmd.cmd_id = S1_CMD_ESTOP;
         cmd.reserved = 0;
@@ -66,7 +67,7 @@ EXPORT void subsystem1_test(void)
                    s1_last_cmd == S1_CMD_ESTOP,
                    "binary MQTT command ESTOP decoded and flag set");
 
-        /* S1-U05: malformed/unknown command (bad cmd_id) */
+        /* S1-U05: Inbound malformed/unknown command (bad cmd_id) */
         rej_before = s1_rx_rejected;
         S1_CMD_PKT bad_cmd;
         bad_cmd.cmd_id = 7; /* 7 is invalid */
@@ -77,9 +78,11 @@ EXPORT void subsystem1_test(void)
                    s1_rx_rejected == rej_before + 1,
                    "unknown binary MQTT command is rejected and counted");
 
-        /* S1-U06: CSV logger */
+        /* S1-U06: CSV logger execution */
         s1_csv_log_event("TEST_FAULT", "Simulated hardware failure");
         TEST_CHECK("S1-U06", 1, "CSV logger called safely");
+
+        /* Clear simulated faults so subsequent tests and subsystems start clean */
         s1_clear_fault(0x01 | FAULT_CMD_REJECTED);
         TEST_SUMMARY("subsystem1");
 }

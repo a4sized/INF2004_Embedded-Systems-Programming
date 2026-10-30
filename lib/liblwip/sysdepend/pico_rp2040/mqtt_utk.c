@@ -1,18 +1,7 @@
 /*
  *      mqtt_utk.c
- *      MQTT client wiring for micro T-Kernel (RP2040, NO_SYS=1)
- *
- *      Runs entirely on the single processor-1-owned task that already owns
- *      the CYW43439 and the rest of lwIP (docs/RELEASE.md safety rule 6):
- *      cyw43_utk_task() (cyw43_utk.c) calls mqtt_utk_start() once, the first
- *      time it observes CYW43_LINK_UP. mqtt.c's own keepalive/ping/retry
- *      timers, and the heartbeat below, both ride the same sys_check_timeouts()
- *      polling that task already does for DHCP and TCP -- nothing extra runs
- *      on any other task or core.
- *
- *      This file does not include tk/tkernel.h or any pico-sdk/cyw43 header
- *      (unlike cyw43_utk.c and sys_arch.c), so it isn't subject to either
- *      file's size_t workaround -- tm/tmonitor.h alone is namespace-safe here.
+ *      MQTT client implementation for micro T-Kernel (RP2040, NO_SYS=1).
+ *      Handles broker connection, telemetry publishing, and inbound command subscription.
  */
 
 #include "lwip/apps/mqtt.h"
@@ -22,27 +11,21 @@
 #include "mqtt_utk.h"
 #include <tm/tmonitor.h>
 
-/* Subsystem 1 non-blocking bridge functions (defined in subsystem1.c).
- * systemFaults.h is intentionally NOT included here: it pulls tk/tkernel.h
- * which conflicts with lwIP's size_t (see file header comment).
- * Forward-declare what we need with namespace-safe types instead. */
+/* Subsystem 1 non-blocking bridge functions and fault reporting */
 extern void s1_mqtt_push_rx(const UB *data, INT len);
 extern INT  s1_mqtt_pop_tx(UB *buf, INT max_len);
 extern void s1_report_fault(UW fault_bit);
 extern void s1_clear_fault(UW fault_bit);
-#define FAULT_WIFI (1U << 5)   /* must match systemFaults.h */
+#define FAULT_WIFI (1U << 5)   /* Wi-Fi / MQTT link fault bit */
 
-#define MQTT_UTK_HEARTBEAT_MS   1000
-#define MQTT_UTK_KEEPALIVE_S    60
-#define MQTT_UTK_RETRY_MS       3000
+/* Timing configuration */
+#define MQTT_UTK_HEARTBEAT_MS   1000    /* Telemetry transmission interval (1s) */
+#define MQTT_UTK_KEEPALIVE_S    60      /* MQTT broker keep-alive timer (60s) */
+#define MQTT_UTK_RETRY_MS       3000    /* Broker reconnect retry interval (3s) */
 
-/* Inbound message staging. A publish arrives as one topic callback followed by
- * one or more data callbacks, so the topic has to be kept until the fragment
- * carrying MQTT_DATA_FLAG_LAST shows up. Both buffers are sized well past the
- * heartbeat this demo publishes; anything longer is truncated and flagged
- * rather than being allowed to run off the end. */
-#define MQTT_UTK_RX_TOPIC_MAX   64
-#define MQTT_UTK_RX_DATA_MAX    128
+/* Inbound message buffer capacities */
+#define MQTT_UTK_RX_TOPIC_MAX   64      /* Maximum incoming topic length */
+#define MQTT_UTK_RX_DATA_MAX    128     /* Maximum incoming payload length */
 
 static mqtt_client_t    *client;
 static ip_addr_t        broker_addr;
@@ -55,8 +38,7 @@ static u8_t             rx_truncated;
 
 static void heartbeat_timeout(void *arg);
 
-/* mqtt.c NUL-terminates the topic before handing it over, but it is only
- * valid for the duration of this call -- copy it out. */
+/* Handles incoming publish topic name from broker */
 static void incoming_publish_cb(void *arg, const char *topic, u32_t tot_len)
 {
         u32_t   i;
@@ -73,6 +55,7 @@ static void incoming_publish_cb(void *arg, const char *topic, u32_t tot_len)
         rx_truncated = 0;
 }
 
+/* Handles incoming publish data payload from broker */
 static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 {
         u16_t   i;
@@ -92,14 +75,14 @@ static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
                 tm_printf((UB*)"mqtt: RX [%s] \"%s\"%s\n", rx_topic, rx_data,
                           rx_truncated? " (truncated)": "");
 
-                /* Forward non-JSON payloads (e.g. START, STOP, ESTOP) into
-                 * Subsystem 1's inbound command buffer without blocking. */
+                /* Forward non-JSON command payloads into Subsystem 1's inbound message buffer */
                 if(rx_len > 0 && rx_data[0] != '{') {
                         s1_mqtt_push_rx(rx_data, (INT)rx_len);
                 }
         }
 }
 
+/* Callback for topic subscription confirmation */
 static void subscribe_done_cb(void *arg, err_t result)
 {
         (void)arg;
@@ -110,6 +93,7 @@ static void subscribe_done_cb(void *arg, err_t result)
         }
 }
 
+/* Callback for publish completion */
 static void publish_done_cb(void *arg, err_t result)
 {
         (void)arg;
@@ -118,6 +102,7 @@ static void publish_done_cb(void *arg, err_t result)
         }
 }
 
+/* Periodic timer: Drains 8-byte telemetry packets from Subsystem 1 and publishes over MQTT */
 static void heartbeat_timeout(void *arg)
 {
         UB      payload[MQTT_UTK_RX_DATA_MAX];
@@ -126,7 +111,7 @@ static void heartbeat_timeout(void *arg)
         (void)arg;
 
         if(mqtt_client_is_connected(client)) {
-                /* Drain queued telemetry packets from Subsystem 1 */
+                /* Drain queued 8-byte telemetry packets from Subsystem 1 */
                 while((len = s1_mqtt_pop_tx(payload, sizeof(payload) - 1)) > 0) {
                         payload[len] = '\0';
                         INT k;
@@ -141,12 +126,11 @@ static void heartbeat_timeout(void *arg)
                 }
         }
 
-        /* Re-arms itself every call -- mqtt.c's connection callback (below)
-         * only starts this chain once, on the transition into MQTT_CONNECT_
-         * ACCEPTED, so there is exactly one heartbeat chain alive at a time. */
+        /* Re-arms itself every 1 second */
         sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
 }
 
+/* Timer callback to retry MQTT broker connection on failure */
 static void retry_timeout(void *arg)
 {
         (void)arg;
@@ -154,6 +138,7 @@ static void retry_timeout(void *arg)
         mqtt_utk_start();
 }
 
+/* Connection status callback: handles link up/down events and topic subscription */
 static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t status)
 {
         (void)c;
@@ -162,23 +147,13 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
         if(status == MQTT_CONNECT_ACCEPTED) {
                 err_t   err;
 
-                /* Connection successful: Clear the MQTT drop fault */
+                /* Connection successful: Clear Wi-Fi/MQTT fault */
                 s1_clear_fault(FAULT_WIFI);
-
-                /* No longer *connecting* -- clear the guard so that if this
-                 * connection later drops, the poll loop's mqtt_utk_start() call
-                 * is allowed to reconnect. Leaving it set would wedge the client
-                 * permanently after the first disconnect. */
                 connecting = 0;
 
                 tm_printf((UB*)"mqtt: connected to " MQTT_BROKER_IP "\n");
 
-                /* Subscribe to the same topic this client publishes to, so every
-                 * heartbeat comes back from the broker and is printed by
-                 * incoming_data_cb(). A matching RX for each TX is end-to-end
-                 * proof of the round trip without needing mosquitto_sub on the
-                 * broker host. Callbacks must be registered before subscribing,
-                 * or the first delivery has nowhere to go. */
+                /* Register publish callbacks and subscribe to command topic */
                 mqtt_set_inpub_callback(client, incoming_publish_cb,
                                         incoming_data_cb, NULL);
 
@@ -189,27 +164,19 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
                                   (int)err);
                 }
 
-                /* Drop any chain left over from a previous connection before
-                 * arming a new one. Each reconnect would otherwise add another
-                 * self-perpetuating heartbeat, and every one of them holds a
-                 * MEMP_SYS_TIMEOUT slot until the pool is exhausted. */
+                /* Restart telemetry publish timer */
                 sys_untimeout(heartbeat_timeout, NULL);
                 sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
         } else {
-                /* Connection failed or dropped: Set the MQTT drop fault */
+                /* Connection failed or dropped: Report Wi-Fi/MQTT fault and schedule retry */
                 s1_report_fault(FAULT_WIFI);
-                
-                /* mqtt_client_connect() reconnects on its own for a dropped
-                 * keepalive; a rejected/never-established connection does not
-                 * retry itself, so do that here -- on a delay, so a broker
-                 * that keeps rejecting (e.g. bad client ID) can't turn this
-                 * into a tight reconnect loop. */
                 tm_printf((UB*)"mqtt: connection status %d, retrying in %ds\n",
                           (int)status, MQTT_UTK_RETRY_MS / 1000);
                 sys_timeout(MQTT_UTK_RETRY_MS, retry_timeout, NULL);
         }
 }
 
+/* Initializes MQTT client and connects to configured broker */
 void mqtt_utk_start(void)
 {
         struct mqtt_connect_client_info_t       client_info = {0};
