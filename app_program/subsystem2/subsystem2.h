@@ -22,10 +22,10 @@
 #define M2A_PIN             10  /* Right motor forward PWM */
 #define M2B_PIN             11  /* Right motor reverse PWM */
 
-#define LEFT_ENC_A          14  /* Left encoder channel A */
-#define LEFT_ENC_B          15  /* Left encoder channel B */
-#define RIGHT_ENC_A         2   /* Right encoder channel A */
-#define RIGHT_ENC_B         3   /* Right encoder channel B */
+#define LEFT_ENC_A          26  /* Left encoder channel A */
+#define LEFT_ENC_B          6  /* Left encoder channel B */
+#define RIGHT_ENC_A         5   /* Right encoder channel A */
+#define RIGHT_ENC_B         4   /* Right encoder channel B */
 /* Note: ENC2_PWR_PIN (16) removed to fix hardware conflict with Barcode IR */
 
 /* ---------------------------------------------------------------------
@@ -38,6 +38,11 @@ typedef struct {
     uint32_t prc     : 2;   /* Processor core ID 1..2 (2 bits) */
     uint32_t reserved: 7;   /* Explicit alignment to 32-bit boundary */
     UW       time_ms;       /* System timestamp in ms */
+
+    int32_t  left_encoder;
+    int32_t  right_encoder;
+    float distance_mm;
+
 } SAMPLE_MSG;
 
 #define S2_POOL_COUNT       4   /* Maximum 4 samples in flight */

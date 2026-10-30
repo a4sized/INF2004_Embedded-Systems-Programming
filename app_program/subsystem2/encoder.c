@@ -56,6 +56,25 @@ void encoder_reset(void)
     EI(intsts);
 }
 
+float get_distance_traveled_mm(void)
+{
+    int32_t ticks_l, ticks_r;
+    UINT intsts;
+
+    /* 1. Atomically sample both encoders at the exact same microsecond */
+    DI(intsts);
+    ticks_l = enc_left;
+    ticks_r = enc_right;
+    EI(intsts);
+
+    /* 2. Convert ticks to millimeters */
+    float dist_l = (float)ticks_l * MM_PER_TICK;
+    float dist_r = (float)ticks_r * MM_PER_TICK;
+
+    /* 3. Return the average (center-of-robot displacement) */
+    return (dist_l + dist_r) / 2.0f;
+}
+
 /* ======================================================================
  *  2. Pin levels -> counts
  *

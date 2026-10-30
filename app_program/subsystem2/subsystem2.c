@@ -37,6 +37,12 @@ LOCAL MotorControl_t motor_ctrl = {
     .active_right_speed    = 0
 };
 
+LOCAL int32_t prev_left_ticks = 0;
+LOCAL int32_t prev_right_ticks = 0;
+LOCAL int32_t current_left_velocity = 0;
+LOCAL int32_t current_right_velocity = 0;
+LOCAL int32_t sync_error_integral = 0;
+
 /* --------------------------------------------------------------------------
  * PUBLIC ARBITRATOR SETTERS (Thread-Safe via Priority-Inheritance Mutex)
  * -------------------------------------------------------------------------- */
@@ -63,6 +69,11 @@ EXPORT void s2_set_us_clearance(uint8_t max_speed) {
  * -------------------------------------------------------------------------- */
 EXPORT void motor_reset_ticks(void) {
     encoder_reset();
+    prev_left_ticks = 0;
+    prev_right_ticks = 0;
+    current_left_velocity = 0;
+    current_right_velocity = 0;
+    sync_error_integral = 0;
 }
 
 EXPORT int32_t get_left_encoder_ticks(void) {
@@ -220,9 +231,39 @@ LOCAL void handle_motor_steady_drive(int16_t left_speed, int16_t right_speed) {
         return;
     }
 
+    /* 1. Update the FSM state trackers FIRST */
     motor_ctrl.active_left_speed  = left_speed;
     motor_ctrl.active_right_speed = right_speed;
-    motor_speed(motor_ctrl.active_left_speed, motor_ctrl.active_right_speed);
+
+    /* 2. Apply the physical motor speeds SECOND */
+    /* NEW: Closed-Loop Straight Line Synchronization (PI Controller) */
+    if (left_speed == right_speed) {
+        /* Calculate speed difference in this 20ms window */
+        int32_t speed_error = current_left_velocity - current_right_velocity;
+        
+        /* Accumulate the total lost ticks over time (Integral) */
+        sync_error_integral += speed_error;
+
+        /* PI-Controller: Kp = 2 (Instant speed), Ki = 1 (Total accumulated drift) */
+        int16_t correction = (int16_t)(speed_error * 2) + (int16_t)(sync_error_integral);
+
+        /* Anti-windup cap: Prevent the correction from violently jerking the robot */
+        if (correction > 80) correction = 80;
+        if (correction < -80) correction = -80;
+
+        int16_t adj_left  = left_speed - correction;
+        int16_t adj_right = right_speed + correction;
+
+        motor_speed(adj_left, adj_right);
+    } else {
+        /* Reset drift memory immediately if the robot is commanded to steer/turn */
+        sync_error_integral = 0; 
+        
+        /* Open-loop turning (Targets are deliberately unequal) */
+        motor_speed(motor_ctrl.active_left_speed, motor_ctrl.active_right_speed);
+    }
+    
+    /* REMOVED the redundant motor_speed() call that was down here */
 }
 
 LOCAL void handle_motor_reversing(int16_t left_speed, int16_t right_speed) {
@@ -250,6 +291,14 @@ LOCAL void handle_motor_safety_halt(int16_t left_speed, int16_t right_speed, boo
 }
 
 LOCAL void motion_fsm_update(void) {
+
+    int32_t live_l = get_left_encoder_ticks();
+    int32_t live_r = get_right_encoder_ticks();
+    current_left_velocity  = live_l - prev_left_ticks;
+    current_right_velocity = live_r - prev_right_ticks;
+    prev_left_ticks  = live_l;
+    prev_right_ticks = live_r;
+
     bool fault_active = has_active_fault();
 
     tk_loc_mtx(mtx_motor_intent, TMO_FEVR);

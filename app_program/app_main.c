@@ -115,13 +115,15 @@ EXPORT INT usermain(void)
 	tm_printf((UB*)"single-core build\n");
 #endif
 
-T_CFLG cflg = {0};
-cflg.flgatr  = TA_TFIFO | TA_WMUL; /* Allow multiple subsystems to wait on or set it */
-cflg.iflgptn = 0U;                 /* Start with 0 (no faults active) */
+    T_CFLG cflg = {0};
+    cflg.flgatr  = TA_TFIFO | TA_WMUL; /* Allow multiple subsystems to wait on or set it */
+    cflg.iflgptn = 0U;                 /* Start with 0 (no faults active) */
 
-if (fault_flag < E_OK) {
-    tm_printf((UB*)"FATAL: Failed to create fault_flag\n");
-}
+    /* FIXED: Actually create the kernel object before checking for errors */
+    fault_flag = tk_cre_flg(&cflg); 
+    if (fault_flag < E_OK) {
+        tm_printf((UB*)"FATAL: Failed to create fault_flag\n");
+    }
 
 	/* Phase 1: every subsystem creates its kernel objects */
 	CHECK(subsystem1_init(), "subsystem1_init");
@@ -136,8 +138,10 @@ if (fault_flag < E_OK) {
 	CHECK(subsystem1_start(), "subsystem1_start");
 	CHECK(subsystem2_start(), "subsystem2_start");
 	CHECK(subsystem3_start(), "subsystem3_start");
-	CHECK(subsystem4_start(), "subsystem4_start");
-	CHECK(subsystem5_start(), "subsystem5_start");
+    
+    /* TEMPORARILY DISABLED: Prevent S4 and S5 from stopping the motors during the S2 test */
+	// CHECK(subsystem4_start(), "subsystem4_start");
+	// CHECK(subsystem5_start(), "subsystem5_start");
 
 	tm_printf((UB*)"all subsystems started\n\n");
 

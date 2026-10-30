@@ -38,10 +38,10 @@
 /* +1 or -1.  If a wheel's counter goes DOWN when the car drives forward,
  * change its sign.  Check each wheel by turning it forward by hand. */
 #ifndef ENC_LEFT_SIGN
-#define ENC_LEFT_SIGN       (1)
+#define ENC_LEFT_SIGN       (-1)
 #endif
 #ifndef ENC_RIGHT_SIGN
-#define ENC_RIGHT_SIGN      (1)
+#define ENC_RIGHT_SIGN      (-1)
 #endif
 
 /* 1 = switch on the pin's internal pull-up (and switch off the pull-down that
@@ -101,6 +101,14 @@ IMPORT int32_t encoder_get_left(void);
 IMPORT int32_t encoder_get_right(void);
 IMPORT void    encoder_reset(void);             /* both counters back to 0 */
 IMPORT UW      encoder_irq_count(void);         /* interrupts so far: 0 means the wiring or setup is wrong */
+
+/* Odometry Hardware Constants */
+#define WHEEL_DIAMETER_MM       66.0f   /* Replace with your exact wheel diameter */
+#define ENCODER_TPR             360.0f  /* Replace with your exact motor TPR */
+#define PI_APPROX               3.14159265f
+#define MM_PER_TICK             ((PI_APPROX * WHEEL_DIAMETER_MM) / ENCODER_TPR)
+
+IMPORT float get_distance_traveled_mm(void);
 
 /* The interrupt handler and its core.  Public ONLY so the PC test can call
  * them; nothing else should. */
