@@ -55,28 +55,39 @@ EXPORT void subsystem2_test(void)
     /* S2-U06: Active Drive Odometry Test */
     tm_printf((UB*)"\n==========================================\n");
     tm_printf((UB*)" S2-U06: ACTIVE DRIVE PI CONTROLLER TEST\n");
-    tm_printf((UB*)" Driving forward for 5 seconds...\n");
+    tm_printf((UB*)" Pausing for 5 seconds... Place robot on floor!\n");
     tm_printf((UB*)"==========================================\n");
     
-    motor_reset_ticks();
+    /* 1. Force motors STOPPED during countdown */
+    s2_set_ir_velocity(0, 0);
+
+    /* 2. Wait for 5 seconds */
+    for (int p = 7; p > 0; p--) {
+        tm_printf((UB*)"Starting in %d...\n", p);
+        tk_dly_tsk(1000);
+    }
+    tm_printf((UB*)"GO!\n");
     
-    /* 1. Force safety caps open and command maximum torque forward */
+    /* 3. RESET the math right before moving to erase any air-spinning ticks */
+    motor_reset_ticks();
+
+    /* 4. Force safety caps open and command maximum torque forward */
     s2_set_us_clearance(255);
     s2_set_ir_velocity(255, 255);
     
-    /* 2. Drive for 5 seconds, printing live ticks every 100ms */
-    for (int i = 0; i < 50; i++) {
+    /* 5. Drive for 2 seconds, printing live ticks every 100ms */
+    for (int i = 0; i < 10; i++) {
         int32_t live_l = get_left_encoder_ticks();
         int32_t live_r = get_right_encoder_ticks();
         tm_printf((UB*)"[T+%04d ms] L=%d | R=%d\n", i * 100, (int)live_l, (int)live_r);
         tk_dly_tsk(100);
     }
 
-    /* 3. Stop the robot */
+    /* 6. Stop the robot */
     s2_set_ir_velocity(0, 0);
     tk_dly_tsk(500); /* Wait half a second for momentum and ramp-down to finish */
 
-    /* 4. Grab the final math calculations */
+    /* 7. Grab the final math calculations */
     float dist = get_distance_traveled_mm();
     int32_t final_l = get_left_encoder_ticks();
     int32_t final_r = get_right_encoder_ticks();
@@ -91,9 +102,8 @@ EXPORT void subsystem2_test(void)
 
     TEST_CHECK("S2-U06",
            1, 
-           "Active 5-second drive completed and distance calculated");
+           "Active 2-second drive completed and distance calculated");
 
-    /* THESE WERE THE MISSING LINES */
     TEST_SUMMARY("subsystem2");
 }
 

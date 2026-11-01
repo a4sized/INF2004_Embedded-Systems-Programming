@@ -18,10 +18,13 @@
 #include "encoder.h"      /* wheel encoder counting (encoder.c) */
 #include "../subsystem1/subsystem1.h" 
 
+
 /* RTOS Synchronization & IPC Objects */
 EXPORT ID   sem_slots;
 EXPORT ID   mpf_samples;
 EXPORT ID   mtx_motor_intent; /* Priority-Inheritance Mutex (TA_INHERIT) */
+
+
 
 /* The encoder counters live in encoder.c (see encoder.h): an interrupt counts
  * every edge of both channels of both wheels. */
@@ -88,26 +91,19 @@ EXPORT int32_t get_right_encoder_ticks(void) {
  * PRIVATE HARDWARE DRIVERS (Encapsulated inside Subsystem 2)
  * -------------------------------------------------------------------------- */
 LOCAL void motor_init(void) {
-    pwm_set_pin(M1A_PIN);
-    pwm_set_pin(M1B_PIN);
-    pwm_set_pin(M2A_PIN);
-    pwm_set_pin(M2B_PIN);
+    
+    /* Digital GPIO override for motor direction/drive pins */
+    gpio_set_pin(M1A_PIN, GPIO_MODE_OUT);
+    gpio_set_pin(M1B_PIN, GPIO_MODE_OUT);
+    gpio_set_pin(M2A_PIN, GPIO_MODE_OUT);
+    gpio_set_pin(M2B_PIN, GPIO_MODE_OUT);
 
-    pwm_set_wrap(M1A_PIN, 255);
-    pwm_set_wrap(M1B_PIN, 255);
-    pwm_set_wrap(M2A_PIN, 255);
-    pwm_set_wrap(M2B_PIN, 255);
+    gpio_set_val(M1A_PIN, 0);
+    gpio_set_val(M1B_PIN, 0);
+    gpio_set_val(M2A_PIN, 0);
+    gpio_set_val(M2B_PIN, 0);
 
-    pwm_set_cc(M1A_PIN, 0);
-    pwm_set_cc(M1B_PIN, 0);
-    pwm_set_cc(M2A_PIN, 0);
-    pwm_set_cc(M2B_PIN, 0);
-
-    pwm_set_enabled(M1A_PIN, TRUE);
-    pwm_set_enabled(M1B_PIN, TRUE);
-    pwm_set_enabled(M2A_PIN, TRUE);
-    pwm_set_enabled(M2B_PIN, TRUE);
-
+    /* Encoder inputs */
     gpio_set_pin(LEFT_ENC_A, GPIO_MODE_IN);
     gpio_set_pin(LEFT_ENC_B, GPIO_MODE_IN);
     gpio_set_pin(RIGHT_ENC_A, GPIO_MODE_IN);
@@ -124,34 +120,33 @@ LOCAL void motor_init(void) {
     }
 
     motor_ctrl.current_state = MOTOR_STOPPED;
+    
 }
 
 LOCAL void motor_speed(int16_t left_speed, int16_t right_speed) {
-    if (left_speed > 255)   left_speed = 255;
-    if (left_speed < -255)  left_speed = -255;
-    if (right_speed > 255)  right_speed = 255;
-    if (right_speed < -255) right_speed = -255;
-
+    
+    /* Left Motor (M1) */
     if (left_speed > 0) {
-        pwm_set_cc(M1B_PIN, 0);
-        pwm_set_cc(M1A_PIN, left_speed);
+        gpio_set_val(M1B_PIN, 0);
+        gpio_set_val(M1A_PIN, 1);
     } else if (left_speed < 0) {
-        pwm_set_cc(M1A_PIN, 0);
-        pwm_set_cc(M1B_PIN, -left_speed);
+        gpio_set_val(M1A_PIN, 0);
+        gpio_set_val(M1B_PIN, 1);
     } else {
-        pwm_set_cc(M1A_PIN, 0);
-        pwm_set_cc(M1B_PIN, 0);
+        gpio_set_val(M1A_PIN, 0);
+        gpio_set_val(M1B_PIN, 0);
     }
 
+    /* Right Motor (M2) */
     if (right_speed > 0) {
-        pwm_set_cc(M2B_PIN, 0);
-        pwm_set_cc(M2A_PIN, right_speed);
+        gpio_set_val(M2B_PIN, 0);
+        gpio_set_val(M2A_PIN, 1);
     } else if (right_speed < 0) {
-        pwm_set_cc(M2A_PIN, 0);
-        pwm_set_cc(M2B_PIN, -right_speed);
+        gpio_set_val(M2A_PIN, 0);
+        gpio_set_val(M2B_PIN, 1);
     } else {
-        pwm_set_cc(M2A_PIN, 0);
-        pwm_set_cc(M2B_PIN, 0);
+        gpio_set_val(M2A_PIN, 0);
+        gpio_set_val(M2B_PIN, 0);
     }
 }
 
@@ -314,9 +309,9 @@ LOCAL void motion_fsm_update(void) {
     if (right_speed < -cap) right_speed = -cap;
 
     /* 2. Master safety override */
-    if (fault_active) {
-        motor_ctrl.current_state = MOTOR_SAFETY_HALT;
-    }
+    //if (fault_active) {
+    //    motor_ctrl.current_state = MOTOR_SAFETY_HALT;
+    //}
 
     /* 3. Step the FSM */
     switch ((MotionState_t)motor_ctrl.current_state) {

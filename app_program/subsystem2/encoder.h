@@ -41,7 +41,7 @@
 #define ENC_LEFT_SIGN       (-1)
 #endif
 #ifndef ENC_RIGHT_SIGN
-#define ENC_RIGHT_SIGN      (-1)
+#define ENC_RIGHT_SIGN      (1)
 #endif
 
 /* 1 = switch on the pin's internal pull-up (and switch off the pull-down that
@@ -104,7 +104,7 @@ IMPORT UW      encoder_irq_count(void);         /* interrupts so far: 0 means th
 
 /* Odometry Hardware Constants */
 #define WHEEL_DIAMETER_MM       66.0f   /* Replace with your exact wheel diameter */
-#define ENCODER_TPR             360.0f  /* Replace with your exact motor TPR */
+#define ENCODER_TPR             2050.0f  /* Replace with your exact motor TPR */
 #define PI_APPROX               3.14159265f
 #define MM_PER_TICK             ((PI_APPROX * WHEEL_DIAMETER_MM) / ENCODER_TPR)
 

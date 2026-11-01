@@ -22,8 +22,8 @@
 #define M2A_PIN             10  /* Right motor forward PWM */
 #define M2B_PIN             11  /* Right motor reverse PWM */
 
-#define LEFT_ENC_A          26  /* Left encoder channel A */
-#define LEFT_ENC_B          6  /* Left encoder channel B */
+#define LEFT_ENC_A          17  /* Left encoder channel A */
+#define LEFT_ENC_B          16  /* Left encoder channel B */
 #define RIGHT_ENC_A         5   /* Right encoder channel A */
 #define RIGHT_ENC_B         4   /* Right encoder channel B */
 /* Note: ENC2_PWR_PIN (16) removed to fix hardware conflict with Barcode IR */
