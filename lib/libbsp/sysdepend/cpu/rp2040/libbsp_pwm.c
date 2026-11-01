@@ -23,11 +23,6 @@
 #include <tm/tmonitor.h>
 #include <bsp/libbsp.h>
 
-#define RESETS_BASE        0x4000C000
-#define RESETS_RESET       (RESETS_BASE + 0x00)
-#define RESETS_RESET_DONE  (RESETS_BASE + 0x08)
-#define RESETS_RESET_PWM   (1 << 14)
-
 /*----------------------------------------------------------------------*/
 /*
  * GPIO Control
@@ -40,17 +35,6 @@
 #define	PWM_CH_CC(n)		(PWM_BASE + PWM_CHx_CC  + (n*0x14))
 #define	PWM_CH_TOP(n)		(PWM_BASE + PWM_CHx_TOP + (n*0x14))
 
-ER pwm_init(void)
-{
-    /* Clear the PWM reset bit to wake the silicon block */
-    out_w(RESETS_RESET + 0x3000, RESETS_RESET_PWM); // Atomic clear alias
-    
-    /* Wait for the silicon to confirm it is fully powered and awake */
-    while ((in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM) == 0) {
-        /* Wait */
-    }
-    return E_OK;
-}
 
 ER gpio_set_pin(UINT no, UINT mode)
 {
