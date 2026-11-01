@@ -4,7 +4,6 @@
 #include "cyw43.h"
 #include "cyw43_country.h"
 #include "cyw43_utk.h"
-//#include "../../../../app_program/systemFaults.h"
 
 #if TM_NET_LWIP
 /* lwip_init() must run before cyw43_wifi_set_up() -- cyw43_cb_tcpip_init()
@@ -51,13 +50,10 @@ extern volatile uint32_t cyw43_utk_poll_requested;
 extern int32_t tk_dly_tsk(uint32_t delay);
 extern uint64_t time_us_64(void);
 
-/* Fault bridge: route WiFi link events through Subsystem 1's fault API.
- * Cannot include systemFaults.h here (it pulls tk/tkernel.h which conflicts
- * with pico-sdk/cyw43 headers), so we forward-declare the two functions
- * and the one fault bit we need directly. */
+/* Subsystem 1 fault bridge */
 extern void s1_report_fault(uint32_t fault_bit);
 extern void s1_clear_fault(uint32_t fault_bit);
-#define FAULT_WIFI (1U << 5)   /* must match systemFaults.h */
+#define FAULT_WIFI (1U << 5)   /* Wi-Fi link fault bit (matches systemFaults.h) */
 
 #if CNF_SMP
 extern int32_t tk_get_prc(void);
@@ -305,14 +301,14 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
                           (int)(ip & 0xff), (int)((ip >> 8) & 0xff),
                           (int)((ip >> 16) & 0xff), (int)((ip >> 24) & 0xff));
 
-                /* Clear the Wi-Fi disconnect fault when the link comes up */
+                /* Clear Wi-Fi disconnect fault when link is established */
                 s1_clear_fault(FAULT_WIFI);
             } else {
                 tm_printf((UB*)"wifi: link status -> %s (%d)\n",
                           link_status_str(radio_status.link_status),
                           (int)radio_status.link_status);
 
-                /* Set the Wi-Fi disconnect fault whenever the link drops or fails */
+                /* Report Wi-Fi disconnect fault when link drops or fails */
                 s1_report_fault(FAULT_WIFI);
             }
 

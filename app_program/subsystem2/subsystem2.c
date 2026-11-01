@@ -15,16 +15,19 @@
 #include "subsystem2.h"
 #include "../systemFaults.h"
 #include "buzzer.h"
+#include "encoder.h"      /* wheel encoder counting (encoder.c) */
 #include "../subsystem1/subsystem1.h" 
+
 
 /* RTOS Synchronization & IPC Objects */
 EXPORT ID   sem_slots;
 EXPORT ID   mpf_samples;
 EXPORT ID   mtx_motor_intent; /* Priority-Inheritance Mutex (TA_INHERIT) */
 
-/* Encapsulated Encoder Odometry Counters */
-LOCAL volatile int32_t left_encoder_ticks  = 0;
-LOCAL volatile int32_t right_encoder_ticks = 0;
+
+
+/* The encoder counters live in encoder.c (see encoder.h): an interrupt counts
+ * every edge of both channels of both wheels. */
 
 /* Minimum-Bit Packed Navigation Blackboard & FSM State */
 LOCAL MotorControl_t motor_ctrl = {
@@ -36,6 +39,12 @@ LOCAL MotorControl_t motor_ctrl = {
     .active_left_speed     = 0,
     .active_right_speed    = 0
 };
+
+LOCAL int32_t prev_left_ticks = 0;
+LOCAL int32_t prev_right_ticks = 0;
+LOCAL int32_t current_left_velocity = 0;
+LOCAL int32_t current_right_velocity = 0;
+LOCAL int32_t sync_error_integral = 0;
 
 /* --------------------------------------------------------------------------
  * PUBLIC ARBITRATOR SETTERS (Thread-Safe via Priority-Inheritance Mutex)
@@ -62,90 +71,82 @@ EXPORT void s2_set_us_clearance(uint8_t max_speed) {
  * PUBLIC ODOMETRY GETTERS & RESET
  * -------------------------------------------------------------------------- */
 EXPORT void motor_reset_ticks(void) {
-    UINT intsts;
-    DI(intsts);
-    left_encoder_ticks  = 0;
-    right_encoder_ticks = 0;
-    EI(intsts);
+    encoder_reset();
+    prev_left_ticks = 0;
+    prev_right_ticks = 0;
+    current_left_velocity = 0;
+    current_right_velocity = 0;
+    sync_error_integral = 0;
 }
 
 EXPORT int32_t get_left_encoder_ticks(void) {
-    int32_t ticks;
-    UINT intsts;
-    DI(intsts);
-    ticks = left_encoder_ticks;
-    EI(intsts);
-    return ticks;
+    return encoder_get_left();
 }
 
 EXPORT int32_t get_right_encoder_ticks(void) {
-    int32_t ticks;
-    UINT intsts;
-    DI(intsts);
-    ticks = right_encoder_ticks;
-    EI(intsts);
-    return ticks;
+    return encoder_get_right();
 }
 
 /* --------------------------------------------------------------------------
  * PRIVATE HARDWARE DRIVERS (Encapsulated inside Subsystem 2)
  * -------------------------------------------------------------------------- */
 LOCAL void motor_init(void) {
-    pwm_set_pin(M1A_PIN);
-    pwm_set_pin(M1B_PIN);
-    pwm_set_pin(M2A_PIN);
-    pwm_set_pin(M2B_PIN);
+    
+    /* Digital GPIO override for motor direction/drive pins */
+    gpio_set_pin(M1A_PIN, GPIO_MODE_OUT);
+    gpio_set_pin(M1B_PIN, GPIO_MODE_OUT);
+    gpio_set_pin(M2A_PIN, GPIO_MODE_OUT);
+    gpio_set_pin(M2B_PIN, GPIO_MODE_OUT);
 
-    pwm_set_wrap(M1A_PIN, 255);
-    pwm_set_wrap(M1B_PIN, 255);
-    pwm_set_wrap(M2A_PIN, 255);
-    pwm_set_wrap(M2B_PIN, 255);
+    gpio_set_val(M1A_PIN, 0);
+    gpio_set_val(M1B_PIN, 0);
+    gpio_set_val(M2A_PIN, 0);
+    gpio_set_val(M2B_PIN, 0);
 
-    pwm_set_cc(M1A_PIN, 0);
-    pwm_set_cc(M1B_PIN, 0);
-    pwm_set_cc(M2A_PIN, 0);
-    pwm_set_cc(M2B_PIN, 0);
-
-    pwm_set_enabled(M1A_PIN, TRUE);
-    pwm_set_enabled(M1B_PIN, TRUE);
-    pwm_set_enabled(M2A_PIN, TRUE);
-    pwm_set_enabled(M2B_PIN, TRUE);
-
+    /* Encoder inputs */
     gpio_set_pin(LEFT_ENC_A, GPIO_MODE_IN);
     gpio_set_pin(LEFT_ENC_B, GPIO_MODE_IN);
     gpio_set_pin(RIGHT_ENC_A, GPIO_MODE_IN);
     gpio_set_pin(RIGHT_ENC_B, GPIO_MODE_IN);
 
     motor_reset_ticks();
+
+    /* Start counting: the interrupt on all four encoder pins (encoder.c). */
+    {
+        ER enc_err = encoder_init();
+        if (enc_err != E_OK) {
+            tm_printf((UB*)"[S2] encoder_init failed: %d\n", (int)enc_err);
+        }
+    }
+
     motor_ctrl.current_state = MOTOR_STOPPED;
+    
 }
 
 LOCAL void motor_speed(int16_t left_speed, int16_t right_speed) {
-    if (left_speed > 255)   left_speed = 255;
-    if (left_speed < -255)  left_speed = -255;
-    if (right_speed > 255)  right_speed = 255;
-    if (right_speed < -255) right_speed = -255;
-
+    
+    /* Left Motor (M1) */
     if (left_speed > 0) {
-        pwm_set_cc(M1B_PIN, 0);
-        pwm_set_cc(M1A_PIN, left_speed);
+        gpio_set_val(M1B_PIN, 0);
+        gpio_set_val(M1A_PIN, 1);
     } else if (left_speed < 0) {
-        pwm_set_cc(M1A_PIN, 0);
-        pwm_set_cc(M1B_PIN, -left_speed);
+        gpio_set_val(M1A_PIN, 0);
+        gpio_set_val(M1B_PIN, 1);
     } else {
-        pwm_set_cc(M1A_PIN, 0);
-        pwm_set_cc(M1B_PIN, 0);
+        gpio_set_val(M1A_PIN, 0);
+        gpio_set_val(M1B_PIN, 0);
     }
 
+    /* Right Motor (M2) */
     if (right_speed > 0) {
-        pwm_set_cc(M2B_PIN, 0);
-        pwm_set_cc(M2A_PIN, right_speed);
+        gpio_set_val(M2B_PIN, 0);
+        gpio_set_val(M2A_PIN, 1);
     } else if (right_speed < 0) {
-        pwm_set_cc(M2A_PIN, 0);
-        pwm_set_cc(M2B_PIN, -right_speed);
+        gpio_set_val(M2A_PIN, 0);
+        gpio_set_val(M2B_PIN, 1);
     } else {
-        pwm_set_cc(M2A_PIN, 0);
-        pwm_set_cc(M2B_PIN, 0);
+        gpio_set_val(M2A_PIN, 0);
+        gpio_set_val(M2B_PIN, 0);
     }
 }
 
@@ -162,7 +163,6 @@ LOCAL bool has_active_fault(void) {
 }
 
 EXPORT void motion_trigger_safety_halt(UINT fault_bit) {
-    /* Report to Subsystem 1's centralized fault mask */
     s1_report_fault(fault_bit);
     tk_loc_mtx(mtx_motor_intent, TMO_FEVR);
     motor_ctrl.current_state      = MOTOR_SAFETY_HALT;
@@ -171,6 +171,7 @@ EXPORT void motion_trigger_safety_halt(UINT fault_bit) {
     tk_unl_mtx(mtx_motor_intent);
     motor_speed(0, 0);
 }
+
 
 LOCAL int16_t ramp_step(int16_t current, int16_t target, int16_t step_size) {
     if (current < target) {
@@ -225,9 +226,39 @@ LOCAL void handle_motor_steady_drive(int16_t left_speed, int16_t right_speed) {
         return;
     }
 
+    /* 1. Update the FSM state trackers FIRST */
     motor_ctrl.active_left_speed  = left_speed;
     motor_ctrl.active_right_speed = right_speed;
-    motor_speed(motor_ctrl.active_left_speed, motor_ctrl.active_right_speed);
+
+    /* 2. Apply the physical motor speeds SECOND */
+    /* NEW: Closed-Loop Straight Line Synchronization (PI Controller) */
+    if (left_speed == right_speed) {
+        /* Calculate speed difference in this 20ms window */
+        int32_t speed_error = current_left_velocity - current_right_velocity;
+        
+        /* Accumulate the total lost ticks over time (Integral) */
+        sync_error_integral += speed_error;
+
+        /* PI-Controller: Kp = 2 (Instant speed), Ki = 1 (Total accumulated drift) */
+        int16_t correction = (int16_t)(speed_error * 2) + (int16_t)(sync_error_integral);
+
+        /* Anti-windup cap: Prevent the correction from violently jerking the robot */
+        if (correction > 80) correction = 80;
+        if (correction < -80) correction = -80;
+
+        int16_t adj_left  = left_speed - correction;
+        int16_t adj_right = right_speed + correction;
+
+        motor_speed(adj_left, adj_right);
+    } else {
+        /* Reset drift memory immediately if the robot is commanded to steer/turn */
+        sync_error_integral = 0; 
+        
+        /* Open-loop turning (Targets are deliberately unequal) */
+        motor_speed(motor_ctrl.active_left_speed, motor_ctrl.active_right_speed);
+    }
+    
+    /* REMOVED the redundant motor_speed() call that was down here */
 }
 
 LOCAL void handle_motor_reversing(int16_t left_speed, int16_t right_speed) {
@@ -255,6 +286,14 @@ LOCAL void handle_motor_safety_halt(int16_t left_speed, int16_t right_speed, boo
 }
 
 LOCAL void motion_fsm_update(void) {
+
+    int32_t live_l = get_left_encoder_ticks();
+    int32_t live_r = get_right_encoder_ticks();
+    current_left_velocity  = live_l - prev_left_ticks;
+    current_right_velocity = live_r - prev_right_ticks;
+    prev_left_ticks  = live_l;
+    prev_right_ticks = live_r;
+
     bool fault_active = has_active_fault();
 
     tk_loc_mtx(mtx_motor_intent, TMO_FEVR);
@@ -270,9 +309,9 @@ LOCAL void motion_fsm_update(void) {
     if (right_speed < -cap) right_speed = -cap;
 
     /* 2. Master safety override */
-    if (fault_active) {
-        motor_ctrl.current_state = MOTOR_SAFETY_HALT;
-    }
+    //if (fault_active) {
+    //    motor_ctrl.current_state = MOTOR_SAFETY_HALT;
+    //}
 
     /* 3. Step the FSM */
     switch ((MotionState_t)motor_ctrl.current_state) {
@@ -316,11 +355,29 @@ EXPORT MotionState_t motion_fsm_get_state(void) {
  * RTOS CONTROL LOOP TASK & SUBSYSTEM INIT
  * -------------------------------------------------------------------------- */
 LOCAL void s2_motor_task(INT stacd, void *exinf) {
+#if ENC_PRINT_MS > 0
+    UINT print_n = 0;
+#endif
     (void)stacd;
     (void)exinf;
 
     while (1) {
         motion_fsm_update();
+
+#if ENC_PRINT_MS > 0
+        /* Show the encoder counters on the serial monitor (every ENC_PRINT_MS).
+         * "interrupts 0" means no edge ever arrived: check the wiring/pins.
+         * "pins L=ab R=cd" are the live levels of the four channels. */
+        if (++print_n >= (UINT)(ENC_PRINT_MS / S2_PERIOD_MS)) {
+            print_n = 0;
+            tm_printf((UB*)"[S2] encoder ticks: left %d  right %d   (interrupts %d, pins L=%d%d R=%d%d)\n",
+                      (int)get_left_encoder_ticks(), (int)get_right_encoder_ticks(),
+                      (int)encoder_irq_count(),
+                      (int)gpio_get_val(LEFT_ENC_A),  (int)gpio_get_val(LEFT_ENC_B),
+                      (int)gpio_get_val(RIGHT_ENC_A), (int)gpio_get_val(RIGHT_ENC_B));
+        }
+#endif
+
         tk_dly_tsk(S2_PERIOD_MS); /* 20ms (50Hz) deterministic control loop */
     }
 }

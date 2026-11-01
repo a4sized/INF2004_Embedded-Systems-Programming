@@ -35,6 +35,7 @@
 #define	PWM_CH_CC(n)		(PWM_BASE + PWM_CHx_CC  + (n*0x14))
 #define	PWM_CH_TOP(n)		(PWM_BASE + PWM_CHx_TOP + (n*0x14))
 
+
 ER gpio_set_pin(UINT no, UINT mode)
 {
 	if(no >= GPIO_NUM) return E_PAR;

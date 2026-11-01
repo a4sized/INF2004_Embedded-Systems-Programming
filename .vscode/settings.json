@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "test_report.h": "c",
+        "encoder.h": "c"
+    }
+}
