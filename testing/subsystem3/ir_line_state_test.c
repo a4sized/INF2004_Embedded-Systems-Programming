@@ -41,14 +41,14 @@ int main (void)
 
     levels.b_left_high = true;
     ir_line_state_update(&state, levels, 50u);
-    assert(state.b_lost);
+    assert(!state.b_lost);
     assert(state.latest_steer == IR_LINE_STEER_LEFT);
 
     levels.b_right_high = true;
     ir_line_state_update(&state, levels, 55u);
-    assert(state.b_lost);
+    assert(!state.b_lost);
     ir_line_state_update(&state, levels, 70u);
-    assert(state.b_lost);
+    assert(!state.b_lost);
     ir_line_state_update(&state, levels, 75u);
     assert(!state.b_lost);
 

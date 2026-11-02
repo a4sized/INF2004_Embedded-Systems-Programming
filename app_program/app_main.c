@@ -127,10 +127,11 @@ EXPORT INT usermain(void)
 
 	/* Phase 1: every subsystem creates its kernel objects */
 	CHECK(subsystem1_init(), "subsystem1_init");
+	/* Subsystem 5 releases the PWM block from reset; motors configure it last. */
+	CHECK(subsystem5_init(), "subsystem5_init");
 	CHECK(subsystem2_init(), "subsystem2_init");
 	CHECK(subsystem3_init(), "subsystem3_init");
 	CHECK(subsystem4_init(), "subsystem4_init");
-	CHECK(subsystem5_init(), "subsystem5_init");
 
 	buzzer_play_tone(1000, 500);
 

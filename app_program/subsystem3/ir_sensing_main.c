@@ -233,7 +233,7 @@ static void sensing_task (INT start_code, void * p_extra)
         }
     }
 
-    /* This service owns the core-1 GPIO callback for GP16. */
+    /* This service owns the core-1 GPIO callback for GP6. */
     ir_barcode_gpio_start();
     ir_barcode_window_reset(&window);
 
@@ -338,14 +338,14 @@ static void sensing_task (INT start_code, void * p_extra)
 
         if (b_console_ready && !b_console_was_ready)
         {
-            tm_printf((UB const *)"Buddy 3 IR sensing: GP7 left, GP4 right,"
-                      " GP16 barcode.\n"
+            tm_printf((UB const *)"Buddy 3 IR sensing: GP7 left, GP2 right,"
+                      " GP6 barcode.\n"
                       "Black=1, white=0 for all three sensors."
                       " Check raw levels if lighting or height changes.\n"
                       "L/R show raw>stable; B remains raw."
                       " Timing range is 4000..6000 us.\n"
                       "Line decisions are diagnostic; no motion request"
-                      " is sent. GP16 edge windows last 2 s.\n");
+                      " is sent. GP6 edge windows last 2 s.\n");
         }
 
         if (b_console_ready &&

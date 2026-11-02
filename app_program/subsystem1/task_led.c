@@ -134,7 +134,7 @@ EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
     S1_TELEMETRY_PKT snap;
     s1_get_telemetry(&snap);
 
-    /* Output CSV log only on active faults or command events to avoid serial bus congestion */
+    /* Output only faults and command events to avoid serial congestion. */
     if (snap.fault_mask != 0 ||
         (event_type != NULL && (event_type[0] == 'C' && event_type[1] == 'M' && event_type[2] == 'D'))) {
 

@@ -7,6 +7,9 @@ TEMP_SRCS = $(wildcard ../app_program/*.c) $(wildcard ../app_program/*/*.c)
 TEMP_OBJS = $(TEMP_SRCS:.c=.o)
 TEMP_DEPS = $(TEMP_SRCS:.c=.d)
 
+# The normal team image uses Buddy 3's IR service and motion consumer.
+mtkernel_3/app_program/%.o: CFLAGS += -DBUDDY3_TEAM_IR=1
+
 OBJS += $(subst ../, ./mtkernel_3/, $(TEMP_OBJS))
 C_DEPS += $(subst ../, ./mtkernel_3/, $(TEMP_DEPS))
 

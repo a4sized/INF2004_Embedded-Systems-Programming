@@ -18,7 +18,8 @@ EXPORT APP_STATS app_stats;
 
 EXPORT ER subsystem3_init(void)
 {
-    return ir_sensing_service_init();
+    ER const status = ir_sensing_service_init();
+    return (E_OK != status) ? status : ir_motion_consumer_init();
 }
 
 EXPORT ER subsystem3_start(void)

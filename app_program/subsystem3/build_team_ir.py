@@ -24,9 +24,10 @@ def main():
         build = stage / "build_make"
         build.mkdir()
         (build / "tools").mkdir()
-        for name in ("app_program", "device", "etc", "include", "kernel",
-                     "lib", "tools"):
+        for name in ("device", "etc", "include", "kernel", "lib", "tools"):
             (stage / name).symlink_to(REPO / name, target_is_directory=True)
+        (stage / "app_program").symlink_to(
+            REPO / "app_program", target_is_directory=True)
         shutil.copytree(REPO / "config", stage / "config")
         config = stage / "config" / "config.h"
         configured, count = re.subn(
@@ -43,10 +44,7 @@ def main():
             destination = build / source.relative_to(recipes)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination)
-        makefile = (recipes / "makefile").read_text()
-        makefile += "\nmtkernel_3/app_program/%.o: CFLAGS += -DBUDDY3_TEAM_IR=1\n"
-        (build / "makefile").write_text(makefile)
-
+        shutil.copyfile(recipes / "makefile", build / "makefile")
         command = ["make", "-j4", "SMP=1", "CONSOLE=usb_cdc", "WIFI=cyw43",
                    "NET=none", "MQTT=0", "CRASH_REPORT=0", "TEST=0",
                    f"EXE_FILE={IMAGE}"]

@@ -39,7 +39,9 @@ typedef enum
  * @brief Check whether a snapshot may be used for ordinary steering.
  * @param b_follow_allowed Permission supplied by the Vehicle Controller.
  * @param max_age_ms Caller-agreed freshness limit; not a global policy.
- * @details Both-white and confirmed loss are never movement permission.
+ * @details Both-white and confirmed loss are never ordinary steering
+ * permission. A separate, already-permitted search controller may request
+ * recovery movement after its zero-output pause.
  * A centered reading is available with IR_LINE_STEER_NONE.
  */
 ir_steering_status_t ir_line_snapshot_steering_status (

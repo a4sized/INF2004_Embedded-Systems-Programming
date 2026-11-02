@@ -50,11 +50,11 @@ fixed.
 | GP23, GP24, GP25, GP29 | *reserved* | Pico W radio |
 | GP0 | | (taken whenever the team builds with `CRASH_REPORT=1`) |
 | GP1 | | (taken whenever the team builds with `CRASH_REPORT=1`) |
-| GP2 | Buddy 2 (2501820) | Motor 2 encoder A input |
-| GP3 | Buddy 2 (2501820) | Motor 2 encoder B input |
-| GP4 | Buddy 3 (2501107) | Right IR sensor DO |
-| GP5 | | |
-| GP6 | Buddy 3 (2501107), bench only | IR calibration DO; Maker Pi Pico Grove 4, GP6 |
+| GP2 | Buddy 3 (2501107) | Right IR sensor DO per current `PINLAYOUT.md` |
+| GP3 | Buddy 3 (2501107) | Right IR sensor AO in pin layout; firmware does not sample AO |
+| GP4 | Buddy 2 (2501820) | Motor 2 encoder B input |
+| GP5 | Buddy 2 (2501820) | Motor 2 encoder A input |
+| GP6 | Buddy 3 (2501107) | Barcode IR sensor DO; current pin layout places it on Grove 4 |
 | GP7 | Buddy 3 (2501107) | Left IR sensor DO; GP6 bench is separate |
 | GP8 | | |
 | GP9 | | |
@@ -62,10 +62,10 @@ fixed.
 | GP11 | | |
 | GP12 | | |
 | GP13 | | |
-| GP14 | Buddy 2 (2501820) | Motor 1 encoder A input |
-| GP15 | Buddy 2 (2501820) | Motor 1 encoder B input |
-| GP16 | Buddy 3 (2501107) | Barcode IR sensor DO |
-| GP17 | | |
+| GP14 | | Former motor 1 encoder A input |
+| GP15 | | Former motor 1 encoder B input |
+| GP16 | Buddy 2 (2501820) | Motor 1 encoder B input |
+| GP17 | Buddy 2 (2501820) | Motor 1 encoder A input |
 | GP18 | | |
 | GP19 |S1| Heartbeat status LED (LED + 330 Ω to GND) |
 | GP20 | S4 | I2C0 SDA, parked and unused: the kernel configures I2C0 at boot when `DEVCNF_USE_IIC` = 1, and the default GP8/GP9 are the motor 1 pins |
@@ -222,6 +222,9 @@ pending hardware checks.
 
 ## 8. Buddy 3 three-sensor digital readout (13 October 2026)
 
+Historical implementation record; Section 10 gives the current pins and
+normal team build. The GP4/GP16 values below describe earlier work.
+
 `app_program/subsystem3/` contains a sensing-only application for GP7 left,
 GP4 right and GP16 barcode DO. `build_sensing.py` stages Buddy 3 sensing and
 Buddy 1 Gatekeeper sources in a temporary build tree; it does not start the
@@ -275,6 +278,30 @@ fresh, valid snapshots for host tests. This opt-in image has only been
 compiled, not run on the Pico or car. The normal 10 ms team build and its
 example startup are unchanged.
 
+The opt-in consumer now exposes task-context
+`ir_motion_consumer_set_following()` for the future Vehicle Controller. A
+follow request includes permission, base speed, correction and maximum
+snapshot age. Its provisional starting values are 50/15 in Buddy 2's
+0..255 units and 20 ms; the setter rejects larger values while these
+limits are provisional, and permission still starts false. Left-black/right-white
+requests left=35, right=65; right-black/left-white requests left=65,
+right=35; both black requests 50/50. The consumer requires a new snapshot
+sequence each 20 ms cycle. Revoking permission writes zero to Buddy 2 while
+holding the consumer's settings mutex, so a pending consumer write cannot
+restore the previous target afterward. Physical wheel direction, usable
+minimum PWM and correction strength still require car testing.
+
+For a temporary moving demonstration only,
+`python3 app_program/subsystem3/build_line_follow_demo.py` creates a separate
+UF2. It uses the previously observed black=1 polarity, treats successful
+GPIO setup as provisional readiness, sends zero during a 3-second boot wait,
+then enables the provisional 50/15 steering targets. Both-white, lost,
+stale or duplicate samples still request zero, and Buddy 1 faults still
+reach Buddy 2's fault gate. This profile bypasses FR11's startup polarity
+calibration and has not been run on the car. The user plans to flash, power
+off, place the untethered car on the track, then switch it on; this starts
+the Pico's three-second delay from that switch-on.
+
 The user found a narrow sweet spot with both line sensors black when centered.
 Left black/right white points to a left correction; right black/left white
 points to a right correction. Both black is centered/no correction. Both
@@ -283,3 +310,29 @@ black persists for 20 ms. The isolated readout updates this latest decision
 every 5 ms and prints it over USB. The intended handoff is one latest
 decision at each future Motion State cycle, without queueing every sample.
 Moving-robot validation of the narrow centered margin remains outstanding.
+
+## 9. Barcode IR wiring update (1 November 2026)
+
+Historical wiring report; Section 10 records the current main pin layout.
+
+The user reports that the barcode IR sensor has moved to **GP6 on Grove 5**.
+Current Buddy 3 sensing and direct-motor demo builds use GP6 for barcode DO;
+GP7 left and GP4 right were unchanged at that time. The earlier GP16 readings and tests
+above are historical. The separate calibration bench also uses GP6 but was
+reported on Grove 4; verify the physical Grove 5 DO-to-GP6 mapping on the
+robot before treating current builds as physically validated. GP16 is no
+longer reserved for Buddy 3 barcode input.
+
+## 10. Current main pin layout and integrated line policy (1 November 2026)
+
+The user chose `PINLAYOUT.md` on current `main` as the target allocation.
+Buddy 3 now reads GP7 left, GP2 right, and GP6 barcode. Buddy 2 owns
+GP16/GP17 left encoder and GP4/GP5 right encoder. The line sensor's
+previous GP4 measurements are historical; GP2 contrast, polarity and
+combined motor/encoder operation require a new car test. Current main's
+diagram calls the GP6 connection Grove 4, while the user's prior wiring
+report said Grove 5; confirm the connector on the robot. The temporary
+standalone direct-motor and line-follow demo files were moved outside
+the repository. Integrated junction turning remains disabled until a
+real decoded barcode instruction exists. Motion permission remains closed
+until a startup controller grants it.

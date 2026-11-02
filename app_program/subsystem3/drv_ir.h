@@ -8,8 +8,8 @@
 #include <stdbool.h>
 
 #define DRV_IR_LEFT_PIN    7u
-#define DRV_IR_RIGHT_PIN   4u
-#define DRV_IR_BARCODE_PIN 16u
+#define DRV_IR_RIGHT_PIN   2u
+#define DRV_IR_BARCODE_PIN 6u
 
 typedef struct
 {

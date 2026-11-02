@@ -1,14 +1,12 @@
 
 Once youre done, don't forget to update the CMakeLists.txt to include your .c file.
 
-**Unresolved pin conflict (1 November 2026):** This table assigns GP4 to
-the right motor encoder and GP2 to the right line sensor. The current
-Buddy 3 IR firmware and the user's last confirmed line-sensor setup use
-GP4 for the right line sensor (GP7 left, GP6 barcode). GP4 cannot serve
-both devices. The IR-branch's earlier encoder table used GP14/GP15 and
-GP2/GP3 instead. Confirm the car wiring with the team and update both
-subsystems before a combined motor/IR test; this merge does not settle
-the allocation.
+**Current target allocation (1 November 2026):** Buddy 3 firmware follows
+this table: GP7 left line, GP2 right line and GP6 barcode. Buddy 2 uses
+GP4 for right encoder B. Earlier GP4 right-line readings are historical.
+Rewire and verify GP2 before a combined motor/IR test. This table places
+the GP6 sensor on Grove 4; the user's earlier physical wiring report said
+Grove 5, so the connector position still needs checking on the robot.
 
 
 
@@ -75,4 +73,3 @@ SERVO connections: **NO CHANGE**
 | GND               | GROUND                      | BROWN          |
 | VCC               | 3.3V                        | RED            |
 | PWM Control Signal| GP12                        | ORANGE         |
-

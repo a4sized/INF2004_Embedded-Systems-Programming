@@ -25,7 +25,7 @@ typedef struct
 /** Call only before enabling the GPIO interrupt. */
 void ir_barcode_queue_reset (ir_barcode_queue_t * p_queue);
 
-/** Called by the one GP16 ISR producer. Returns false when full. */
+/** Called by the one GP6 ISR producer. Returns false when full. */
 bool ir_barcode_queue_push_isr (ir_barcode_queue_t * p_queue,
                                 ir_barcode_edge_t edge);
 

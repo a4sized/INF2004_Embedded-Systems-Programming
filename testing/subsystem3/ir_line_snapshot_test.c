@@ -122,6 +122,11 @@ int main (void)
     assert(IR_STEERING_STALE == ir_line_snapshot_steering_status(
         &readback, 11u, 20u, true));
 
+    assert(ir_motion_snapshot_is_new(&readback, 1u, false));
+    assert(ir_motion_snapshot_is_new(&readback, readback.sequence - 1u, true));
+    assert(!ir_motion_snapshot_is_new(&readback, readback.sequence, true));
+    assert(!ir_motion_snapshot_is_new(NULL, 0u, false));
+
     /* Motion intent is zero unless every gate passes. */
     readback.sampled_at_ms = 100u;
     ir_motion_target_t target = ir_motion_target_for_snapshot(
@@ -137,12 +142,12 @@ int main (void)
     target = ir_motion_target_for_snapshot(&readback, 100u, 20u,
                                            true, 80u, 25u);
     assert(IR_STEERING_AVAILABLE == target.status);
-    assert((55 == target.left) && (105 == target.right));
+    assert((80 == target.left) && (80 == target.right));
     readback.position = IR_LINE_RIGHT_BLACK;
     readback.steer = IR_LINE_STEER_RIGHT;
     target = ir_motion_target_for_snapshot(&readback, 100u, 20u,
                                            true, 250u, 50u);
-    assert((255 == target.left) && (200 == target.right));
+    assert((250 == target.left) && (250 == target.right));
     readback.position = IR_LINE_CENTERED;
     readback.steer = IR_LINE_STEER_NONE;
     target = ir_motion_target_for_snapshot(&readback, 100u, 20u,
@@ -157,6 +162,103 @@ int main (void)
     target = ir_motion_target_for_snapshot(&readback, 100u, 20u,
                                            true, 80u, 25u);
     assert(IR_STEERING_UNREADY == target.status);
+    assert((0 == target.left) && (0 == target.right));
+
+    /* The integrated policy drives straight, corrects loss, stops and searches. */
+    ir_follow_controller_t follow = {0};
+    readback.b_ready = true;
+    readback.b_lost = false;
+    readback.position = IR_LINE_BOTH_WHITE;
+    readback.steer = IR_LINE_STEER_NONE;
+    readback.sampled_at_ms = 100u;
+    target = ir_follow_controller_update(&follow, &readback, 100u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_WAIT == follow.mode);
+    assert((0 == target.left) && (0 == target.right));
+
+    readback.position = IR_LINE_LEFT_BLACK;
+    readback.steer = IR_LINE_STEER_LEFT;
+    readback.sampled_at_ms = 110u;
+    target = ir_follow_controller_update(&follow, &readback, 110u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_TRACK == follow.mode);
+    assert((20 == target.left) && (20 == target.right));
+
+    readback.position = IR_LINE_BOTH_WHITE;
+    readback.steer = IR_LINE_STEER_NONE;
+    readback.sampled_at_ms = 120u;
+    target = ir_follow_controller_update(&follow, &readback, 120u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_TRACK == follow.mode);
+    assert((0 == target.left) && (0 == target.right));
+    readback.sampled_at_ms = 130u;
+    target = ir_follow_controller_update(&follow, &readback, 130u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_CORRECT == follow.mode);
+    assert((0 == target.left) && (30 == target.right));
+    readback.sampled_at_ms = 379u;
+    target = ir_follow_controller_update(&follow, &readback, 379u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_CORRECT == follow.mode);
+    readback.sampled_at_ms = 380u;
+    target = ir_follow_controller_update(&follow, &readback, 380u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_STOPPING == follow.mode);
+    assert((0 == target.left) && (0 == target.right));
+    readback.sampled_at_ms = 1380u;
+    target = ir_follow_controller_update(&follow, &readback, 1380u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_SEARCH == follow.mode);
+    assert((0 == target.left) && (0 == target.right));
+    readback.sampled_at_ms = 1390u;
+    target = ir_follow_controller_update(&follow, &readback, 1390u,
+                                         20u, true, 20u, 22u);
+    assert((0 == target.left) && (22 == target.right));
+
+    readback.position = IR_LINE_RIGHT_BLACK;
+    readback.steer = IR_LINE_STEER_RIGHT;
+    readback.sampled_at_ms = 1400u;
+    target = ir_follow_controller_update(&follow, &readback, 1400u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_TRACK == follow.mode);
+    assert((20 == target.left) && (20 == target.right));
+    readback.position = IR_LINE_BOTH_WHITE;
+    readback.steer = IR_LINE_STEER_NONE;
+    readback.sampled_at_ms = 1410u;
+    (void)ir_follow_controller_update(&follow, &readback, 1410u,
+                                      20u, true, 20u, 22u);
+    readback.sampled_at_ms = 1420u;
+    target = ir_follow_controller_update(&follow, &readback, 1420u,
+                                      20u, true, 20u, 22u);
+    assert(IR_FOLLOW_CORRECT == follow.mode);
+    assert((30 == target.left) && (0 == target.right));
+    readback.position = IR_LINE_RIGHT_BLACK;
+    readback.steer = IR_LINE_STEER_RIGHT;
+    readback.sampled_at_ms = 1430u;
+    target = ir_follow_controller_update(&follow, &readback, 1430u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_TRACK == follow.mode);
+    assert((20 == target.left) && (20 == target.right));
+    target = ir_follow_controller_update(&follow, &readback, 1430u,
+                                         20u, false, 20u, 22u);
+    assert(IR_FOLLOW_WAIT == follow.mode);
+    assert((0 == target.left) && (0 == target.right));
+
+    /* Without a lone-black history, loss skips directed correction. */
+    readback.position = IR_LINE_CENTERED;
+    readback.steer = IR_LINE_STEER_NONE;
+    readback.sampled_at_ms = 1440u;
+    target = ir_follow_controller_update(&follow, &readback, 1440u,
+                                         20u, true, 20u, 22u);
+    assert((20 == target.left) && (20 == target.right));
+    readback.position = IR_LINE_BOTH_WHITE;
+    readback.sampled_at_ms = 1450u;
+    (void)ir_follow_controller_update(&follow, &readback, 1450u,
+                                      20u, true, 20u, 22u);
+    readback.sampled_at_ms = 1460u;
+    target = ir_follow_controller_update(&follow, &readback, 1460u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_STOPPING == follow.mode);
     assert((0 == target.left) && (0 == target.right));
 
     /* Concurrent writer/reader must never expose a mixed struct copy. */
