@@ -11,7 +11,7 @@ Add dated evidence and change a row's status only after performing that check.
 | BC-03 | Capture timeout, ring overflow and invalid-edge rejection on Pico | Saved traces showing valid and injected failure cases | UNTESTED |
 | BC-04 | 5 ms line sampling while barcode capture and USB output run | Full 60-second gap counters with at least 99% in 4–6 ms and none above 10 ms | UNTESTED |
 | BC-05 | Complete-code start/end, trailing white and clearance rules | Actual course samples scanned at final sensor height and supported speeds | UNTESTED |
-| BC-06 | Approved full pattern dictionary and command mapping | Lecturer/team reference for every required command and scan direction | UNRESOLVED |
+| BC-06 | Course command mapping beyond A and Z | User set A=LEFT and Z=RIGHT; determine intended behavior for other A-Z letters | PARTIAL |
 | BC-07 | Decoder tolerance and rejection of truncated, noisy and ambiguous scans | Separate tuning and validation traces, success/rejection counts by speed | UNTESTED |
 | BC-08 | Duplicate suppression and rearm after strip clearance | Repeated passes and dwell over one strip with capture IDs | UNTESTED |
 | BC-09 | Barcode-to-turn position and one-action transaction | Course placement rule, distance/encoder calibration, acknowledgement and turn traces | UNTESTED |
@@ -19,9 +19,10 @@ Add dated evidence and change a row's status only after performing that check.
 | BC-11 | GP6 junction cue and later decoded turn | Mounted GP6 white-black-white trigger, in-turn GP6 white-black-white and either GP7/GP2 white-black confirmation with a current black line reading, turn-position repeatability, timeout and false-positive trials once integrated navigation is enabled | UNTESTED |
 
 Host checks already passed for queue bounds, edge-window timeout/wrap and
-provisional duration normalization. Those are recorded in
-`IR_SENSING_TEST_LOG.md`; they do not close any physical or integrated row
-above. No symbol decoder or navigation transaction is implemented yet.
+provisional duration normalization. A host decoder check also passed using
+run widths from the user's printed A and Z screenshots. Those are recorded
+in `IR_SENSING_TEST_LOG.md`; they do not close any physical or integrated
+row above. The single-letter decoder does not yet issue navigation turns.
 
 Wiring update (1 November 2026): current barcode DO is GP6 on Grove 5,
 superseding GP16 in historical logs. Verify the Grove 5 mapping before

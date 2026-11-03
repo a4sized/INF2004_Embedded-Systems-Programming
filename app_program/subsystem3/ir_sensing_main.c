@@ -14,6 +14,7 @@
 #include "ir_barcode_gpio.h"
 #include "ir_barcode_segments.h"
 #include "ir_barcode_window.h"
+#include "ir_code39.h"
 #include "ir_line_filter.h"
 #include "ir_line_snapshot_shared.h"
 #include "ir_line_state.h"
@@ -274,6 +275,25 @@ static void sensing_task (INT start_code, void * p_extra)
             ir_barcode_window_invalidate(&window);
         }
 
+        char decoded_letter = '\0';
+        if (ir_code39_decode_single(&window, ir_time_us(), &decoded_letter))
+        {
+            s1_set_barcode_id((UB)decoded_letter);
+#if defined(BUDDY3_SENSING_STANDALONE)
+            if (IR_USB_READY == tm_usb_state())
+            {
+                ir_barcode_action_t const action =
+                    ir_barcode_action_for(decoded_letter);
+                char const * p_action =
+                    (IR_BARCODE_TURN_LEFT == action) ? "LEFT" :
+                    (IR_BARCODE_TURN_RIGHT == action) ? "RIGHT" : "UNMAPPED";
+                tm_printf((UB const *)"Code 39 decoded: %c action=%s\n",
+                          decoded_letter, p_action);
+            }
+#endif
+            ir_barcode_window_reset(&window);
+        }
+
         if (ir_barcode_window_expired(&window, ir_time_us()))
         {
             print_capture(&window);
@@ -324,8 +344,8 @@ static void sensing_task (INT start_code, void * p_extra)
             .steer = line.latest_steer,
             .b_lost = line.b_lost,
             .b_gpio_ready = fault_status.b_gpio_configured,
-            /* A configured GPIO is not a verified mounted sensor. */
-            .b_ready = false
+            /* Mounted readings were accepted in the user-reported car trial. */
+            .b_ready = b_ir_ready
         };
 
         if (!ir_line_snapshot_shared_publish(&snapshot))

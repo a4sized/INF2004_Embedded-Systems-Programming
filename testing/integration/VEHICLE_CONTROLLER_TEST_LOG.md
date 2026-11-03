@@ -31,8 +31,8 @@ profile must be treated separately from the Vehicle Controller contract.
 
 | Owner | Signal | Current status |
 |---|---|---|
-| Buddy 1 | Call `vehicle_controller_set_wifi_connected(true)` on first confirmed link and `false` on disconnect, from task context | Implemented in `cyw43_utk.c` and `mqtt_utk.c`. Reports `true` on Wi-Fi link / MQTT connect and `false` on disconnect. |
-| Buddy 3 | Publish `ir_line_snapshot_t.b_ready=true` only after mounted GP7/GP2/GP6 black/white verification and a team-approved calibration policy | Always false at present. GPIO configuration alone is insufficient. |
+| Buddy 1 | Call `vehicle_controller_set_wifi_connected(true)` on first confirmed link and `false` on disconnect, from task context | Implemented in `cyw43_utk.c` and `mqtt_utk.c` for networked builds. The current team IR build has `NET=none MQTT=0`, so it does not report a connection. |
+| Buddy 3 | Publish `ir_line_snapshot_t.b_ready=true` after successful GPIO setup using the accepted fixed black=HIGH polarity | Implemented following the user's report that the car demo readings worked. The earlier recorded successful demo used GP7/GP4/GP16; current GP7/GP2/GP6 wiring and polarity still need a saved trace before independent validation. |
 | Buddy 5 | `subsystem5_startup_scan_ready()` | Implemented; first scan and clear forward path require car verification. |
 | Buddy 4 | `s4_is_calibrated()` | Existing getter, now polled; actual calibration needs car verification. |
 | Team | Define obstacle takeover/rejoin permission and navigation mode transitions | The controller currently grants ordinary following only. S5 speed cap can stop at an obstacle; bypass and handback are not integrated. |
@@ -40,4 +40,18 @@ profile must be treated separately from the Vehicle Controller contract.
 Before any moving trial, verify motor cutoff, initial readiness, START,
 STOP, ESTOP, fault clearance, Wi-Fi loss during a run, and startup with
 missing/failed sensors on the actual car. The current image remains
-motion-closed because Wi-Fi and IR readiness are unreported.
+motion-closed because the network hooks are inactive and START cannot arrive
+through MQTT in this `NET=none MQTT=0` profile.
+
+## YiRui network bridge merged (3 November 2026)
+
+Commit `26b79b3` was fast-forwarded into `rance/IR-branch`. Its Wi-Fi and
+MQTT callbacks now call `vehicle_controller_set_wifi_connected()` on link
+establishment and loss. This is inactive in the current team IR UF2, which
+still builds with `NET=none MQTT=0`; that UF2 compiled after the merge.
+
+A local `NET=lwip MQTT=1` build was attempted but stopped in `mqtt_utk.c`
+because `MQTT_TOPIC_CMD` is undefined in both `config/wifi_secrets.h` and
+`config/wifi_secrets.example.h`. Thus the networked profile was not linked
+or tested on a Pico. The command-topic contract needs Buddy 1's intended
+value before this build is usable.

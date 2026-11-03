@@ -350,9 +350,14 @@ START, STOP, ESTOP and CLEAR. The controller alone calls
 the safety halt. START is accepted from READY, not from INIT. Wi-Fi loss
 after following begins does not revoke permission.
 
-The Wi-Fi status callback and Buddy 3 mounted-sensor readiness validation
-are not yet implemented, so the normal image remains unable to grant
-movement. The pure state policy has a host test in
+The Wi-Fi status callback is connected for networked builds, but the
+current team IR image has `NET=none MQTT=0`, so it still cannot grant
+movement through the required Wi-Fi and START gates. Buddy 3 publishes
+`b_ready=true`
+after successful GPIO setup based on the user's reported mounted demo
+result. The fixed-polarity GP7/GP2/GP6 configuration still needs a saved
+current-pin trace; the earlier recorded successful demo used GP7/GP4/GP16.
+The pure state policy has a host test in
 `testing/integration/vehicle_controller_policy_test.c`. See
 `testing/integration/VEHICLE_CONTROLLER_TEST_LOG.md` for evidence and the
 remaining team handoffs. Obstacle bypass and post-bypass recovery modes

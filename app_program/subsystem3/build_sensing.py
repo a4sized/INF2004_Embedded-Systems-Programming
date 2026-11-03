@@ -21,6 +21,7 @@ SOURCES = (
     "ir_barcode_gpio.c", "ir_barcode_gpio.h",
     "ir_barcode_window.c", "ir_barcode_window.h",
     "ir_barcode_segments.c", "ir_barcode_segments.h",
+    "ir_code39.c", "ir_code39.h",
     "ir_fault_status.c", "ir_fault_status.h",
     "ir_line_snapshot.c", "ir_line_snapshot.h",
     "ir_line_snapshot_shared.c", "ir_line_snapshot_shared.h",

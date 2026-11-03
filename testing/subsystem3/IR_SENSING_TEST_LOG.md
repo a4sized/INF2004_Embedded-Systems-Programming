@@ -642,3 +642,37 @@ AddressSanitizer and UndefinedBehaviorSanitizer, including duplicate,
 backward, overlong and wraparound timestamps. The isolated sensing ARM UF2
 compiled and `git diff --check` passed. No GP6 hardware scan, line timing
 measurement or complete barcode decoding was performed.
+
+## User-accepted mounted IR readiness (3 November 2026)
+
+The user reports that the car moved and followed the line in the demo,
+and instructed that mounted IR readings be treated as ready. The sensing
+service now publishes `b_ready=true` after successful IR GPIO setup; a
+failed setup still reports `FAULT_IR_SENS` and publishes an unavailable
+snapshot. This is a fixed-polarity acceptance based on the reported car
+trial, not an automatic black/white calibration routine.
+
+Earlier recorded successful demo evidence used GP7/GP4/GP16. The current
+team pin map is GP7 left, GP2 right and GP6 barcode; a saved trace for
+those current pins remains open. The Vehicle Controller's separate
+initial Wi-Fi and START gates still prevent the normal image from moving.
+The team IR and sensing-only ARM UF2 images compiled. The existing
+snapshot/handoff host test passed with strict warnings and sanitizers;
+`git diff --check` passed. No new car run was performed for this change.
+
+## Single-letter Code 39 image checks (3 November 2026)
+
+The user supplied two screenshots of printed bars. Their mid-row run widths
+match standard `*A*` and `*Z*` respectively, with no fourth character for
+an optional check digit. A pure Code 39 decoder now accepts exactly one
+A-Z data character between start/stop markers after a trailing white
+interval. The fixed action table maps A to LEFT and Z to RIGHT; other
+letters have no action. The sensing service publishes a decoded letter to
+Subsystem 1's barcode telemetry setter. Junction/motor commands are not
+connected to this result yet.
+
+The host test used run widths measured from both supplied images and passed
+with strict warnings, AddressSanitizer and UndefinedBehaviorSanitizer. The
+team IR and sensing-only ARM UF2 images compiled. Image analysis is not a
+GP6 sensor scan: mounted contrast, scan speed, noise tolerance, leading
+quiet zone, duplicate suppression and turn placement remain untested.

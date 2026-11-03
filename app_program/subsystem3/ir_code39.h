@@ -1,0 +1,25 @@
+/** @file ir_code39.h @brief Single-letter Code 39 decoding and fixed actions. */
+#ifndef IR_CODE39_H
+#define IR_CODE39_H
+
+#include "ir_barcode_window.h"
+
+typedef enum
+{
+    IR_BARCODE_NO_ACTION = 0,
+    IR_BARCODE_TURN_LEFT,
+    IR_BARCODE_TURN_RIGHT
+} ir_barcode_action_t;
+
+/**
+ * Decode exactly *LETTER* without a check character. The window must contain
+ * 30 alternating edges (15 bars) and a trailing quiet zone at now_us.
+ * Returns false for incomplete, invalid, or non-letter symbols.
+ */
+bool ir_code39_decode_single (ir_barcode_window_t const * p_window,
+                              uint32_t now_us, char * p_letter);
+
+/** Fixed course trial mapping; all letters other than A and Z are unmapped. */
+ir_barcode_action_t ir_barcode_action_for (char letter);
+
+#endif
