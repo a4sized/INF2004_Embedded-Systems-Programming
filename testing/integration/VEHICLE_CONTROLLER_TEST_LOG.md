@@ -31,7 +31,7 @@ profile must be treated separately from the Vehicle Controller contract.
 
 | Owner | Signal | Current status |
 |---|---|---|
-| Buddy 1 | Call `vehicle_controller_set_wifi_connected(true)` on first confirmed link and `false` on disconnect, from task context | No connected-status hook exists; defaults false. Current build has `NET=none MQTT=0`. |
+| Buddy 1 | Call `vehicle_controller_set_wifi_connected(true)` on first confirmed link and `false` on disconnect, from task context | Implemented in `cyw43_utk.c` and `mqtt_utk.c`. Reports `true` on Wi-Fi link / MQTT connect and `false` on disconnect. |
 | Buddy 3 | Publish `ir_line_snapshot_t.b_ready=true` only after mounted GP7/GP2/GP6 black/white verification and a team-approved calibration policy | Always false at present. GPIO configuration alone is insufficient. |
 | Buddy 5 | `subsystem5_startup_scan_ready()` | Implemented; first scan and clear forward path require car verification. |
 | Buddy 4 | `s4_is_calibrated()` | Existing getter, now polled; actual calibration needs car verification. |

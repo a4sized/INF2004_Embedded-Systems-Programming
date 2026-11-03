@@ -9,6 +9,7 @@
 #include "lwip/timeouts.h"
 #include "wifi_secrets.h"
 #include "mqtt_utk.h"
+#include <stdbool.h>
 #include <tm/tmonitor.h>
 
 /* Subsystem 1 non-blocking bridge functions and fault reporting */
@@ -16,6 +17,7 @@ extern void s1_mqtt_push_rx(const UB *data, INT len);
 extern INT  s1_mqtt_pop_tx(UB *buf, INT max_len);
 extern void s1_report_fault(UW fault_bit);
 extern void s1_clear_fault(UW fault_bit);
+extern void vehicle_controller_set_wifi_connected(bool b_connected);
 #define FAULT_WIFI (1U << 5)   /* Wi-Fi / MQTT link fault bit */
 
 /* Timing configuration */
@@ -147,8 +149,9 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
         if(status == MQTT_CONNECT_ACCEPTED) {
                 err_t   err;
 
-                /* Connection successful: Clear Wi-Fi/MQTT fault */
+                /* Connection successful: Clear Wi-Fi/MQTT fault and notify vehicle controller */
                 s1_clear_fault(FAULT_WIFI);
+                vehicle_controller_set_wifi_connected(true);
                 connecting = 0;
 
                 tm_printf((UB*)"mqtt: connected to " MQTT_BROKER_IP "\n");
@@ -168,8 +171,9 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
                 sys_untimeout(heartbeat_timeout, NULL);
                 sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
         } else {
-                /* Connection failed or dropped: Report Wi-Fi/MQTT fault and schedule retry */
+                /* Connection failed or dropped: Report Wi-Fi/MQTT fault and notify vehicle controller */
                 s1_report_fault(FAULT_WIFI);
+                vehicle_controller_set_wifi_connected(false);
                 tm_printf((UB*)"mqtt: connection status %d, retrying in %ds\n",
                           (int)status, MQTT_UTK_RETRY_MS / 1000);
                 sys_timeout(MQTT_UTK_RETRY_MS, retry_timeout, NULL);
