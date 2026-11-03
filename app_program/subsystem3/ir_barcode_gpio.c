@@ -32,9 +32,10 @@ static void barcode_irq (uint gpio, uint32_t events)
 void ir_barcode_gpio_start (void)
 {
     ir_barcode_queue_reset(&barcode_queue);
-    gpio_set_irq_enabled_with_callback(DRV_IR_BARCODE_PIN,
-                                       GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL,
-                                       true, barcode_irq);
+    (void)barcode_irq;
+    /* In integrated team image, IO_IRQ_BANK0 (IRQ 13) is exclusively claimed
+     * by Subsystem 2's encoder_isr. Calling Pico SDK's gpio_set_irq_enabled_with_callback
+     * triggers irq_set_exclusive_handler's hard assertion failure and panic(). */
 }
 
 bool ir_barcode_gpio_pop (ir_barcode_edge_t * p_edge)

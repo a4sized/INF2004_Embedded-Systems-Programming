@@ -48,6 +48,7 @@ LOCAL const UW module_tbl[] = {
 	RESETS_RESET_IO_BANK0,		/* IO_BANK0 */
 	RESETS_RESET_PADS_BANK0,	/* PADS_BANK0 */
 	RESETS_RESET_UART0,		/* UART0 */
+	RESETS_RESET_TIMER,		/* TIMER */
 
 #if TM_WIFI_CYW43
 	/* The Pico W radio transport runs a PIO state machine with two DMA
