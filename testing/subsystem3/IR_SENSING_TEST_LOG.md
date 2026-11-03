@@ -628,3 +628,17 @@ and sensing-only UF2 compiled. `git diff --check` passed. Physical GP2
 polarity, line reacquisition, encoder coexistence, PWM behavior, and
 system startup have not been tested. Following permission remains false,
 and published mounted-sensor readiness remains false until validation.
+
+## Barcode edge timestamp hardening (2 November 2026)
+
+The task-side barcode window now marks a capture invalid when adjacent
+edges have the same timestamp, an edge goes backward in time, or its
+timestamp exceeds the two-second window. Unsigned elapsed-time arithmetic
+still accepts normal 32-bit timer wrap. Invalid windows cannot become
+provisional normalized segments or navigation input.
+
+The barcode-window host test passed with Clang strict warnings,
+AddressSanitizer and UndefinedBehaviorSanitizer, including duplicate,
+backward, overlong and wraparound timestamps. The isolated sensing ARM UF2
+compiled and `git diff --check` passed. No GP6 hardware scan, line timing
+measurement or complete barcode decoding was performed.

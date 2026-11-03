@@ -61,6 +61,7 @@
 #include "subsystem4/subsystem4.h"
 #include "subsystem5/subsystem5.h"
 #include "systemFaults.h"
+#include "vehicle_controller.h"
 
 /*
  * Create and start one task (declared in app.h for every subsystem).
@@ -140,9 +141,9 @@ EXPORT INT usermain(void)
 	CHECK(subsystem2_start(), "subsystem2_start");
 	CHECK(subsystem3_start(), "subsystem3_start");
     
-    /* TEMPORARILY DISABLED: Prevent S4 and S5 from stopping the motors during the S2 test */
-	// CHECK(subsystem4_start(), "subsystem4_start");
-	// CHECK(subsystem5_start(), "subsystem5_start");
+	CHECK(subsystem4_start(), "subsystem4_start");
+	CHECK(subsystem5_start(), "subsystem5_start");
+	CHECK(vehicle_controller_start(), "vehicle_controller_start");
 
 	tm_printf((UB*)"all subsystems started\n\n");
 

@@ -41,6 +41,20 @@ int main (void)
     ir_barcode_window_feed(&window, edge(20u, true, false));
     assert(window.b_invalid);
     ir_barcode_window_reset(&window);
+    ir_barcode_window_feed(&window, edge(100u, true, false));
+    ir_barcode_window_feed(&window, edge(100u, false, false));
+    assert(window.b_invalid);
+    ir_barcode_window_reset(&window);
+    ir_barcode_window_feed(&window, edge(100u, true, false));
+    ir_barcode_window_feed(&window, edge(99u, false, false));
+    assert(window.b_invalid);
+    ir_barcode_window_reset(&window);
+    ir_barcode_window_feed(&window, edge(100u, true, false));
+    ir_barcode_window_feed(&window,
+                           edge(100u + IR_BARCODE_WINDOW_US + 1u,
+                                false, false));
+    assert(window.b_invalid);
+    ir_barcode_window_reset(&window);
     ir_barcode_window_feed(&window, edge(10u, true, true));
     assert(window.b_invalid);
     ir_barcode_window_reset(&window);

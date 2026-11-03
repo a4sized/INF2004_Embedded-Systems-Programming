@@ -31,9 +31,17 @@ void ir_barcode_window_feed (ir_barcode_window_t * p_window,
         }
         p_window->start_us = edge.time_us;
     }
-    else if (edge.b_high == p_window->edges[p_window->count - 1u].b_high)
+    else
     {
-        p_window->b_invalid = true;
+        ir_barcode_edge_t const previous =
+            p_window->edges[p_window->count - 1u];
+        uint32_t const elapsed_us = edge.time_us - previous.time_us;
+
+        if ((edge.b_high == previous.b_high) || (0u == elapsed_us) ||
+            ((edge.time_us - p_window->start_us) > IR_BARCODE_WINDOW_US))
+        {
+            p_window->b_invalid = true;
+        }
     }
 
     if (edge.b_ambiguous)

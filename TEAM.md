@@ -336,3 +336,24 @@ standalone direct-motor and line-follow demo files were moved outside
 the repository. Integrated junction turning remains disabled until a
 real decoded barcode instruction exists. Motion permission remains closed
 until a startup controller grants it.
+
+## 11. Vehicle Controller startup contract (3 November 2026)
+
+`app_program/vehicle_controller.c` is the application-level mission gate.
+It starts after the five subsystem task groups. Its INIT state waits for
+the existing `s4_is_calibrated()` getter, Buddy 5's new
+`subsystem5_startup_scan_ready()` getter, a fresh Buddy 3 snapshot with
+`b_ready=true`, and an initial Wi-Fi connection reported by Buddy 1 through
+`vehicle_controller_set_wifi_connected()`. Buddy 1's command flag supplies
+START, STOP, ESTOP and CLEAR. The controller alone calls
+`ir_motion_consumer_set_following()`; Buddy 2 still owns motor output and
+the safety halt. START is accepted from READY, not from INIT. Wi-Fi loss
+after following begins does not revoke permission.
+
+The Wi-Fi status callback and Buddy 3 mounted-sensor readiness validation
+are not yet implemented, so the normal image remains unable to grant
+movement. The pure state policy has a host test in
+`testing/integration/vehicle_controller_policy_test.c`. See
+`testing/integration/VEHICLE_CONTROLLER_TEST_LOG.md` for evidence and the
+remaining team handoffs. Obstacle bypass and post-bypass recovery modes
+still need a separate permission contract.

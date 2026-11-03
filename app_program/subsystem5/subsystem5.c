@@ -93,6 +93,16 @@ static const uint8_t g_scan_angles[S5_SCAN_POSITIONS] =
     30u, 60u, 90u, 120u, 150u
 };
 
+static bool b_startup_sweep_done;
+static bool b_forward_reading_seen;
+
+bool subsystem5_startup_scan_ready (void)
+{
+    return __atomic_load_n(&b_startup_sweep_done, __ATOMIC_ACQUIRE) &&
+           __atomic_load_n(&b_forward_reading_seen, __ATOMIC_ACQUIRE) &&
+           !s5_report_is_faulted() && !s5_guard_is_stopped();
+}
+
 static scanner_state_t g_scanner = { 0u, 0u };
 
 /* Print one good reading taken at the servo's current angle. */
@@ -390,8 +400,13 @@ static void s5_sensor_task (INT start_code, void * p_extra_info)
     s5_startup_sweep();
 
     s5_servo_move_until_done(S5_FORWARD_DEG, FORWARD_POSITION);
+    if (s5_take_reading(FORWARD_POSITION, false, NULL))
+    {
+        __atomic_store_n(&b_forward_reading_seen, true, __ATOMIC_RELEASE);
+    }
     s5_report_keep_only(FORWARD_POSITION);
     s5_guard_set_hold(false);
+    __atomic_store_n(&b_startup_sweep_done, true, __ATOMIC_RELEASE);
 
     if (s5_guard_is_stopped())
     {
@@ -415,7 +430,11 @@ static void s5_sensor_task (INT start_code, void * p_extra_info)
         {
             since_print_ms = 0u;
         }
-        (void)s5_take_reading(FORWARD_POSITION, b_print, NULL);
+        if (s5_take_reading(FORWARD_POSITION, b_print, NULL))
+        {
+            __atomic_store_n(&b_forward_reading_seen, true,
+                             __ATOMIC_RELEASE);
+        }
 
         if (!s5_guard_is_stopped())
         {
@@ -436,6 +455,9 @@ static void s5_sensor_task (INT start_code, void * p_extra_info)
 EXPORT ER subsystem5_init (void)
 {
     ER result = drv_servo_init();   /* also turns the servo to 90 degrees */
+
+    __atomic_store_n(&b_startup_sweep_done, false, __ATOMIC_RELAXED);
+    __atomic_store_n(&b_forward_reading_seen, false, __ATOMIC_RELAXED);
 
     if (result < E_OK)
     {

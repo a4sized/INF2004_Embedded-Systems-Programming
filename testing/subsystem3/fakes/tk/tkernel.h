@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 
+#define IMPORT extern
+
 typedef int ID;
 typedef int ER;
 typedef struct
