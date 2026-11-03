@@ -6,6 +6,7 @@
 #define SUBSYSTEM5_H
 
 #include <tk/tkernel.h>
+#include <stdbool.h>
 
 /* Set up the servo and ultrasonic sensor (called once at startup). */
 ER subsystem5_init (void);
@@ -13,5 +14,8 @@ ER subsystem5_init (void);
 /* Hold the car still and start the scanning task, which runs the start-up
  * scan (called after every subsystem's init). */
 ER subsystem5_start (void);
+
+/* True only after the first sweep, a good forward reading and a clear path. */
+bool subsystem5_startup_scan_ready (void);
 
 #endif /* SUBSYSTEM5_H */
