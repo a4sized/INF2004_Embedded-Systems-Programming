@@ -106,13 +106,22 @@
  * an IMU fitted). */
 #define S4_PROPAGATE_FAULTS 1
 
-/* Distance per wheel-encoder tick in cm (wheel circumference / ticks per
- * turn).  0 = not known yet: subsystem 2's encoder counters are NOT used
- * and a fixed speed is assumed instead, so hump heights are only rough. */
-#ifndef S4_CM_PER_TICK              /* (#ifndef: the PC tests change it) */
-#define S4_CM_PER_TICK      (0.0f)
+/* Where the distance driven comes from (the hump height needs it):
+ *   1 = Subsystem 2's get_distance_traveled_mm(): the mean of both wheel
+ *       encoders, forward is positive.  Subsystem 2 owns the wheel size and the
+ *       ticks per turn (WHEEL_DIAMETER_MM, ENCODER_TPR in encoder.h), so there
+ *       is nothing to calibrate here.
+ *   0 = no encoders: assume the robot drives at S4_FALLBACK_SPEED_CM_S.  Hump
+ *       heights are then only rough. */
+#ifndef S4_USE_ENCODER_DISTANCE     /* (#ifndef: the PC tests change it) */
+#define S4_USE_ENCODER_DISTANCE 1
 #endif
 #define S4_FALLBACK_SPEED_CM_S 20.0f
+
+/* The most distance one 20 ms sample can really cover, in cm.  A bigger jump
+ * is a counter reset (motor_reset_ticks) or a glitch, not driving: it is
+ * ignored.  5 cm per sample is 2.5 m/s: far above this car's top speed. */
+#define S4_MAX_STEP_CM      5.0f
 
 /* ------------------------------------------------------------------ *
  *  Debug output

@@ -24,6 +24,16 @@ volatile UH         s4_samples;
  * "read, change a bit, write back" is safe. */
 static volatile UB  s4_faults;
 
+/* After the last condition is over we ask Subsystem 1 to clear the bit.  But
+ * every s1_report_fault() ALSO leaves a bit in Subsystem 1's event flag, and
+ * Subsystem 1's LED task copies whatever it finds there back into the fault
+ * mask, up to one S1_TICK_MS later.  A report still waiting in that flag would
+ * therefore bring the fault BACK right after we cleared it, and nothing would
+ * clear it again.  So for a short while after a release we check, and clear
+ * again if the bit came back (two LED ticks, counted in status messages). */
+#define S4_RELEASE_WATCH_TICKS  ((2U * S1_TICK_MS) / (S4_SAMPLE_MS * S4_REPORT_EVERY) + 2U)
+static volatile UB  s4_release_watch;
+
 /* TEMPORARY, see subsystem4.h: 0 = no such object, so S3's example send fails quietly. */
 ID                  mbf_summary = 0;
 ID                  flg_events = 0;
@@ -34,14 +44,28 @@ ID                  flg_events = 0;
  * the bit (each call takes Subsystem 1's lock, so it is race-free).
  *
  * The bit is ON while at least one of our two conditions is active.  We
- * report on every change, and repeat the report from s4_fault_assert() while
- * a condition lasts, so the bit cannot be lost if somebody else clears it
- * while the problem is still there. */
+ * report on every change.  s4_fault_assert() runs every status message and
+ * does two jobs:
+ *   - while a condition lasts: if the bit is MISSING (somebody cleared it
+ *     while the problem is still here) report it again.  It reports ONLY when
+ *     the bit is missing, never "just in case": see s4_release_watch above.
+ *   - just after a release: make sure the bit stays cleared. */
 void s4_fault_assert(void)
 {
 #if S4_PROPAGATE_FAULTS
+    S1_TELEMETRY_PKT snap;
+
     if (s4_faults != 0U) {
-        s1_report_fault(FAULT_IMU_SENS);
+        s1_get_telemetry(&snap);
+        if ((snap.fault_mask & FAULT_IMU_SENS) == 0U) {
+            s1_report_fault(FAULT_IMU_SENS);
+        }
+    } else if (s4_release_watch != 0U) {
+        s4_release_watch--;
+        s1_get_telemetry(&snap);
+        if ((snap.fault_mask & FAULT_IMU_SENS) != 0U) {
+            s1_clear_fault(FAULT_IMU_SENS);         /* a stale report came back: clear it again */
+        }
     }
 #endif
 }
@@ -53,6 +77,7 @@ void s4_fault_set(UW bits)
     s4_faults = (UB)(before | bits);
 #if S4_PROPAGATE_FAULTS
     if ((before == 0U) && (s4_faults != 0U)) {
+        s4_release_watch = 0U;
         s1_report_fault(FAULT_IMU_SENS);
     }
 #endif
@@ -66,6 +91,7 @@ void s4_fault_clear(UW bits)
 #if S4_PROPAGATE_FAULTS
     if ((before != 0U) && (s4_faults == 0U)) {
         s1_clear_fault(FAULT_IMU_SENS);
+        s4_release_watch = (UB)S4_RELEASE_WATCH_TICKS;
     }
 #endif
 }

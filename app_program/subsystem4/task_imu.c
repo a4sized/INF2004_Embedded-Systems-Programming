@@ -16,12 +16,11 @@
 #include "lsm303d.h"
 #include <stdint.h>
 
-/* Subsystem 2's wheel-encoder counters (IF-06).  They are declared here and
- * not by including subsystem2.h: that header is Subsystem 2's own business
- * (it currently does not even compile), and these two functions are all we
- * use. */
-extern int32_t get_left_encoder_ticks(void);
-extern int32_t get_right_encoder_ticks(void);
+/* Subsystem 2's distance driven (IF-06): the mean of both wheel encoders in
+ * millimetres, forward positive.  Declared here and not by including
+ * subsystem2.h: that header is Subsystem 2's own business, and this one
+ * function is all we use. */
+extern float get_distance_traveled_mm(void);
 
 /* A free-running 1 MHz hardware timer (RP2040 TIMERAWL).  The kernel's own
  * clock only ticks every 1 ms, which is too coarse for a 20 ms loop.  It wraps
@@ -109,16 +108,16 @@ static void send_fault_msg(void)
  *  2. Distance travelled (for hump height)
  *
  *  Height gained = distance driven along the slope * sin(slope angle).
- *  The distance comes from Subsystem 2's wheel encoders, once S4_CM_PER_TICK
- *  is set.  Until then we assume the car drives at a fixed speed.
+ *  The distance comes from Subsystem 2's wheel encoders.  With
+ *  S4_USE_ENCODER_DISTANCE 0 we assume the car drives at a fixed speed.
  * ====================================================================== */
 static float distance_cm(void)
 {
-    if (S4_CM_PER_TICK > 0.0f) {
-        return ((float)get_left_encoder_ticks() +
-                (float)get_right_encoder_ticks()) * 0.5f * S4_CM_PER_TICK;
-    }
+#if S4_USE_ENCODER_DISTANCE
+    return get_distance_traveled_mm() * 0.1f;       /* mm -> cm */
+#else
     return 0.0f;
+#endif
 }
 
 /* ======================================================================
@@ -452,11 +451,15 @@ static BOOL process_sample(void)
     /* Time step and distance step since the last sample. */
     dt = first_sample ? ((float)S4_SAMPLE_MS / 1000.0f)
                       : ((float)(UW)(t_us - last_us) * 1.0e-6f);
-    if (S4_CM_PER_TICK > 0.0f) {
-        ds = first_sample ? 0.0f : (dist - last_dist);
-    } else {
-        ds = S4_FALLBACK_SPEED_CM_S * dt;
+    (void)dt;               /* only the no-encoder fallback below uses it */
+#if S4_USE_ENCODER_DISTANCE
+    ds = first_sample ? 0.0f : (dist - last_dist);
+    if ((ds > S4_MAX_STEP_CM) || (ds < -S4_MAX_STEP_CM)) {
+        ds = 0.0f;                  /* a counter reset or a glitch, not driving */
     }
+#else
+    ds = S4_FALLBACK_SPEED_CM_S * dt;
+#endif
     mag_dt = first_sample ? ((float)S4_SAMPLE_MS / 1000.0f)
                           : ((float)(UW)(mag_us - last_mag_us) * 1.0e-6f);
     last_us = t_us;
@@ -600,7 +603,7 @@ void imu_task(INT stacd, void *exinf)
             fail = 0;
             if (++tick >= S4_REPORT_EVERY) {
                 tick = 0;
-                s4_fault_assert();      /* keep FAULT_IMU_SENS set while we are faulted */
+                s4_fault_assert();      /* re-report if the bit went missing; after a release, make sure it stays clear */
                 send_status();
             }
         } else if (++fail >= S4_I2C_FAIL_LIMIT) {
@@ -613,6 +616,6 @@ void imu_task(INT stacd, void *exinf)
         /* 3. Calculate time spent in microseconds, convert to milliseconds, and sleep the remainder */
         UW elapsed_us = TIMER_US() - start_us;
         INT wait_time_ms = (INT)S4_SAMPLE_MS - (INT)(elapsed_us / 1000U);
-        tk_dly_tsk((wait_time_ms > 0) ? wait_time_ms : 1);
+        tk_dly_tsk((wait_time_ms > 0) ? (RELTIM)wait_time_ms : 1U);
     }
 }
