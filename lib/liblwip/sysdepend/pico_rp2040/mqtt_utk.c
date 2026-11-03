@@ -29,6 +29,10 @@ extern void vehicle_controller_set_wifi_connected(bool b_connected);
 #define MQTT_UTK_RX_TOPIC_MAX   64      /* Maximum incoming topic length */
 #define MQTT_UTK_RX_DATA_MAX    128     /* Maximum incoming payload length */
 
+#ifndef MQTT_TOPIC_CMD
+#define MQTT_TOPIC_CMD          "robot/inf2004team15/cmd"
+#endif
+
 static mqtt_client_t    *client;
 static ip_addr_t        broker_addr;
 static u8_t             connecting;
