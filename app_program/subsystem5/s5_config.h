@@ -124,8 +124,16 @@
 /* Wait this long after the stop before scanning, so the car is at rest. */
 #define S5_FINE_START_DELAY_MS      (300u)
 
-/* Tries per fine-scan angle before giving up on that reading. */
-#define S5_FINE_READ_TRIES          (3u)
+/* When a ping finds nothing at all, the HC-SR04 keeps its echo pin HIGH
+ * for 38 ms (cheap clones up to ~200 ms) and is busy until then. So each
+ * fine-scan angle keeps trying, every S5_FINE_RETRY_MS, for up to
+ * S5_FINE_READ_TIMEOUT_MS before it counts as missed. */
+#define S5_FINE_RETRY_MS            (10u)
+#define S5_FINE_READ_TIMEOUT_MS     (300u)
+
+/* The profile is still used if no more than this many fine-scan angles
+ * (out of 24) got no reading; missed angles are simply skipped. */
+#define S5_FINE_MAX_MISSED          (4u)
 
 /* A reading this much further than the last point on the obstacle (or no
  * echo at all) means the beam has passed the obstacle's edge. */
@@ -155,22 +163,20 @@
  * Roughly the obstacle's depth plus the car's length. */
 #define S5_BYPASS_DEPTH_CM          (30u)
 
-/* If neither side has room, reverse S5_REVERSE_MM and scan again, up to
- * this many times in a row (max 3), before giving up and staying stopped.
- * Each step back widens the sensor's view of the obstacle's edges. */
-#define S5_BYPASS_MAX_REVERSES      (3u)
-
 /* ---------------- Driving the bypass (s5_drive.c) ---------------- */
 /* 1 = Subsystem 5 carries the bypass decision out itself through
- * Subsystem 2's s2_set_ir_velocity(): go round the obstacle, or reverse
- * and scan again. 0 = only decide (s5_avoid_get()). */
+ * Subsystem 2's s2_set_ir_velocity(): turn towards the side with the most
+ * clearance and go round the obstacle. 0 = only decide (s5_avoid_get()). */
 #define S5_DRIVE_BYPASS             (1u)
 
 /* Wheel speeds sent to Subsystem 2 (1..255, PWM duty): for driving and
- * turning during a bypass, and a slower one for reversing. Too low and
+ * turning during a bypass, and a slower one for the short back-up. Too low and
  * the motors will not turn. */
 #define S5_DRIVE_SPEED              (120)
-#define S5_REVERSE_SPEED            (90)
+#define S5_REVERSE_SPEED            (70)
+
+/* Reversing is never boosted (see stall boost below) past this speed. */
+#define S5_REVERSE_MAX_SPEED        (110u)
 
 /* After a successful bypass, keep driving straight ahead at
  * S5_DRIVE_SPEED (1), or stop and hand the car back (0). 0: the vehicle
@@ -189,22 +195,47 @@
 
 /* Back off this far before turning, so the car's front corner clears the
  * obstacle. */
-#define S5_BYPASS_BACKUP_MM         (50u)
-
-/* REVERSE decision: back off this far, then scan again. */
-#define S5_REVERSE_MM               (50u)
+#define S5_BYPASS_BACKUP_MM         (30u)
 
 /* After a fine scan, the obstacle counts as still in the way while
- * something is within this distance straight ahead (also after reversing
- * S5_REVERSE_MM). */
-#define S5_STILL_BLOCKED_CM         (30u)
+ * something is within this distance straight ahead (the sensor's whole
+ * range), so the car goes round it rather than driving on. */
+#define S5_STILL_BLOCKED_CM         (S5_MAX_RANGE_CM)
+
+/* Stall boost: if the encoders move less than S5_DRIVE_STALL_TICKS in
+ * S5_DRIVE_STALL_MS during a move (turning on the spot needs more power
+ * than driving straight), raise that move's speed by S5_DRIVE_BOOST_STEP,
+ * up to 255 (S5_REVERSE_MAX_SPEED when reversing). Not checked during the
+ * first S5_DRIVE_STALL_GRACE_MS of a move: Subsystem 2 pauses 100 ms when
+ * a wheel changes direction and then ramps the speed up gradually. */
+#define S5_DRIVE_STALL_GRACE_MS     (600u)
+#define S5_DRIVE_STALL_MS           (300u)
+#define S5_DRIVE_STALL_TICKS        (20u)
+#define S5_DRIVE_BOOST_STEP         (30u)
+
+/* Subsystem 2 ramps a wheel's speed by this much every 20 ms, also when
+ * stopping, so the car coasts on after the wheels are told to stop. Each
+ * move stops early by that coasting distance (worked out from how fast
+ * the wheels turn), so turns and distances come out right. */
+#define S5_S2_RAMP_STEP             (10u)
+
+/* After a move has stopped, if it came up more than
+ * S5_DRIVE_TOLERANCE_TICKS short (motors that stop dead instead of
+ * coasting), drive the rest, up to S5_DRIVE_PASSES passes in all. 20
+ * ticks is about 2 mm of wheel travel. */
+#define S5_DRIVE_TOLERANCE_TICKS    (20u)
+#define S5_DRIVE_PASSES             (3u)
 
 /* Give up on one move if it has not finished in this time (stuck wheel,
  * encoder not counting). */
 #define S5_DRIVE_MOVE_TIMEOUT_MS    (5000u)
 
-/* Pause after each move while Subsystem 2 ramps the wheels down. A
- * multiple of S5_PING_INTERVAL_MS. */
+/* After each move, wait at least S5_DRIVE_SETTLE_MS and until the
+ * encoders show the wheels at rest (at most S5_DRIVE_REST_MAX_MS):
+ * Subsystem 2 ramps them down gradually, and starting the next move while
+ * a wheel still turns would swing the car off course. A multiple of
+ * S5_PING_INTERVAL_MS. */
+#define S5_DRIVE_REST_MAX_MS        (1200u)
 #define S5_DRIVE_SETTLE_MS          (240u)
 
 /* Derived: do not edit. */

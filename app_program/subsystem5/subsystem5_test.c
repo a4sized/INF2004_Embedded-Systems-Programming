@@ -87,35 +87,35 @@ EXPORT void subsystem5_test (void)
     TEST_CHECK("S5-U11", 10u == s5_profile_lateral_cm(20u, 120u),
                "20 cm away, 30 deg off axis (high side): 10 cm to the side");
 
-    /* Bypass decision. Start from a valid profile with no room either
-     * side, then open up one side at a time. */
+    /* Bypass decision: always the side with the most clearance. */
     profile.b_valid         = 1u;
     profile.left_extent_cm  = 8u;
     profile.right_extent_cm = 4u;
+    profile.left_clear_cm   = 6u;
+    profile.right_clear_cm  = 3u;
 
     TEST_CHECK("S5-U12", S5_BYPASS_CONTINUE ==
-                         s5_avoid_choose(&profile, false, 0u),
+                         s5_avoid_choose(&profile, false),
                "obstacle gone after the scan: continue");
-    TEST_CHECK("S5-U13", S5_BYPASS_STOP ==
-                         s5_avoid_choose(NULL, true, 0u),
+    TEST_CHECK("S5-U13", S5_BYPASS_STOP == s5_avoid_choose(NULL, true),
                "scan failed: stop");
-    TEST_CHECK("S5-U14", S5_BYPASS_REVERSE ==
-                         s5_avoid_choose(&profile, true, 0u),
-               "no room either side: reverse and scan again");
-    TEST_CHECK("S5-U15", S5_BYPASS_STOP ==
-                         s5_avoid_choose(&profile, true,
-                                         S5_BYPASS_MAX_REVERSES),
-               "no room either side, reverses used up: stop");
+    TEST_CHECK("S5-U14", S5_BYPASS_LEFT == s5_avoid_choose(&profile, true),
+               "narrow gaps: still go round on the wider (left) side");
 
-    profile.left_clear_cm = S5_BYPASS_NEED_CM;
-    TEST_CHECK("S5-U16", S5_BYPASS_LEFT ==
-                         s5_avoid_choose(&profile, true, 0u),
-               "room only on the left: go left");
+    profile.right_clear_cm = S5_OBSTACLE_NONE_CM;
+    TEST_CHECK("S5-U15", S5_BYPASS_RIGHT ==
+                         s5_avoid_choose(&profile, true),
+               "right side open: go right");
 
-    profile.right_clear_cm = S5_BYPASS_NEED_CM;
-    TEST_CHECK("S5-U17", S5_BYPASS_RIGHT ==
-                         s5_avoid_choose(&profile, true, 0u),
-               "room both sides: shorter detour (right) wins");
+    profile.left_clear_cm = S5_OBSTACLE_NONE_CM;
+    TEST_CHECK("S5-U16", S5_BYPASS_RIGHT ==
+                         s5_avoid_choose(&profile, true),
+               "equal clearance: shorter detour (right) wins");
+
+    profile.right_extent_cm = profile.left_extent_cm;
+    TEST_CHECK("S5-U17", S5_BYPASS_LEFT ==
+                         s5_avoid_choose(&profile, true),
+               "equal clearance and detour: left");
 
     /* Bypass driving maths */
     TEST_CHECK("S5-U18", S5_ENCODER_TICKS_PER_REV ==

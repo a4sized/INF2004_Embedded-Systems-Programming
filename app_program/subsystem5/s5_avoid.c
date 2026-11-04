@@ -17,92 +17,54 @@
 #include "s5_profile.h"
 #include "s5_avoid.h"
 
-#define REVERSE_COUNT_MAX   (3u)   /* largest value a 2-bit field holds */
 #define DECISION_MAX        (7u)   /* largest value a 3-bit field holds */
 
-_Static_assert(S5_BYPASS_MAX_REVERSES <= REVERSE_COUNT_MAX,
-               "reverse count needs > 2 bits");
 _Static_assert(S5_BYPASS_COUNT <= (DECISION_MAX + 1u),
                "bypass decision needs > 3 bits");
 
-/* Minimum-bit decision state: 3 + 2 = 5 bits in one byte. Written only by
- * the scanning task. s5_avoid_get() may be called from another task: a
- * byte load is atomic on the RP2040 and there is one writer, so a reader
- * always sees a whole value. */
+/* Minimum-bit decision state: 3 bits in one byte. Written only by the
+ * scanning task. s5_avoid_get() may be called from another task: a byte
+ * load is atomic on the RP2040 and there is one writer, so a reader always
+ * sees a whole value. */
 typedef struct
 {
-    uint8_t decision      : 3;   /* s5_bypass_t                      */
-    uint8_t reverse_count : 2;   /* REVERSE decisions in a row so far */
+    uint8_t decision : 3;   /* s5_bypass_t */
 } avoid_state_t;
 
 /* Decision names for the console and the CSV log, in s5_bypass_t order. */
 static const char * const g_bypass_names[S5_BYPASS_COUNT] =
 {
-    "NONE", "CONTINUE", "LEFT", "RIGHT", "REVERSE", "STOP"
+    "NONE", "CONTINUE", "LEFT", "RIGHT", "STOP"
 };
 
-static volatile avoid_state_t g_avoid = { S5_BYPASS_NONE, 0u };
+static volatile avoid_state_t g_avoid = { S5_BYPASS_NONE };
 
-/* Both sides have room: take the shorter detour (smaller extent from the
- * centre line). On a tie take the wider gap, then the left. */
+/* The obstacle is still in the way and the profile is valid: always go
+ * round, on the side with the most clearance. On a tie take the shorter
+ * detour (smaller extent from the centre line), then the left. */
 static s5_bypass_t s5_avoid_pick_side (const s5_profile_t * const p_profile)
 {
     s5_bypass_t choice = S5_BYPASS_LEFT;
 
-    if (p_profile->right_extent_cm < p_profile->left_extent_cm)
+    if (p_profile->right_clear_cm > p_profile->left_clear_cm)
     {
         choice = S5_BYPASS_RIGHT;
     }
-    else if ((p_profile->right_extent_cm == p_profile->left_extent_cm) &&
-             (p_profile->right_clear_cm > p_profile->left_clear_cm))
+    else if ((p_profile->right_clear_cm == p_profile->left_clear_cm) &&
+             (p_profile->right_extent_cm < p_profile->left_extent_cm))
     {
         choice = S5_BYPASS_RIGHT;
     }
     else
     {
-        /* Left is the shorter (or equal) detour. */
+        /* Left has more (or equal) clearance and no longer a detour. */
     }
 
     return choice;
 }
 
-/* The obstacle is still in the way and the profile is valid: go round on a
- * side with room, or reverse, or give up. */
-static s5_bypass_t s5_avoid_from_gaps (const s5_profile_t * const p_profile,
-                                       const uint8_t reverse_count)
-{
-    bool        b_left_fits  = (p_profile->left_clear_cm >= S5_BYPASS_NEED_CM);
-    bool        b_right_fits = (p_profile->right_clear_cm >=
-                                S5_BYPASS_NEED_CM);
-    s5_bypass_t decision     = S5_BYPASS_STOP;
-
-    if (b_left_fits && b_right_fits)
-    {
-        decision = s5_avoid_pick_side(p_profile);
-    }
-    else if (b_left_fits)
-    {
-        decision = S5_BYPASS_LEFT;
-    }
-    else if (b_right_fits)
-    {
-        decision = S5_BYPASS_RIGHT;
-    }
-    else if (reverse_count < S5_BYPASS_MAX_REVERSES)
-    {
-        decision = S5_BYPASS_REVERSE;
-    }
-    else
-    {
-        /* No room either side and no reverses left: stay stopped. */
-    }
-
-    return decision;
-}
-
 s5_bypass_t s5_avoid_choose (const s5_profile_t * const p_profile,
-                             const bool b_path_blocked,
-                             const uint8_t reverse_count)
+                             const bool b_path_blocked)
 {
     s5_bypass_t decision = S5_BYPASS_STOP;
 
@@ -116,7 +78,7 @@ s5_bypass_t s5_avoid_choose (const s5_profile_t * const p_profile,
     }
     else
     {
-        decision = s5_avoid_from_gaps(p_profile, reverse_count);
+        decision = s5_avoid_pick_side(p_profile);
     }
 
     return decision;
@@ -125,42 +87,38 @@ s5_bypass_t s5_avoid_choose (const s5_profile_t * const p_profile,
 s5_bypass_t s5_avoid_plan (const s5_profile_t * const p_profile,
                            const bool b_path_blocked)
 {
-    s5_bypass_t decision = s5_avoid_choose(p_profile, b_path_blocked,
-                                           g_avoid.reverse_count);
+    s5_bypass_t decision = s5_avoid_choose(p_profile, b_path_blocked);
+    uint16_t    left_cm  = 0u;
+    uint16_t    right_cm = 0u;
+    uint16_t    gap_cm   = 0u;
 
-    if (S5_BYPASS_REVERSE == decision)
+    if (NULL != p_profile)
     {
-        g_avoid.reverse_count++;   /* < S5_BYPASS_MAX_REVERSES <= 3 */
+        left_cm  = p_profile->left_clear_cm;
+        right_cm = p_profile->right_clear_cm;
     }
-    else if (S5_BYPASS_STOP != decision)
-    {
-        g_avoid.reverse_count = 0u;   /* got past (or no longer blocked) */
-    }
-    else
-    {
-        /* STOP: keep the count, so the car does not reverse forever. */
-    }
+
+    gap_cm = (S5_BYPASS_RIGHT == decision) ? right_cm : left_cm;
 
     /* Cast is safe: every s5_bypass_t value is below S5_BYPASS_COUNT,
      * which the static assert above keeps within 3 bits. */
     g_avoid.decision = (uint8_t)decision;
 
-    tm_printf((UB *)"S5 bypass: %s (gap left %u cm, right %u cm, "
-              "need %u cm)\n",
-              g_bypass_names[decision],
-              (unsigned int)((NULL != p_profile) ?
-                             p_profile->left_clear_cm : 0u),
-              (unsigned int)((NULL != p_profile) ?
-                             p_profile->right_clear_cm : 0u),
-              (unsigned int)S5_BYPASS_NEED_CM);
+    tm_printf((UB *)"S5 bypass: %s (clearance left %u cm, right %u cm)\n",
+              g_bypass_names[decision], (unsigned int)left_cm,
+              (unsigned int)right_cm);
+
+    if (((S5_BYPASS_LEFT == decision) || (S5_BYPASS_RIGHT == decision)) &&
+        (gap_cm < S5_BYPASS_NEED_CM))
+    {
+        tm_printf((UB *)"S5 bypass: warning, widest gap %u cm is below "
+                  "the %u cm the car needs\n", (unsigned int)gap_cm,
+                  (unsigned int)S5_BYPASS_NEED_CM);
+    }
+
     s1_csv_log_event("S5_BYPASS", g_bypass_names[decision]);
 
     return decision;
-}
-
-void s5_avoid_new_obstacle (void)
-{
-    g_avoid.reverse_count = 0u;
 }
 
 s5_bypass_t s5_avoid_get (void)

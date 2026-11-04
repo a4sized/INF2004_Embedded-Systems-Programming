@@ -25,8 +25,8 @@
  *   side, out to the scan limits. The readings go to s5_profile.c, which
  *   works out the obstacle's closest point, location, width and the free
  *   gap beside it on the left and right. The servo turns back to 90
- *   degrees, and s5_avoid.c decides what to do: continue, go round left,
- *   go round right, reverse and scan again, or stop. The scan runs once
+ *   degrees, and s5_avoid.c decides what to do: continue, go round on
+ *   the side with the most clearance, or stop. The scan runs once
  *   per stop: it re-arms when the obstacle clears.
  *
  * Driving the bypass (S5_DRIVE_BYPASS)
@@ -35,8 +35,9 @@
  *   follower and gives Subsystem 5 permission to drive
  *   (subsystem5_set_drive_permission). Only with that permission does it
  *   carry the decision out through s2_set_ir_velocity(), measuring each
- *   move with the wheel encoders (s5_drive.c): reverse slowly and scan
- *   again, or go round the obstacle. Then it stops the wheels and hands
+ *   move with the wheel encoders (s5_drive.c): back off a little, turn
+ *   towards the side with the most clearance and go round the obstacle
+ *   on that side. Then it stops the wheels and hands
  *   the car back to the line follower. Losing the permission mid-move
  *   stops the wheels at once.
  *
@@ -101,6 +102,11 @@
 
 _Static_assert(0u == (S5_PING_INTERVAL_MS % DRIVE_POLL_MS),
                "ping interval must be a multiple of the drive poll");
+_Static_assert((0u == (S5_DRIVE_STALL_MS % DRIVE_POLL_MS)) &&
+               (0u == (S5_DRIVE_STALL_GRACE_MS % S5_DRIVE_STALL_MS)),
+               "stall timing must be whole drive polls / stall periods");
+_Static_assert(S5_STILL_BLOCKED_CM <= S5_MAX_RANGE_CM,
+               "still-blocked distance must be within the sensor's range");
 _Static_assert((S5_STOP_TRIGGER_CM < S5_DETECT_RANGE_CM) &&
                (S5_SLOW_DISTANCE_CM <= S5_DETECT_RANGE_CM) &&
                (S5_DETECT_RANGE_CM <= S5_MAX_RANGE_CM),
@@ -147,6 +153,12 @@ static bool gb_forward_reading_seen = false;
  * vehicle controller task. */
 static bool gb_avoiding        = false;
 static bool gb_drive_permitted = false;
+
+/* Set when the decision was STOP (no way round): the car stays stopped
+ * (still "avoiding") until nothing is within S5_STILL_BLOCKED_CM straight
+ * ahead, so the line follower does not drive it into the obstacle again.
+ * Scanning task only. */
+static bool gb_stay_stopped    = false;
 
 /* True while the vehicle controller lets Subsystem 5 drive. */
 static bool s5_drive_permitted (void)
@@ -351,20 +363,23 @@ static void s5_startup_sweep (void)
 }
 
 /*
- * One fine-scan reading at the servo's current angle, retried up to
- * S5_FINE_READ_TRIES times. On success *p_distance_cm gets the distance in
- * cm (S5_OBSTACLE_NONE_CM if nothing echoed back) and true is returned.
+ * One fine-scan reading at the servo's current angle. The sensor may still
+ * be busy from a ping that found nothing (echo held HIGH up to ~200 ms), so
+ * keep trying every S5_FINE_RETRY_MS for up to S5_FINE_READ_TIMEOUT_MS. On
+ * success *p_distance_cm gets the distance in cm (S5_OBSTACLE_NONE_CM if
+ * nothing echoed back) and true is returned.
  */
 static bool s5_fine_reading (uint16_t * const p_distance_cm)
 {
     uint16_t distance_mm = NO_OBSTACLE;
+    uint32_t waited_ms   = 0u;
     bool     b_good      = s5_take_reading(FINE_SCAN_POSITION, true,
                                            &distance_mm);
 
-    for (uint8_t tries = 1u; (!b_good) && (tries < S5_FINE_READ_TRIES);
-         tries++)
+    while ((!b_good) && (waited_ms < S5_FINE_READ_TIMEOUT_MS))
     {
-        (void)tk_dly_tsk(S5_PING_INTERVAL_MS);
+        (void)tk_dly_tsk(S5_FINE_RETRY_MS);
+        waited_ms += S5_FINE_RETRY_MS;
         b_good = s5_take_reading(FINE_SCAN_POSITION, true, &distance_mm);
     }
 
@@ -378,12 +393,12 @@ static bool s5_fine_reading (uint16_t * const p_distance_cm)
 
 /*
  * Fine-scan one side, stepping outward from 90 degrees to the scan limit.
- * Returns false if a reading failed (the profile would be incomplete).
+ * Angles with no reading are skipped. Returns how many were missed.
  */
-static bool s5_fine_scan_side (const bool b_high_side)
+static uint8_t s5_fine_scan_side (const bool b_high_side)
 {
-    const uint8_t max_steps  = b_high_side ? FINE_HIGH_STEPS : FINE_LOW_STEPS;
-    bool          b_all_read = true;
+    const uint8_t max_steps = b_high_side ? FINE_HIGH_STEPS : FINE_LOW_STEPS;
+    uint8_t       missed    = 0u;
 
     for (uint8_t step = 1u; step <= max_steps; step++)
     {
@@ -403,11 +418,11 @@ static bool s5_fine_scan_side (const bool b_high_side)
         }
         else
         {
-            b_all_read = false;
+            missed++;   /* at most FINE_LOW/HIGH_STEPS: fits 8 bits */
         }
     }
 
-    return b_all_read;
+    return missed;
 }
 
 /*
@@ -415,7 +430,7 @@ static bool s5_fine_scan_side (const bool b_high_side)
  * *p_profile and decide how to get past it. The car is held still the
  * whole time, because the sensor is not looking at the path while it scans
  * sideways. The path counts as blocked while something is still within
- * S5_STILL_BLOCKED_CM straight ahead (also after reversing a little).
+ * S5_STILL_BLOCKED_CM straight ahead.
  */
 static s5_bypass_t s5_fine_scan (s5_profile_t * const p_profile)
 {
@@ -434,11 +449,22 @@ static s5_bypass_t s5_fine_scan (s5_profile_t * const p_profile)
     {
         s5_profile_start(center_cm);
 
-        /* Both sides always run, so the servo always sweeps both ways. */
-        bool b_low_ok  = s5_fine_scan_side(false);
-        bool b_high_ok = s5_fine_scan_side(true);
+        /* Both sides always run, so the servo always sweeps both ways.
+         * Cast is safe: at most 12 + 12 missed angles. */
+        uint8_t missed = (uint8_t)(s5_fine_scan_side(false) +
+                                   s5_fine_scan_side(true));
 
-        b_scan_ok = (b_low_ok && b_high_ok);
+        b_scan_ok = (missed <= S5_FINE_MAX_MISSED);
+        if (0u != missed)
+        {
+            tm_printf((UB *)"S5 fine scan: %u angles had no reading%s\n",
+                      (unsigned int)missed,
+                      b_scan_ok ? " (skipped)" : ", too many: no profile");
+        }
+    }
+    else
+    {
+        tm_printf((UB *)"S5 fine scan: no reading straight ahead\n");
     }
 
     s5_servo_move_until_done(S5_FORWARD_DEG, FORWARD_POSITION);
@@ -457,37 +483,136 @@ static s5_bypass_t s5_fine_scan (s5_profile_t * const p_profile)
 }
 
 /*
- * Drive one move and wait for it to finish, checking the encoders every
- * DRIVE_POLL_MS and the path ahead every S5_PING_INTERVAL_MS. A forward
- * move stops early if something comes within the stop distance.
- * Every move gives up after S5_DRIVE_MOVE_TIMEOUT_MS, and stops at once if
- * the vehicle controller withdraws the drive permission. Returns true if
- * the move was completed.
+ * One pass of a move: poll until the move should stop (allowing for
+ * coasting), something is ahead (forward moves), the time limit runs out
+ * (*p_elapsed_ms counts across passes) or permission is withdrawn.
+ * Returns true if the move should stop because it is (about to be) done.
  */
-static bool s5_drive_move (const s5_move_t move, const uint16_t amount)
+static bool s5_drive_pass (const s5_move_t move, uint32_t * const p_elapsed_ms,
+                           bool * const p_b_blocked)
 {
-    uint32_t elapsed_ms = 0u;
+    uint32_t elapsed_ms = *p_elapsed_ms;
+    uint32_t last_ticks = s5_drive_ticks_done();
+    uint32_t poll_ticks = last_ticks;
+    uint32_t pass_ms    = 0u;
+    bool     b_reached  = false;
     bool     b_blocked  = false;
 
-    s5_drive_start(move, amount);
-
-    while ((!s5_drive_is_done()) && (!b_blocked) &&
+    while ((!b_reached) && (!b_blocked) &&
            (elapsed_ms < S5_DRIVE_MOVE_TIMEOUT_MS) && s5_drive_permitted())
     {
         (void)tk_dly_tsk(DRIVE_POLL_MS);
         elapsed_ms += DRIVE_POLL_MS;
+        pass_ms    += DRIVE_POLL_MS;
+
+        uint32_t now_ticks = s5_drive_ticks_done();
+
+        b_reached  = s5_drive_should_stop(now_ticks - poll_ticks);
+        poll_ticks = now_ticks;
 
         if (0u == (elapsed_ms % S5_PING_INTERVAL_MS))
         {
             (void)s5_take_reading(FORWARD_POSITION, false, NULL);
             b_blocked = ((S5_MOVE_FORWARD == move) && s5_guard_is_stopped());
         }
+
+        /* Wheels barely turning (e.g. stalled turning on the spot)? Not
+         * during the start of the move, while Subsystem 2 ramps up. */
+        if ((pass_ms >= S5_DRIVE_STALL_GRACE_MS) &&
+            (0u == (pass_ms % S5_DRIVE_STALL_MS)))
+        {
+            uint32_t ticks = s5_drive_ticks_done();
+
+            if ((ticks - last_ticks) < S5_DRIVE_STALL_TICKS)
+            {
+                uint8_t speed = s5_drive_boost();
+
+                if (0u != speed)
+                {
+                    tm_printf((UB *)"S5 drive: wheels not turning, speed "
+                              "up to %u\n", (unsigned int)speed);
+                }
+            }
+            last_ticks = ticks;
+        }
     }
 
-    bool b_done = s5_drive_is_done();
+    *p_elapsed_ms = elapsed_ms;
+    *p_b_blocked  = b_blocked;
+    return b_reached;
+}
 
-    s5_drive_stop();
-    s5_watch_for(FORWARD_POSITION, S5_DRIVE_SETTLE_MS);
+/*
+ * Drive one move and wait for it to finish, checking the encoders every
+ * DRIVE_POLL_MS and the path ahead every S5_PING_INTERVAL_MS. A forward
+ * move stops early if something comes within the stop distance.
+ * Every move gives up after S5_DRIVE_MOVE_TIMEOUT_MS, and stops at once if
+ * the vehicle controller withdraws the drive permission. The wheels are
+ * told to stop early by the distance the car will coast while Subsystem 2
+ * ramps them down (s5_drive_should_stop). Returns true if the move was
+ * completed.
+ */
+/* Wait until Subsystem 2 has ramped the wheels all the way down and they
+ * have stopped turning (no encoder change for S5_PING_INTERVAL_MS): at
+ * least S5_DRIVE_SETTLE_MS and the ramp-down time, at most
+ * S5_DRIVE_REST_MAX_MS, pinging ahead meanwhile. */
+static void s5_drive_wait_rest (void)
+{
+    uint32_t waited_ms  = 0u;
+    uint32_t min_ms     = s5_drive_ramp_down_ms();
+    uint32_t last_ticks = s5_drive_ticks_done();
+    uint32_t still_ms   = 0u;
+
+    if (min_ms < S5_DRIVE_SETTLE_MS)
+    {
+        min_ms = S5_DRIVE_SETTLE_MS;
+    }
+
+    while ((waited_ms < S5_DRIVE_REST_MAX_MS) &&
+           ((waited_ms < min_ms) || (still_ms < S5_PING_INTERVAL_MS)))
+    {
+        (void)tk_dly_tsk(DRIVE_POLL_MS);
+        waited_ms += DRIVE_POLL_MS;
+
+        uint32_t ticks = s5_drive_ticks_done();
+
+        still_ms   = (ticks == last_ticks) ? (still_ms + DRIVE_POLL_MS) : 0u;
+        last_ticks = ticks;
+
+        if (0u == (waited_ms % S5_PING_INTERVAL_MS))
+        {
+            (void)s5_take_reading(FORWARD_POSITION, false, NULL);
+        }
+    }
+}
+
+static bool s5_drive_move (const s5_move_t move, const uint16_t amount)
+{
+    uint32_t elapsed_ms = 0u;
+    uint8_t  passes     = 0u;
+    bool     b_reached  = false;
+    bool     b_blocked  = false;
+
+    s5_drive_start(move, amount);
+
+    do
+    {
+        if (0u != passes)
+        {
+            s5_drive_resume_move();   /* stopped short: drive the rest */
+        }
+        b_reached = s5_drive_pass(move, &elapsed_ms, &b_blocked);
+        s5_drive_stop();
+        s5_drive_wait_rest();
+        if (b_reached)
+        {
+            s5_drive_learn_coast();   /* how far it really coasted */
+        }
+        passes++;
+    } while (b_reached && (!b_blocked) && (!s5_drive_is_close()) &&
+             (passes < S5_DRIVE_PASSES) && s5_drive_permitted());
+
+    bool b_done = b_reached;
 
     if (!s5_drive_permitted())
     {
@@ -500,7 +625,10 @@ static bool s5_drive_move (const s5_move_t move, const uint16_t amount)
     }
     else if (!b_done)
     {
-        tm_printf((UB *)"S5 drive: move timed out (wheels or encoders?)\n");
+        tm_printf((UB *)"S5 drive: move timed out after %u of %u encoder "
+                  "ticks (wheels or encoders?)\n",
+                  (unsigned int)s5_drive_ticks_done(),
+                  (unsigned int)s5_drive_ticks_target());
     }
     else
     {
@@ -578,14 +706,13 @@ static void s5_drive_bypass (const s5_bypass_t side,
 
 /*
  * The car has stopped for an obstacle: fine scan it and decide. With
- * S5_DRIVE_BYPASS, also carry the decision out: reverse and scan again
- * while the decision is REVERSE, then go round on the chosen side.
+ * S5_DRIVE_BYPASS, also carry the decision out: turn towards the side with
+ * the most clearance and go round the obstacle on that side.
  */
 static void s5_handle_obstacle (void)
 {
-    s5_profile_t profile    = { 0u };
-    s5_bypass_t  decision   = S5_BYPASS_NONE;
-    bool         b_reversed = false;
+    s5_profile_t profile  = { 0u };
+    s5_bypass_t  decision = S5_BYPASS_NONE;
 
     /* Tell the vehicle controller first, so it pauses the line follower
      * and grants the drive permission while the fine scan runs. */
@@ -595,15 +722,6 @@ static void s5_handle_obstacle (void)
 
     if (0u != S5_DRIVE_BYPASS)
     {
-        while ((S5_BYPASS_REVERSE == decision) && s5_drive_permitted())
-        {
-            s5_guard_set_drive(true);
-            (void)s5_drive_move(S5_MOVE_BACK, S5_REVERSE_MM);
-            s5_guard_set_drive(false);
-            b_reversed = true;
-            decision   = s5_fine_scan(&profile);
-        }
-
         if (!s5_drive_permitted())
         {
             /* Not following the line (or stopped by the operator): decide
@@ -616,14 +734,16 @@ static void s5_handle_obstacle (void)
         {
             s5_drive_bypass(decision, &profile);
         }
-        else if ((S5_BYPASS_CONTINUE == decision) && b_reversed)
+        else if (S5_BYPASS_STOP == decision)
         {
-            tm_printf((UB *)"S5 drive: path clear after reversing\n");
-            s5_drive_resume();
+            /* Scan failed: stay stopped until the obstacle is gone. */
+            __atomic_store_n(&gb_stay_stopped, true, __ATOMIC_RELEASE);
+            tm_printf((UB *)"S5 avoiding: scan failed, staying stopped "
+                      "until the path ahead is clear\n");
         }
         else
         {
-            /* STOP, or CONTINUE without reversing: nothing to drive. */
+            /* CONTINUE: the obstacle moved away, nothing to drive. */
         }
     }
 
@@ -681,15 +801,27 @@ static void s5_sensor_task (INT start_code, void * p_extra_info)
         {
             since_print_ms = 0u;
         }
-        s5_note_forward_reading(s5_take_reading(FORWARD_POSITION, b_print,
-                                                NULL));
+        uint16_t ahead_mm = NO_OBSTACLE;
+        bool     b_read   = s5_take_reading(FORWARD_POSITION, b_print,
+                                            &ahead_mm);
 
-        if (!s5_guard_is_stopped())
+        s5_note_forward_reading(b_read);
+
+        /* Gave up on an obstacle (STOP)? Hand back only once it is gone. */
+        if (__atomic_load_n(&gb_stay_stopped, __ATOMIC_ACQUIRE) && b_read &&
+            ((NO_OBSTACLE == ahead_mm) ||
+             (ahead_mm > (S5_STILL_BLOCKED_CM * S5_MM_PER_CM))))
         {
-            if (0u != g_scanner.b_profile_done)
-            {
-                s5_avoid_new_obstacle();   /* fresh reverse count */
-            }
+            __atomic_store_n(&gb_stay_stopped, false, __ATOMIC_RELEASE);
+            tm_printf((UB *)"S5 avoiding: path ahead clear, handing back\n");
+        }
+
+        if (__atomic_load_n(&gb_stay_stopped, __ATOMIC_ACQUIRE))
+        {
+            /* Waiting for the obstacle to go. */
+        }
+        else if (!s5_guard_is_stopped())
+        {
             g_scanner.b_profile_done = 0u;   /* re-arm for the next one */
         }
         else if (0u == g_scanner.b_profile_done)
@@ -714,6 +846,7 @@ EXPORT bool subsystem5_startup_scan_ready (void)
 EXPORT bool subsystem5_is_avoiding (void)
 {
     return (__atomic_load_n(&gb_avoiding, __ATOMIC_ACQUIRE) ||
+            __atomic_load_n(&gb_stay_stopped, __ATOMIC_ACQUIRE) ||
             (__atomic_load_n(&gb_startup_sweep_done, __ATOMIC_ACQUIRE) &&
              s5_guard_is_stopped()));
 }
@@ -721,6 +854,8 @@ EXPORT bool subsystem5_is_avoiding (void)
 EXPORT void subsystem5_set_drive_permission (const bool b_allowed)
 {
     __atomic_store_n(&gb_drive_permitted, b_allowed, __ATOMIC_RELEASE);
+    tm_printf((UB *)"S5 drive permission: %s\n",
+              b_allowed ? "granted" : "withdrawn");
 }
 
 EXPORT ER subsystem5_init (void)
@@ -731,6 +866,7 @@ EXPORT ER subsystem5_init (void)
     __atomic_store_n(&gb_forward_reading_seen, false, __ATOMIC_RELAXED);
     __atomic_store_n(&gb_avoiding, false, __ATOMIC_RELAXED);
     __atomic_store_n(&gb_drive_permitted, false, __ATOMIC_RELAXED);
+    __atomic_store_n(&gb_stay_stopped, false, __ATOMIC_RELAXED);
 
     if (result < E_OK)
     {
