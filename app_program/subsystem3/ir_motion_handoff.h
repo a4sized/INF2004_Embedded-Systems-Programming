@@ -39,7 +39,7 @@ typedef struct
 #define IR_SEARCH_WHITE_SAMPLES 2u
 #define IR_CORRECT_MS 250u
 #define IR_CORRECT_SPEED 30u
-#define IR_SEARCH_STOP_MS 1000u
+#define IR_SEARCH_STOP_MS 250u
 
 void ir_follow_controller_reset (ir_follow_controller_t * p_controller);
 
