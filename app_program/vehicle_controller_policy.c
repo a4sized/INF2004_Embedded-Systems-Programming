@@ -37,12 +37,21 @@ vc_state_t vehicle_controller_step (vc_state_t state,
         return p_inputs->b_clear ? VC_INIT : VC_STOPPED;
     }
 
-    if (VC_FOLLOWING == state)
+    if ((VC_FOLLOWING == state) || (VC_AVOIDING == state))
     {
         /* Loss of an onboard sensor revokes movement. Link loss does not. */
-        if (!p_inputs->b_imu_ready || !p_inputs->b_ultrasonic_ready ||
-            !p_inputs->b_ir_ready ||
+        if (!p_inputs->b_imu_ready || !p_inputs->b_ir_ready ||
             (0u != (p_inputs->fault_mask & FAULT_US_SENS)))
+        {
+            return VC_STOPPED;
+        }
+        /* Subsystem 5 stopped for an obstacle: it drives round it while the
+         * line follower is paused. When it is done, follow the line again. */
+        if (p_inputs->b_avoiding)
+        {
+            return VC_AVOIDING;
+        }
+        if (!p_inputs->b_ultrasonic_ready)
         {
             return VC_STOPPED;
         }

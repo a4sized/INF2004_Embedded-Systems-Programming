@@ -20,7 +20,7 @@
 
 _Static_assert(S5_FULL_SPEED_CAP <= 255u, "speed cap needs > 8 bits");
 
-/* Minimum-bit guard state: 8 + 1 + 1 + 1 = 11 bits in one 16-bit word.
+/* Minimum-bit guard state: 8 + 1 + 1 + 1 + 1 = 12 bits in one 16-bit word.
  * Written only by the scanning task (and once by subsystem5_start() before
  * that task exists). s5_guard_is_stopped() may be called from another task:
  * a 16-bit aligned load is atomic on the RP2040 and there is one writer, so
@@ -31,9 +31,21 @@ typedef struct
     uint16_t b_stopped  : 1;   /* 1 = holding the car for an obstacle      */
     uint16_t b_cap_sent : 1;   /* 1 = a cap has been sent at least once    */
     uint16_t b_hold     : 1;   /* 1 = sensor busy scanning: cap forced 0   */
+    uint16_t b_drive    : 1;   /* 1 = S5 driving a bypass: cap lifted     */
 } guard_state_t;
 
-static volatile guard_state_t g_guard = { S5_FULL_SPEED_CAP, 0u, 0u, 0u };
+static volatile guard_state_t g_guard = { S5_FULL_SPEED_CAP, 0u, 0u, 0u, 0u };
+
+/* Send a cap to Subsystem 2, only if it differs from the last one sent. */
+static void s5_guard_send (const uint8_t speed_cap)
+{
+    if ((0u == g_guard.b_cap_sent) || (speed_cap != g_guard.last_cap))
+    {
+        s2_set_us_clearance(speed_cap);
+        g_guard.last_cap   = speed_cap;
+        g_guard.b_cap_sent = 1u;
+    }
+}
 
 uint8_t s5_guard_speed_cap (const uint16_t nearest_cm,
                             const bool b_was_stopped,
@@ -98,6 +110,14 @@ void s5_guard_update (const uint16_t nearest_cm)
     {
         speed_cap = 0u;   /* sensor busy scanning: do not move */
     }
+    else if (0u != g_guard.b_drive)
+    {
+        speed_cap = S5_FULL_SPEED_CAP;   /* S5 drives and watches itself */
+    }
+    else
+    {
+        /* Normal: the cap from the distance ahead. */
+    }
 
     if (b_now_stopped != b_was_stopped)
     {
@@ -116,12 +136,7 @@ void s5_guard_update (const uint16_t nearest_cm)
         g_guard.b_stopped = b_now_stopped ? 1u : 0u;
     }
 
-    if ((0u == g_guard.b_cap_sent) || (speed_cap != g_guard.last_cap))
-    {
-        s2_set_us_clearance(speed_cap);
-        g_guard.last_cap   = speed_cap;
-        g_guard.b_cap_sent = 1u;
-    }
+    s5_guard_send(speed_cap);
 }
 
 bool s5_guard_is_stopped (void)
@@ -133,13 +148,27 @@ void s5_guard_set_hold (const bool b_hold)
 {
     if (b_hold)
     {
-        s2_set_us_clearance(0u);
-        g_guard.last_cap   = 0u;
-        g_guard.b_cap_sent = 1u;
-        g_guard.b_hold     = 1u;
+        g_guard.b_hold = 1u;
+        s5_guard_send(0u);
     }
     else
     {
         g_guard.b_hold = 0u;   /* next s5_guard_update() sends the real cap */
+    }
+}
+
+void s5_guard_set_drive (const bool b_drive)
+{
+    if (b_drive)
+    {
+        g_guard.b_drive = 1u;
+        if (0u == g_guard.b_hold)
+        {
+            s5_guard_send(S5_FULL_SPEED_CAP);
+        }
+    }
+    else
+    {
+        g_guard.b_drive = 0u;  /* next s5_guard_update() sends the real cap */
     }
 }

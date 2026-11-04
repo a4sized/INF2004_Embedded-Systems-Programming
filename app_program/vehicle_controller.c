@@ -22,6 +22,7 @@ static char const * vehicle_controller_state_name (vc_state_t state)
         case VC_INIT: return "INIT";
         case VC_READY: return "READY";
         case VC_FOLLOWING: return "FOLLOWING";
+        case VC_AVOIDING: return "AVOIDING";
         case VC_STOPPED: return "STOPPED";
         case VC_FAULT: return "FAULT";
         default: return "INVALID";
@@ -74,6 +75,7 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
         inputs.fault_mask = telemetry.fault_mask;
         inputs.b_imu_ready = (TRUE == s4_is_calibrated());
         inputs.b_ultrasonic_ready = subsystem5_startup_scan_ready();
+        inputs.b_avoiding = subsystem5_is_avoiding();
         inputs.b_wifi_connected = __atomic_load_n(&b_wifi_connected,
                                                   __ATOMIC_ACQUIRE);
         if (ir_line_snapshot_shared_read(&ir) &&
@@ -87,6 +89,19 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
         next = vehicle_controller_step(state, &inputs);
         if (next != state)
         {
+            /* Leaving AVOIDING: take Subsystem 5's drive permission away
+             * first (it stops the wheels), then let the line follower write
+             * to Buddy 2 again (it writes zero unless following is
+             * permitted below). */
+            if (VC_AVOIDING == state)
+            {
+                subsystem5_set_drive_permission(false);
+                if (E_OK != ir_motion_consumer_set_paused(false))
+                {
+                    motion_trigger_safety_halt(FAULT_MOTOR);
+                    next = VC_FAULT;
+                }
+            }
             /* Revoke first; the consumer serializes this with its S2 write. */
             if (VC_FOLLOWING != next)
             {
@@ -111,6 +126,21 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
                 {
                     motion_trigger_safety_halt(FAULT_MOTOR);
                     state = VC_FAULT;
+                }
+            }
+            /* Entering AVOIDING: following is already revoked above. Stop
+             * the line follower writing to Buddy 2 at all, then let
+             * Subsystem 5 drive the bypass. */
+            if (VC_AVOIDING == state)
+            {
+                if (E_OK != ir_motion_consumer_set_paused(true))
+                {
+                    motion_trigger_safety_halt(FAULT_MOTOR);
+                    state = VC_FAULT;
+                }
+                else
+                {
+                    subsystem5_set_drive_permission(true);
                 }
             }
             s1_csv_log_event("VC_STATE",
