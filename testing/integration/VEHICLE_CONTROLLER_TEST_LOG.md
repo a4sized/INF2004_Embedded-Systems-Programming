@@ -50,8 +50,8 @@ MQTT callbacks now call `vehicle_controller_set_wifi_connected()` on link
 establishment and loss. This is inactive in the current team IR UF2, which
 still builds with `NET=none MQTT=0`; that UF2 compiled after the merge.
 
-A local `NET=lwip MQTT=1` build was attempted but stopped in `mqtt_utk.c`
-because `MQTT_TOPIC_CMD` is undefined in both `config/wifi_secrets.h` and
-`config/wifi_secrets.example.h`. Thus the networked profile was not linked
-or tested on a Pico. The command-topic contract needs Buddy 1's intended
-value before this build is usable.
+An earlier local `NET=lwip MQTT=1` build stopped because `MQTT_TOPIC_CMD`
+was undefined. Buddy 1 subsequently defined it as `"robot/inf2004team15/cmd"` in
+`config/wifi_secrets.example.h` and added a safe `#ifndef` fallback inside
+`mqtt_utk.c`. Both `NET=lwip MQTT=1` and `NET=lwip MQTT=1 TEST=1` compile and
+link cleanly without errors.

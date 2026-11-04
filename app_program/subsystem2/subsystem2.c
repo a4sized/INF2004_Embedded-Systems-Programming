@@ -92,16 +92,33 @@ EXPORT int32_t get_right_encoder_ticks(void) {
  * -------------------------------------------------------------------------- */
 LOCAL void motor_init(void) {
     
-    /* Digital GPIO override for motor direction/drive pins */
-    gpio_set_pin(M1A_PIN, GPIO_MODE_OUT);
-    gpio_set_pin(M1B_PIN, GPIO_MODE_OUT);
-    gpio_set_pin(M2A_PIN, GPIO_MODE_OUT);
-    gpio_set_pin(M2B_PIN, GPIO_MODE_OUT);
+    /* Hardware PWM for smooth speed control (RP2040 PWM slices 4 & 5) */
+    pwm_set_pin(M1A_PIN);
+    pwm_set_pin(M1B_PIN);
+    pwm_set_pin(M2A_PIN);
+    pwm_set_pin(M2B_PIN);
 
-    gpio_set_val(M1A_PIN, 0);
-    gpio_set_val(M1B_PIN, 0);
-    gpio_set_val(M2A_PIN, 0);
-    gpio_set_val(M2B_PIN, 0);
+    /* Clock divider: 125 MHz / 125 = 1 MHz PWM clock (1 count = 1 us) */
+#define S2_PWM_SLICE(pin)   (((pin) >> 1u) & 0x07u)
+#define S2_PWM_DIV_REG(pin) (PWM_BASE + PWM_CHx_DIV + (S2_PWM_SLICE(pin) * 0x14u))
+    out_w(S2_PWM_DIV_REG(M1A_PIN), (125u << 4));
+    out_w(S2_PWM_DIV_REG(M2A_PIN), (125u << 4));
+
+    /* Wrap at 255: frequency = 1 MHz / 256 ≈ 3.9 kHz (optimal for MX1508) */
+    pwm_set_wrap(M1A_PIN, 255);
+    pwm_set_wrap(M1B_PIN, 255);
+    pwm_set_wrap(M2A_PIN, 255);
+    pwm_set_wrap(M2B_PIN, 255);
+
+    pwm_set_cc(M1A_PIN, 0);
+    pwm_set_cc(M1B_PIN, 0);
+    pwm_set_cc(M2A_PIN, 0);
+    pwm_set_cc(M2B_PIN, 0);
+
+    pwm_set_enabled(M1A_PIN, TRUE);
+    pwm_set_enabled(M1B_PIN, TRUE);
+    pwm_set_enabled(M2A_PIN, TRUE);
+    pwm_set_enabled(M2B_PIN, TRUE);
 
     /* Encoder inputs */
     gpio_set_pin(LEFT_ENC_A, GPIO_MODE_IN);
@@ -124,29 +141,33 @@ LOCAL void motor_init(void) {
 }
 
 LOCAL void motor_speed(int16_t left_speed, int16_t right_speed) {
-    
+    if (left_speed > 255)   left_speed = 255;
+    if (left_speed < -255)  left_speed = -255;
+    if (right_speed > 255)  right_speed = 255;
+    if (right_speed < -255) right_speed = -255;
+
     /* Left Motor (M1) */
     if (left_speed > 0) {
-        gpio_set_val(M1B_PIN, 0);
-        gpio_set_val(M1A_PIN, 1);
+        pwm_set_cc(M1B_PIN, 0);
+        pwm_set_cc(M1A_PIN, (UW)left_speed);
     } else if (left_speed < 0) {
-        gpio_set_val(M1A_PIN, 0);
-        gpio_set_val(M1B_PIN, 1);
+        pwm_set_cc(M1A_PIN, 0);
+        pwm_set_cc(M1B_PIN, (UW)(-left_speed));
     } else {
-        gpio_set_val(M1A_PIN, 0);
-        gpio_set_val(M1B_PIN, 0);
+        pwm_set_cc(M1A_PIN, 0);
+        pwm_set_cc(M1B_PIN, 0);
     }
 
     /* Right Motor (M2) */
     if (right_speed > 0) {
-        gpio_set_val(M2B_PIN, 0);
-        gpio_set_val(M2A_PIN, 1);
+        pwm_set_cc(M2B_PIN, 0);
+        pwm_set_cc(M2A_PIN, (UW)right_speed);
     } else if (right_speed < 0) {
-        gpio_set_val(M2A_PIN, 0);
-        gpio_set_val(M2B_PIN, 1);
+        pwm_set_cc(M2A_PIN, 0);
+        pwm_set_cc(M2B_PIN, (UW)(-right_speed));
     } else {
-        gpio_set_val(M2A_PIN, 0);
-        gpio_set_val(M2B_PIN, 0);
+        pwm_set_cc(M2A_PIN, 0);
+        pwm_set_cc(M2B_PIN, 0);
     }
 }
 
@@ -243,11 +264,14 @@ LOCAL void handle_motor_steady_drive(int16_t left_speed, int16_t right_speed) {
         int16_t correction = (int16_t)(speed_error * 2) + (int16_t)(sync_error_integral);
 
         /* Anti-windup cap: Prevent the correction from violently jerking the robot */
-        if (correction > 80) correction = 80;
-        if (correction < -80) correction = -80;
+        if (correction > 15) correction = 15;
+        if (correction < -15) correction = -15;
 
         int16_t adj_left  = left_speed - correction;
         int16_t adj_right = right_speed + correction;
+
+        if (adj_left < 0) adj_left = 0;
+        if (adj_right < 0) adj_right = 0;
 
         motor_speed(adj_left, adj_right);
     } else {

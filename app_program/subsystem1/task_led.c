@@ -207,8 +207,10 @@ EXPORT void led_task(INT stacd, void *exinf) {
 
         /* Queue 8-byte telemetry packet every S1_TELEM_TICKS (1 second) */
         if (++ticks % S1_TELEM_TICKS == 0) {
+            extern INT s4_get_max_hump_mm(void);
             tk_loc_mtx(mtx_telemetry, TMO_FEVR);
             s1_telemetry.seq++;
+            s1_telemetry.hump_height_mm = (uint32_t)s4_get_max_hump_mm();
             snap = s1_telemetry;
             tk_unl_mtx(mtx_telemetry);
 
