@@ -49,6 +49,13 @@ def main():
         app.mkdir()
         (app / "subsystem1").mkdir()
         (app / "subsystem3").mkdir()
+        (app / "subsystem4").mkdir()
+        # Buddy 1's telemetry task now reads this S4 value. The isolated IR
+        # image has no IMU, so provide a local zero-valued build stub.
+        (app / "subsystem4" / "s4_hump_stub.c").write_text(
+            "/* Isolated IR image only: no IMU hump measurement. */\n"
+            "int s4_get_max_hump_mm(void) { return 0; }\n"
+        )
 
         for name in ("config", "device", "etc", "include", "kernel", "lib",
                      "tools"):

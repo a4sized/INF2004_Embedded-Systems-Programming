@@ -97,7 +97,7 @@ static void ir_bench_task (INT start_code, void * p_extra)
         }
 
         /* UB is an unsigned byte; the port reads these string literals. */
-        tm_printf((UB const *)"\nIR calibration bench v1: DO=GP6, AO unused.\n"
+        tm_printf((UB const *)"\nIR calibration bench v1: DO=GP7, AO unused.\n"
                   "Keep height/lighting fixed. No keyboard input needed.\n");
 
         ir_calib_window_t black  = {0};

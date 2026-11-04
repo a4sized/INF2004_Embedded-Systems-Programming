@@ -11,13 +11,26 @@ typedef enum
     IR_BARCODE_TURN_RIGHT
 } ir_barcode_action_t;
 
+typedef enum
+{
+    /* Pattern order relative to Code 39 encoding, not vehicle travel. */
+    IR_CODE39_FORWARD = 0,
+    IR_CODE39_REVERSE
+} ir_code39_direction_t;
+
 /**
  * Decode exactly *LETTER* without a check character. The window must contain
  * 30 alternating edges (15 bars) and a trailing quiet zone at now_us.
+ * Either scan direction is accepted.
  * Returns false for incomplete, invalid, or non-letter symbols.
  */
 bool ir_code39_decode_single (ir_barcode_window_t const * p_window,
                               uint32_t now_us, char * p_letter);
+
+/** As above, also report the direction of a valid scan. */
+bool ir_code39_decode_single_with_direction (
+    ir_barcode_window_t const * p_window, uint32_t now_us,
+    char * p_letter, ir_code39_direction_t * p_direction);
 
 /** Fixed course trial mapping; all letters other than A and Z are unmapped. */
 ir_barcode_action_t ir_barcode_action_for (char letter);

@@ -1,4 +1,4 @@
-/** @file ir_barcode_capture.c @brief ISR-to-task single-producer ring. */
+/** @file ir_barcode_capture.c @brief Bounded single-producer edge ring. */
 #include "ir_barcode_capture.h"
 
 void ir_barcode_queue_reset (ir_barcode_queue_t * p_queue)

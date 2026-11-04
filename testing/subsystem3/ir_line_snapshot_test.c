@@ -133,6 +133,33 @@ int main (void)
         &readback, 100u, 20u, false, 80u, 25u);
     assert(IR_STEERING_PAUSED == target.status);
     assert((0 == target.left) && (0 == target.right));
+
+    /* Moving barcode test: the first GP6 black edge holds straight motion
+     * through a temporary both-white line reading, then ordinary steering
+     * resumes when the capture window ends. Permission and freshness win.
+     */
+    readback.b_ready = true;
+    readback.b_lost = true;
+    readback.b_barcode_capturing = true;
+    readback.sampled_at_ms = 100u;
+    assert(!ir_barcode_capture_target(&readback, 100u, 20u, true,
+                                     false, 20u, &target));
+    assert(ir_barcode_capture_target(&readback, 100u, 20u, true,
+                                    true, 20u, &target));
+    assert(IR_STEERING_AVAILABLE == target.status);
+    assert((20 == target.left) && (20 == target.right));
+    readback.b_barcode_decoded = true;
+    assert(!ir_barcode_capture_target(&readback, 100u, 20u, true,
+                                      true, 20u, &target));
+    readback.b_barcode_decoded = false;
+    assert(!ir_barcode_capture_target(&readback, 100u, 20u, false,
+                                     true, 20u, &target));
+    assert(!ir_barcode_capture_target(&readback, 121u, 20u, true,
+                                     true, 20u, &target));
+    readback.b_barcode_capturing = false;
+    assert(!ir_barcode_capture_target(&readback, 100u, 20u, true,
+                                     true, 20u, &target));
+    readback.b_lost = false;
     target = ir_motion_target_for_snapshot(&readback, 121u, 20u,
                                            true, 80u, 25u);
     assert(IR_STEERING_STALE == target.status);
@@ -205,13 +232,18 @@ int main (void)
                                          20u, true, 20u, 22u);
     assert(IR_FOLLOW_STOPPING == follow.mode);
     assert((0 == target.left) && (0 == target.right));
-    readback.sampled_at_ms = 1380u;
-    target = ir_follow_controller_update(&follow, &readback, 1380u,
+    readback.sampled_at_ms = 629u;
+    target = ir_follow_controller_update(&follow, &readback, 629u,
+                                         20u, true, 20u, 22u);
+    assert(IR_FOLLOW_STOPPING == follow.mode);
+    assert((0 == target.left) && (0 == target.right));
+    readback.sampled_at_ms = 630u;
+    target = ir_follow_controller_update(&follow, &readback, 630u,
                                          20u, true, 20u, 22u);
     assert(IR_FOLLOW_SEARCH == follow.mode);
     assert((0 == target.left) && (0 == target.right));
-    readback.sampled_at_ms = 1390u;
-    target = ir_follow_controller_update(&follow, &readback, 1390u,
+    readback.sampled_at_ms = 640u;
+    target = ir_follow_controller_update(&follow, &readback, 640u,
                                          20u, true, 20u, 22u);
     assert((0 == target.left) && (22 == target.right));
 
@@ -260,6 +292,37 @@ int main (void)
                                          20u, true, 20u, 22u);
     assert(IR_FOLLOW_STOPPING == follow.mode);
     assert((0 == target.left) && (0 == target.right));
+
+    /* The moving test freezes the ordinary controller while barcode edges
+     * are being scanned. Its last-side history must still be usable when
+     * the scan ends with both line sensors white.
+     */
+    ir_follow_controller_reset(&follow);
+    readback.b_lost = false;
+    readback.position = IR_LINE_RIGHT_BLACK;
+    readback.steer = IR_LINE_STEER_RIGHT;
+    readback.sampled_at_ms = 2000u;
+    target = ir_follow_controller_update(&follow, &readback, 2000u,
+                                         20u, true, 51u, 22u);
+    assert(IR_FOLLOW_TRACK == follow.mode);
+    assert((51 == target.left) && (51 == target.right));
+    readback.b_barcode_capturing = true;
+    readback.position = IR_LINE_BOTH_WHITE;
+    readback.steer = IR_LINE_STEER_NONE;
+    readback.b_lost = true;
+    readback.sampled_at_ms = 5000u;
+    assert(ir_barcode_capture_target(&readback, 5000u, 20u, true,
+                                    true, 51u, &target));
+    assert(IR_FOLLOW_TRACK == follow.mode);
+    readback.b_barcode_capturing = false;
+    target = ir_follow_controller_update(&follow, &readback, 5000u,
+                                         20u, true, 51u, 22u);
+    assert((0 == target.left) && (0 == target.right));
+    readback.sampled_at_ms = 5010u;
+    target = ir_follow_controller_update(&follow, &readback, 5010u,
+                                         20u, true, 51u, 22u);
+    assert(IR_FOLLOW_CORRECT == follow.mode);
+    assert((30 == target.left) && (0 == target.right));
 
     /* Concurrent writer/reader must never expose a mixed struct copy. */
     snapshot.sequence = 1u;

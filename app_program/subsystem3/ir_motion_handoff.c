@@ -38,6 +38,34 @@ void ir_follow_controller_reset (ir_follow_controller_t * p_controller)
     *p_controller = (ir_follow_controller_t){0};
 }
 
+bool ir_barcode_capture_target (
+    ir_line_snapshot_t const * p_snapshot,
+    uint32_t now_ms,
+    uint32_t max_age_ms,
+    bool b_follow_allowed,
+    bool b_line_seen,
+    uint8_t base_speed,
+    ir_motion_target_t * p_target)
+{
+    if ((NULL == p_snapshot) || (NULL == p_target) ||
+        !p_snapshot->b_barcode_capturing || p_snapshot->b_barcode_decoded ||
+        !b_follow_allowed ||
+        !b_line_seen || !p_snapshot->b_gpio_ready ||
+        !p_snapshot->b_ready ||
+        ((uint32_t)(now_ms - p_snapshot->sampled_at_ms) > max_age_ms))
+    {
+        return false;
+    }
+
+    *p_target = (ir_motion_target_t)
+    {
+        .left = (int16_t)base_speed,
+        .right = (int16_t)base_speed,
+        .status = IR_STEERING_AVAILABLE
+    };
+    return true;
+}
+
 ir_motion_target_t ir_follow_controller_update (
     ir_follow_controller_t * p_controller,
     ir_line_snapshot_t const * p_snapshot,

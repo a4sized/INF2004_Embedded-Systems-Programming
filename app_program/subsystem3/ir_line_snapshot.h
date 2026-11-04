@@ -22,6 +22,8 @@ typedef struct
     ir_line_position_t position;
     ir_line_steer_t steer;
     bool b_lost;
+    bool b_barcode_capturing;
+    bool b_barcode_decoded;
     bool b_gpio_ready;
     bool b_ready;
 } ir_line_snapshot_t;

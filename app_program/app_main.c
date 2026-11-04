@@ -62,6 +62,9 @@
 #include "subsystem5/subsystem5.h"
 #include "systemFaults.h"
 #include "vehicle_controller.h"
+#if defined(BUDDY3_FORCE_MOTOR_TEST)
+#include "motor_force_test.h"
+#endif
 
 /*
  * Create and start one task (declared in app.h for every subsystem).
@@ -131,19 +134,25 @@ EXPORT INT usermain(void)
 	/* Subsystem 5 releases the PWM block from reset; motors configure it last. */
 	CHECK(subsystem5_init(), "subsystem5_init");
 	CHECK(subsystem2_init(), "subsystem2_init");
+#if !defined(BUDDY3_FORCE_MOTOR_TEST)
 	CHECK(subsystem3_init(), "subsystem3_init");
 	CHECK(subsystem4_init(), "subsystem4_init");
+#endif
 
 	buzzer_play_tone(1000, 500);
 
 	/* Phase 2: every subsystem starts its tasks */
 	CHECK(subsystem1_start(), "subsystem1_start");
 	CHECK(subsystem2_start(), "subsystem2_start");
+#if defined(BUDDY3_FORCE_MOTOR_TEST)
+	CHECK(motor_force_test_start(), "motor_force_test_start");
+#else
 	CHECK(subsystem3_start(), "subsystem3_start");
     
 	CHECK(subsystem4_start(), "subsystem4_start");
 	CHECK(subsystem5_start(), "subsystem5_start");
 	CHECK(vehicle_controller_start(), "vehicle_controller_start");
+#endif
 
 	tm_printf((UB*)"all subsystems started\n\n");
 

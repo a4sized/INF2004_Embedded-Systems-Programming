@@ -39,7 +39,7 @@ typedef struct
 #define IR_SEARCH_WHITE_SAMPLES 2u
 #define IR_CORRECT_MS 250u
 #define IR_CORRECT_SPEED 30u
-#define IR_SEARCH_STOP_MS 1000u
+#define IR_SEARCH_STOP_MS 250u
 
 void ir_follow_controller_reset (ir_follow_controller_t * p_controller);
 
@@ -51,6 +51,16 @@ ir_motion_target_t ir_follow_controller_update (
     bool b_follow_allowed,
     uint8_t base_speed,
     uint8_t turn_speed);
+
+/** USB moving-test straight request while GP6 capture is active. */
+bool ir_barcode_capture_target (
+    ir_line_snapshot_t const * p_snapshot,
+    uint32_t now_ms,
+    uint32_t max_age_ms,
+    bool b_follow_allowed,
+    bool b_line_seen,
+    uint8_t base_speed,
+    ir_motion_target_t * p_target);
 
 /** Require a new publication for each Motion State cycle. */
 bool ir_motion_snapshot_is_new (
