@@ -12,6 +12,10 @@
 
 #define VC_PERIOD_MS 20u
 #define VC_PRIORITY 17
+#if defined(BUDDY3_IR_MOVING_TEST)
+#define VC_TEST_ARM_DELAY_MS 3000u
+extern UW tm_usb_state (void);
+#endif
 
 static bool b_wifi_connected;
 
@@ -45,6 +49,13 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
     {
         false, IR_START_BASE_SPEED, IR_START_TURN_SPEED, IR_START_MAX_AGE_MS
     };
+#if defined(BUDDY3_IR_MOVING_TEST)
+    uint32_t ready_since_ms = 0u;
+    uint32_t test_status_ticks = 0u;
+    bool b_ready_timer_started = false;
+    bool b_stop_reason_pending = false;
+    char const * p_stop_reason = "UNKNOWN";
+#endif
     (void)start_code;
     (void)p_extra;
     if (E_OK != ir_motion_consumer_set_following(&denied))
@@ -87,9 +98,75 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
                  IR_START_MAX_AGE_MS);
         }
 
+#if defined(BUDDY3_IR_MOVING_TEST)
+        /* A separate USB-tethered test profile substitutes only the initial
+         * Wi-Fi/START path. The Vehicle Controller still owns permission,
+         * waits for onboard sensors and faults, and stops if USB closes.
+         */
+        bool const b_usb_ready = (3u == tm_usb_state());
+        inputs.b_wifi_connected = b_usb_ready;
+        if ((VC_INIT == state || VC_READY == state) && b_usb_ready &&
+            (++test_status_ticks >= 50u))
+        {
+            char status[] = "I0;U0;R0;B0;F0";
+            status[1] = inputs.b_imu_ready ? '1' : '0';
+            status[4] = inputs.b_ultrasonic_ready ? '1' : '0';
+            status[7] = inputs.b_ir_ready ? '1' : '0';
+            status[10] = '1'; /* USB is open. */
+            status[13] = (0u == inputs.fault_mask) ? '0' : '1';
+            s1_csv_log_event("IR_TEST_READY", status);
+            test_status_ticks = 0u;
+        }
+        if ((VC_FOLLOWING == state) && !b_usb_ready)
+        {
+            inputs.b_stop = true;
+        }
+        /* A USB loss may suppress the transition log itself. Keep the
+         * reason until the monitor reconnects so a latched STOPPED state
+         * does not look like unexplained zero motor requests.
+         */
+        if (b_stop_reason_pending && b_usb_ready)
+        {
+            s1_csv_log_event("VC_STOP_REASON", p_stop_reason);
+            b_stop_reason_pending = false;
+        }
+        if ((VC_READY == state) && b_usb_ready &&
+            inputs.b_imu_ready && inputs.b_ultrasonic_ready &&
+            inputs.b_ir_ready && (0u == inputs.fault_mask) &&
+            (E_OK == tk_get_tim(&now)))
+        {
+            if (!b_ready_timer_started)
+            {
+                ready_since_ms = now.lo;
+                b_ready_timer_started = true;
+                s1_csv_log_event("IR_TEST", "READY_WAIT_3S");
+            }
+            inputs.b_start =
+                ((uint32_t)(now.lo - ready_since_ms) >=
+                 VC_TEST_ARM_DELAY_MS);
+        }
+        else
+        {
+            b_ready_timer_started = false;
+        }
+#endif
+
         next = vehicle_controller_step(state, &inputs);
         if (next != state)
         {
+#if defined(BUDDY3_IR_MOVING_TEST)
+            if ((VC_FOLLOWING == state) && (VC_STOPPED == next))
+            {
+                p_stop_reason = !b_usb_ready ? "USB_DISCONNECTED" :
+                    inputs.b_stop ? "STOP_COMMAND" :
+                    !inputs.b_imu_ready ? "IMU_NOT_READY" :
+                    !inputs.b_ultrasonic_ready ? "ULTRASONIC_NOT_READY" :
+                    !inputs.b_ir_ready ? "IR_NOT_FRESH" :
+                    (0u != (inputs.fault_mask & FAULT_US_SENS)) ?
+                        "ULTRASONIC_FAULT" : "UNKNOWN";
+                b_stop_reason_pending = true;
+            }
+#endif
             /* Leaving AVOIDING: take Subsystem 5's drive permission away
              * first (it stops the wheels), then let the line follower write
              * to Buddy 2 again (it writes zero unless following is

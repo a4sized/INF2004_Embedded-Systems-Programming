@@ -46,6 +46,80 @@ LOCAL int32_t current_left_velocity = 0;
 LOCAL int32_t current_right_velocity = 0;
 LOCAL int32_t sync_error_integral = 0;
 
+#if defined(BUDDY3_IR_MOVING_TEST)
+static char * s2_diag_text(char * out, const char * value) {
+    while ('\0' != *value) *out++ = *value++;
+    return out;
+}
+
+static char * s2_diag_u16(char * out, uint16_t value) {
+    char digits[5];
+    uint32_t count = 0u;
+    do {
+        digits[count++] = (char)('0' + (value % 10u));
+        value = (uint16_t)(value / 10u);
+    } while (0u != value);
+    while (0u != count) *out++ = digits[--count];
+    return out;
+}
+
+static char * s2_diag_i16(char * out, int16_t value) {
+    if (value < 0) {
+        *out++ = '-';
+        value = (int16_t)(-value); /* Motor targets are limited to -255..255. */
+    }
+    return s2_diag_u16(out, (uint16_t)value);
+}
+
+/* Readback is deliberately outside the motor mutex and only in the USB
+ * moving test. It shows the arbitration result and actual PWM registers.
+ */
+static void s2_log_motion_path(void) {
+    MotorControl_t snapshot;
+    UW pwm_left;
+    UW pwm_right;
+    UW enable_left;
+    UW enable_right;
+    char details[128];
+    char * out;
+
+    if (E_OK != tk_loc_mtx(mtx_motor_intent, TMO_FEVR)) return;
+    snapshot = motor_ctrl;
+    (void)tk_unl_mtx(mtx_motor_intent);
+
+    pwm_left = in_w(PWM_BASE + PWM_CHx_CC + (4u * 0x14u));
+    pwm_right = in_w(PWM_BASE + PWM_CHx_CC + (5u * 0x14u));
+    enable_left = in_w(PWM_BASE + PWM_CHx_CSR + (4u * 0x14u)) & PWM_CH_CSR_EN;
+    enable_right = in_w(PWM_BASE + PWM_CHx_CSR + (5u * 0x14u)) & PWM_CH_CSR_EN;
+
+    out = s2_diag_text(details, "req=");
+    out = s2_diag_i16(out, (int16_t)snapshot.ir_left_target);
+    *out++ = '/';
+    out = s2_diag_i16(out, (int16_t)snapshot.ir_right_target);
+    out = s2_diag_text(out, ";cap=");
+    out = s2_diag_u16(out, (uint16_t)snapshot.us_speed_cap);
+    out = s2_diag_text(out, ";state=");
+    out = s2_diag_u16(out, (uint16_t)snapshot.current_state);
+    out = s2_diag_text(out, ";active=");
+    out = s2_diag_i16(out, (int16_t)snapshot.active_left_speed);
+    *out++ = '/';
+    out = s2_diag_i16(out, (int16_t)snapshot.active_right_speed);
+    out = s2_diag_text(out, ";pwm=");
+    out = s2_diag_u16(out, (uint16_t)(pwm_left & 0xffffu));
+    *out++ = '/';
+    out = s2_diag_u16(out, (uint16_t)(pwm_left >> 16u));
+    *out++ = '/';
+    out = s2_diag_u16(out, (uint16_t)(pwm_right & 0xffffu));
+    *out++ = '/';
+    out = s2_diag_u16(out, (uint16_t)(pwm_right >> 16u));
+    out = s2_diag_text(out, ";en=");
+    *out++ = enable_left ? '1' : '0';
+    *out++ = enable_right ? '1' : '0';
+    *out = '\0';
+    s1_csv_log_event("S2_PATH", details);
+}
+#endif
+
 /* --------------------------------------------------------------------------
  * PUBLIC ARBITRATOR SETTERS (Thread-Safe via Priority-Inheritance Mutex)
  * -------------------------------------------------------------------------- */
@@ -382,11 +456,21 @@ LOCAL void s2_motor_task(INT stacd, void *exinf) {
 #if ENC_PRINT_MS > 0
     UINT print_n = 0;
 #endif
+#if defined(BUDDY3_IR_MOVING_TEST)
+    UINT path_n = 0;
+#endif
     (void)stacd;
     (void)exinf;
 
     while (1) {
         motion_fsm_update();
+
+#if defined(BUDDY3_IR_MOVING_TEST)
+        if (++path_n >= (UINT)(500u / S2_PERIOD_MS)) {
+            path_n = 0u;
+            s2_log_motion_path();
+        }
+#endif
 
 #if ENC_PRINT_MS > 0
         /* Show the encoder counters on the serial monitor (every ENC_PRINT_MS).

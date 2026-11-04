@@ -16,8 +16,27 @@ void ir_barcode_window_invalidate (ir_barcode_window_t * p_window)
 bool ir_barcode_window_expired (ir_barcode_window_t const * p_window,
                                 uint32_t now_us)
 {
-    return (p_window->count > 0u) &&
-           ((now_us - p_window->start_us) >= IR_BARCODE_WINDOW_US);
+    if ((0u == p_window->count) ||
+        ((now_us - p_window->start_us) < IR_BARCODE_WINDOW_US))
+    {
+        return false;
+    }
+
+    /* The configured limit applies to capturing bars. Once all 30 edges arrived
+     * within it, allow a separately bounded white quiet zone to complete.
+     * Manual scans can finish near the limit and still need ~10 narrow widths of
+     * white before the decoder may accept the stop character.
+     */
+    if ((IR_BARCODE_COMPLETE_EDGES == p_window->count) &&
+        !p_window->b_invalid &&
+        ((p_window->edges[p_window->count - 1u].time_us -
+          p_window->start_us) < IR_BARCODE_WINDOW_US) &&
+        ((now_us - p_window->edges[p_window->count - 1u].time_us) <
+         IR_BARCODE_QUIET_GRACE_US))
+    {
+        return false;
+    }
+    return true;
 }
 
 void ir_barcode_window_feed (ir_barcode_window_t * p_window,

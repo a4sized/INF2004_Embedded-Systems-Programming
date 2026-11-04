@@ -52,6 +52,16 @@ ir_motion_target_t ir_follow_controller_update (
     uint8_t base_speed,
     uint8_t turn_speed);
 
+/** USB moving-test straight request while GP6 capture is active. */
+bool ir_barcode_capture_target (
+    ir_line_snapshot_t const * p_snapshot,
+    uint32_t now_ms,
+    uint32_t max_age_ms,
+    bool b_follow_allowed,
+    bool b_line_seen,
+    uint8_t base_speed,
+    ir_motion_target_t * p_target);
+
 /** Require a new publication for each Motion State cycle. */
 bool ir_motion_snapshot_is_new (
     ir_line_snapshot_t const * p_snapshot,

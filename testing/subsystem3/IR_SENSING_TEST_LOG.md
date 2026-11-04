@@ -676,3 +676,138 @@ with strict warnings, AddressSanitizer and UndefinedBehaviorSanitizer. The
 team IR and sensing-only ARM UF2 images compiled. Image analysis is not a
 GP6 sensor scan: mounted contrast, scan speed, noise tolerance, leading
 quiet zone, duplicate suppression and turn placement remain untested.
+
+## Line-search pause and main merge (4 November 2026)
+
+The integrated follower's zero-motor pause after its separate 250 ms directed
+correction is now 250 ms, previously 1000 ms. The host boundary test checks
+STOPPING at 249 ms and SEARCH with zero targets at 250 ms; the next update
+can request the search turn. The host test passed with strict Clang warnings,
+AddressSanitizer and UndefinedBehaviorSanitizer. The team IR ARM image built
+after merging `origin/main` at `347334e`. No new car run was performed.
+
+The main merge disables GP6 barcode edge IRQ registration because Subsystem 2
+already owns the GPIO bank IRQ for encoders. This avoids an interrupt handler
+collision but leaves physical barcode capture inactive in the integrated
+image until the interrupt ownership is coordinated. The branch's previously
+tuned startup speeds of 20/22 were retained while resolving the merge.
+
+## Isolated barcode USB debug build (4 November 2026)
+
+The standalone sensing profile now registers GP6 edges only when Subsystem 2
+is absent. Successful decodes print the Code 39 letter and the captured edge
+durations; failed/expired windows print their edge data and invalid/overflow
+status. A local zero-valued S4 hump stub keeps Buddy 1's updated telemetry
+task linkable in this sensing-only build. The isolated UF2 and the team IR
+UF2 compiled. GP6 interrupts, print timing and actual barcode decoding have
+not yet been checked on the Pico.
+
+## GP6 transition polling for physical scans (4 November 2026)
+
+The sensing task now reads GP6 at each 5 ms sample and queues timestamped
+changes for the existing two-second Code 39 window. Neither the team nor the
+isolated sensing image registers a GPIO IRQ callback. A host test exercised
+the raw-level poll, queue, window and decoder together with simulated 5 ms
+samples of the supplied `*A*` and `*Z*` widths; both letters decoded under
+strict Clang warnings, AddressSanitizer and UndefinedBehaviorSanitizer.
+The sensing-only and team IR ARM UF2 images compiled. No Pico serial/scan
+test has yet confirmed GP6 polarity, short-bar capture or USB stability.
+
+## Bidirectional Code 39 at line-following speed (4 November 2026)
+
+The decoder now tries the recorded widths in forward and reverse order and
+reports the accepted direction for standalone serial diagnostics. It rejects
+an ambiguous scan if both interpretations decode to different letters.
+The existing A/Z image-width host test and the 5 ms poll-to-decoder host test
+passed in both directions under strict warnings and sanitizers. Both ARM
+UF2 images compiled. These checks do not establish that the actual car speed
+leaves enough time for 5 ms sampling of the narrowest bar or gap; that needs
+a moving track test with captured edge durations and missed-edge evidence.
+
+## Physical A barcode trace and quiet-zone timing fix (4 November 2026)
+
+The user supplied a USB serial log from a physically constrained A test and
+asked that left/right line readings be ignored. GP6 clearly toggled between
+white=0 and black=1. The log contains 14 edge windows: eight have the full
+30 transitions, six are incomplete, and none report queue overflow. The
+shortest logged edge interval is 14.34 ms. The longest reported sensing
+sample gap is 18.214 ms, so this bench trace does not establish reliable
+polling at the car's line-following speed. There are no `Code 39 decoded`
+lines in the original log.
+
+Several full windows have the `*A*` width pattern but finish 1.55–1.91 s
+after the first edge. The decoder requires a further white quiet interval
+of about 0.52–0.65 s. The previous 2 s total window reset discarded them
+before quiet confirmation. The 2 s limit still applies to collecting the
+30 edges; a complete candidate now gets at most 750 ms afterward to confirm
+the white quiet zone. An incomplete/invalid candidate still expires at 2 s.
+One actual 30-edge A window from the supplied log passed a host replay as
+reverse-direction A after 600 ms white; it failed quiet confirmation at the
+old 2 s deadline, as expected. The existing window host test, sensing-only
+UF2 and team IR UF2 also passed or built. A new Pico run is needed to verify
+that the revised firmware prints decoded A on-device. Left/right readings
+were not used to judge this result.
+
+## Physical A retest after quiet-zone fix (4 November 2026)
+
+The user supplied a second serial trace from the revised sensing-only UF2.
+It contains two on-Pico successful `A direction=REVERSE action=LEFT` decodes.
+Five edge windows were printed: three complete 30-edge captures, one 28-edge
+capture and one 2-edge fragment. All reported `invalid=0`, `overflows=0`.
+The other complete window had `*A*` wide-element positions but failed the
+first `*` width-separation threshold under the user's hand-scan speed.
+The shortest edge interval in this log was approximately 9.9 ms, and the
+largest reported sensing sample gap was 18.286 ms, so scan reliability at
+normal car speed is still unproven. The bench setup constrained sensor
+placement; left/right sensor readings were intentionally ignored. Next
+checks are A in the opposite direction, Z both ways, and then repeated
+scans at actual line-following speed.
+
+The user clarified that in the first trace the pass before the serial-port
+restart was physically forward, and the pass after it was physically reverse.
+The firmware's FORWARD/REVERSE value describes decoded bar-pattern order,
+not measured vehicle travel. The second trace's two successful decodes both
+had REVERSE pattern order; another complete capture had FORWARD pattern order
+but failed the former 1.5 wide/narrow threshold. Lowering that threshold to
+1.4 accepts this captured window in host replay. A new Pico run is needed to
+confirm the threshold change on hardware; the second trace alone does not
+establish which way the car moved for each successful decode.
+
+## Six-pass physical A retest (4 November 2026)
+
+The user supplied a single serial session with three physical forward passes
+followed by three physical reverse passes. The first three complete windows
+have FORWARD bar-pattern order: two decoded `A` on the Pico, and one was
+rejected. The last three complete windows have REVERSE bar-pattern order and
+all three decoded `A`. Thus the observed per-pass result is forward 2/3 and
+reverse 3/3 under this bench setup. Two additional short windows (2 and 4
+edges) appeared between reverse passes. All eight windows reported
+`invalid=0` and `overflows=0`.
+
+The rejected forward window had the correct `*A*` wide-element positions.
+For its final `*`, the smallest wide element was 50.054 ms and the largest
+was 104.955 ms, exceeding the decoder's 2:1 within-character wide-width
+limit. Its wide/narrow separation was about 1.43, which also fails the old
+1.5 threshold but passes the current source's 1.4 threshold. The serial text
+still says `direction=`, so this run does not demonstrate that the newly
+built `pattern_order=` image was flashed. No decoder change is justified by
+one uneven pass. Reliability while the car moves at line-following speed
+and Z decoding remain untested.
+
+## Physical Z bidirectional bench scan (4 November 2026)
+
+The user supplied a Z serial trace and identified physical forward motion
+before closing/reopening the serial monitor, then physical reverse motion
+afterward. The first session decoded `Z pattern_order=REVERSE action=RIGHT`
+twice. Three other captures stopped at 25, 25 and 23 edges, each about
+1.93–1.99 s after its first edge, and were followed by short 4, 4 and
+8-edge fragments. These are consistent with manually moving the paper too
+slowly for the 2 s edge-capture limit; exact pass counts cannot be inferred
+from the fragments. The second session produced six complete 30-edge
+windows, all decoded `Z pattern_order=FORWARD action=RIGHT`. All 14 printed
+windows reported `invalid=0` and `overflows=0`.
+
+This confirms Z decoding and the RIGHT mapping on the Pico in both physical
+directions under manual bench scanning. It does not establish reliability
+at the car's line-following speed, in the integrated image, or at the final
+sensor mounting. No decoder parameter was changed from this log.

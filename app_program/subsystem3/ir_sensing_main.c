@@ -53,6 +53,11 @@ static void sensing_task (INT start_code, void * p_extra);
 static void sensing_tick (void * p_extra);
 static void print_capture (ir_barcode_window_t const * p_window);
 static void halt_task (void);
+#if defined(BUDDY3_IR_MOVING_TEST)
+static void moving_log_window (ir_barcode_window_t const * p_window,
+                               char letter, char order,
+                               char const * p_result);
+#endif
 #if defined(BUDDY3_SENSING_STANDALONE)
 static char const * surface_name (ir_surface_t surface);
 static char const * position_name (ir_line_position_t position);
@@ -213,6 +218,7 @@ static void sensing_task (INT start_code, void * p_extra)
     ir_fault_status_t fault_status = {0};
     ir_barcode_window_t window = {0};
     uint32_t seen_overflows = 0u;
+    bool b_barcode_decoded = false;
 
     (void)start_code;
     (void)p_extra;
@@ -234,7 +240,7 @@ static void sensing_task (INT start_code, void * p_extra)
         }
     }
 
-    /* This service owns the core-1 GPIO callback for GP6. */
+    /* GP6 transitions are captured by this task without claiming GPIO IRQ 13. */
     ir_barcode_gpio_start();
     ir_barcode_window_reset(&window);
 
@@ -250,6 +256,8 @@ static void sensing_task (INT start_code, void * p_extra)
 
         uint32_t const sample_us = ir_time_us();
         ir_fault_status_note_sample(&fault_status, sample_us);
+        drv_ir_levels_t const raw = drv_ir_read();
+        ir_barcode_gpio_poll(raw.b_barcode_high, sample_us);
         SYSTIM now = {0};
         ir_barcode_edge_t edge = {0};
 
@@ -276,9 +284,25 @@ static void sensing_task (INT start_code, void * p_extra)
         }
 
         char decoded_letter = '\0';
-        if (ir_code39_decode_single(&window, ir_time_us(), &decoded_letter))
+        ir_code39_direction_t scan_direction = IR_CODE39_FORWARD;
+        if (ir_code39_decode_single_with_direction(
+                &window, ir_time_us(), &decoded_letter, &scan_direction))
         {
+            b_barcode_decoded = true;
             s1_set_barcode_id((UB)decoded_letter);
+            if (IR_USB_READY == tm_usb_state())
+            {
+                char details[] = "letter=?;order=?";
+                details[7] = decoded_letter;
+                details[15] = (IR_CODE39_FORWARD == scan_direction) ?
+                              'F' : 'R';
+                s1_csv_log_event("BARCODE_DECODED", details);
+            }
+#if defined(BUDDY3_IR_MOVING_TEST)
+            moving_log_window(&window, decoded_letter,
+                              (IR_CODE39_FORWARD == scan_direction) ?
+                                  'F' : 'R', "DECODED");
+#endif
 #if defined(BUDDY3_SENSING_STANDALONE)
             if (IR_USB_READY == tm_usb_state())
             {
@@ -287,8 +311,13 @@ static void sensing_task (INT start_code, void * p_extra)
                 char const * p_action =
                     (IR_BARCODE_TURN_LEFT == action) ? "LEFT" :
                     (IR_BARCODE_TURN_RIGHT == action) ? "RIGHT" : "UNMAPPED";
-                tm_printf((UB const *)"Code 39 decoded: %c action=%s\n",
-                          decoded_letter, p_action);
+                tm_printf((UB const *)
+                          "Code 39 decoded: %c pattern_order=%s action=%s\n",
+                          decoded_letter,
+                          (IR_CODE39_FORWARD == scan_direction) ?
+                              "FORWARD" : "REVERSE",
+                          p_action);
+                print_capture(&window);
             }
 #endif
             ir_barcode_window_reset(&window);
@@ -326,7 +355,6 @@ static void sensing_task (INT start_code, void * p_extra)
             halt_task();
         }
 
-        drv_ir_levels_t const raw = drv_ir_read();
         drv_ir_levels_t const stable = ir_line_filter_update(
             &filter, raw, now.lo, IR_LINE_STABLE_MS);
         ir_sensing_result_t const result = ir_sensing_read(stable, &map);
@@ -343,6 +371,8 @@ static void sensing_task (INT start_code, void * p_extra)
             .position = line.position,
             .steer = line.latest_steer,
             .b_lost = line.b_lost,
+            .b_barcode_capturing = (0u != window.count),
+            .b_barcode_decoded = b_barcode_decoded,
             .b_gpio_ready = fault_status.b_gpio_configured,
             /* Mounted readings were accepted in the user-reported car trial. */
             .b_ready = b_ir_ready
@@ -435,7 +465,7 @@ static void print_capture (ir_barcode_window_t const * p_window)
     }
 
     tm_printf((UB const *)"Barcode edge window: count=%u invalid=%u"
-              " overflows=%u segments=%s (not decoded)\n",
+              " overflows=%u segments=%s\n",
               p_window->count, (UW)p_window->b_invalid,
               ir_barcode_gpio_overflows(),
               b_candidate ? "PROVISIONAL" : "NONE");
@@ -458,10 +488,69 @@ static void print_capture (ir_barcode_window_t const * p_window)
                   (UW)p_window->edges[index].b_high,
                   duration_us, fraction_ppm);
     }
+#elif defined(BUDDY3_IR_MOVING_TEST)
+    moving_log_window(p_window, '-', '-',
+                      p_window->b_invalid ? "INVALID" :
+                      ((IR_BARCODE_COMPLETE_EDGES == p_window->count) ?
+                           "REJECTED" : "INCOMPLETE"));
 #else
     (void)p_window;
 #endif
 }
+
+#if defined(BUDDY3_IR_MOVING_TEST)
+static char * moving_append_text (char * p_out, char const * p_text)
+{
+    while ('\0' != *p_text)
+    {
+        *p_out++ = *p_text++;
+    }
+    return p_out;
+}
+
+static char * moving_append_u32 (char * p_out, uint32_t value)
+{
+    char digits[10];
+    uint32_t count = 0u;
+    do
+    {
+        digits[count++] = (char)('0' + (char)(value % 10u));
+        value /= 10u;
+    } while (0u != value);
+    while (0u != count)
+    {
+        *p_out++ = digits[--count];
+    }
+    return p_out;
+}
+
+static void moving_log_window (ir_barcode_window_t const * p_window,
+                               char letter, char order,
+                               char const * p_result)
+{
+    if ((IR_USB_READY != tm_usb_state()) || (0u == p_window->count))
+    {
+        return;
+    }
+    char details[96];
+    char * p_out = moving_append_text(details, "count=");
+    p_out = moving_append_u32(p_out, p_window->count);
+    p_out = moving_append_text(p_out, ";duration_ms=");
+    p_out = moving_append_u32(
+        p_out, (p_window->edges[p_window->count - 1u].time_us -
+                p_window->start_us) / 1000u);
+    p_out = moving_append_text(p_out, ";overflow=");
+    p_out = moving_append_u32(p_out, ir_barcode_gpio_overflows());
+    p_out = moving_append_text(p_out, ";letter=");
+    *p_out++ = letter;
+    p_out = moving_append_text(p_out, ";order=");
+    *p_out++ = order;
+    p_out = moving_append_text(p_out, ";result=");
+    p_out = moving_append_text(p_out, p_result);
+    *p_out = '\0';
+    s1_csv_log_event("IR_CAPTURE", details);
+}
+#endif
 
 static void halt_task (void)
 {
