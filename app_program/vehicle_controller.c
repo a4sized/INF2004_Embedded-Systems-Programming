@@ -15,6 +15,47 @@
 
 static bool b_wifi_connected;
 
+/* Bits for "what the controller is still waiting for" (startup prints). */
+#define VC_WAIT_IMU    (1u << 0)
+#define VC_WAIT_US     (1u << 1)
+#define VC_WAIT_IR     (1u << 2)
+#define VC_WAIT_WIFI   (1u << 3)
+#define VC_WAIT_START  (1u << 4)
+
+/* Print what INIT / READY is still waiting for, whenever that changes. */
+static void vehicle_controller_print_waiting (vc_state_t state,
+                                              vc_inputs_t const * p_inputs,
+                                              UINT * p_last)
+{
+    UINT waiting = 0u;
+
+    if ((VC_INIT == state) || (VC_READY == state))
+    {
+        waiting |= p_inputs->b_imu_ready ? 0u : VC_WAIT_IMU;
+        waiting |= p_inputs->b_ultrasonic_ready ? 0u : VC_WAIT_US;
+        waiting |= p_inputs->b_ir_ready ? 0u : VC_WAIT_IR;
+        waiting |= (p_inputs->b_wifi_connected &&
+                    (0u == (p_inputs->fault_mask & FAULT_WIFI))) ?
+                   0u : VC_WAIT_WIFI;
+        waiting |= (VC_READY == state) ? VC_WAIT_START : 0u;
+    }
+
+    if (waiting != *p_last)
+    {
+        *p_last = waiting;
+        if (0u != waiting)
+        {
+            tm_printf((UB *)"VC waiting for:%s%s%s%s%s\n",
+                      (0u != (waiting & VC_WAIT_IMU)) ? " IMU" : "",
+                      (0u != (waiting & VC_WAIT_US)) ? " ULTRASONIC" : "",
+                      (0u != (waiting & VC_WAIT_IR)) ? " IR" : "",
+                      (0u != (waiting & VC_WAIT_WIFI)) ? " WIFI" : "",
+                      (0u != (waiting & VC_WAIT_START)) ?
+                      " MQTT_START" : "");
+        }
+    }
+}
+
 static char const * vehicle_controller_state_name (vc_state_t state)
 {
     switch (state)
@@ -37,6 +78,7 @@ void vehicle_controller_set_wifi_connected (bool b_connected)
 static void vehicle_controller_task (INT start_code, void * p_extra)
 {
     vc_state_t state = VC_INIT;
+    UINT last_waiting = 0u;
     ir_motion_settings_t const permitted =
     {
         true, IR_START_BASE_SPEED, IR_START_TURN_SPEED, IR_START_MAX_AGE_MS
@@ -86,6 +128,8 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
                 ((uint32_t)(now.lo - ir.sampled_at_ms) <=
                  IR_START_MAX_AGE_MS);
         }
+
+        vehicle_controller_print_waiting(state, &inputs, &last_waiting);
 
         next = vehicle_controller_step(state, &inputs);
         if (next != state)
