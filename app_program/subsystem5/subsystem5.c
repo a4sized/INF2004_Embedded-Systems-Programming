@@ -590,6 +590,7 @@ static void s5_handle_obstacle (void)
     /* Tell the vehicle controller first, so it pauses the line follower
      * and grants the drive permission while the fine scan runs. */
     __atomic_store_n(&gb_avoiding, true, __ATOMIC_RELEASE);
+    tm_printf((UB *)"S5 avoiding: obstacle ahead, taking over\n");
     decision = s5_fine_scan(&profile);
 
     if (0u != S5_DRIVE_BYPASS)
@@ -607,6 +608,8 @@ static void s5_handle_obstacle (void)
         {
             /* Not following the line (or stopped by the operator): decide
              * only, never move the car on our own. */
+            tm_printf((UB *)"S5 avoiding: no drive permission "
+                      "(car not following), decision only\n");
         }
         else if ((S5_BYPASS_LEFT == decision) ||
                  (S5_BYPASS_RIGHT == decision))
@@ -628,6 +631,7 @@ static void s5_handle_obstacle (void)
      * (while the car is still stopped for the obstacle, it stays avoiding,
      * see subsystem5_is_avoiding). */
     __atomic_store_n(&gb_avoiding, false, __ATOMIC_RELEASE);
+    tm_printf((UB *)"S5 avoiding: done, handing back\n");
 }
 
 /*

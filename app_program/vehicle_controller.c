@@ -53,6 +53,7 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
         state = VC_FAULT;
     }
     s1_csv_log_event("VC_STATE", vehicle_controller_state_name(state));
+    tm_printf((UB *)"VC state: %s\n", vehicle_controller_state_name(state));
 
     for (;;)
     {
@@ -145,6 +146,10 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
             }
             s1_csv_log_event("VC_STATE",
                              vehicle_controller_state_name(state));
+            /* Always on the serial monitor (the CSV log above is only
+             * printed while a fault is active). */
+            tm_printf((UB *)"VC state: %s\n",
+                      vehicle_controller_state_name(state));
         }
         (void)tk_dly_tsk(VC_PERIOD_MS);
     }
