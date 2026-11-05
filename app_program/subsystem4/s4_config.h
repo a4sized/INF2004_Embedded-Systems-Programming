@@ -114,11 +114,7 @@
  *   0 = no encoders: assume the robot drives at S4_FALLBACK_SPEED_CM_S.  Hump
  *       heights are then only rough. */
 #ifndef S4_USE_ENCODER_DISTANCE     /* (#ifndef: the PC tests change it) */
-<<<<<<< HEAD
 #define S4_USE_ENCODER_DISTANCE 1
-=======
-#define S4_USE_ENCODER_DISTANCE 0
->>>>>>> origin/main
 #endif
 #define S4_FALLBACK_SPEED_CM_S 20.0f
 
@@ -130,7 +126,7 @@
 /* ------------------------------------------------------------------ *
  *  Debug output
  * ------------------------------------------------------------------ */
-#define S4_PRINT_STATUS     1       /* a status line twice a second          */
+#define S4_PRINT_STATUS     0       /* quiet for the S5 test */       /* a status line twice a second          */
 #define S4_PRINT_CSV        0       /* 1 = one CSV line per sample, for the  */
                                     /* plot tool (turn S4_PRINT_STATUS off)  */
 

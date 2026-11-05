@@ -52,7 +52,7 @@
 #endif
 
 /* Print the counters on the serial monitor this often (ms).  0 = never. */
-#define ENC_PRINT_MS        500
+#define ENC_PRINT_MS        0       /* quiet for the S5 test */
 
 /* Interrupt priority (same as the I2C driver; the handler is very short). */
 #define ENC_INTPRI          2
