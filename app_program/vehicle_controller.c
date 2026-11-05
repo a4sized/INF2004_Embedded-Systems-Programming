@@ -83,6 +83,7 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
 {
     vc_state_t state = VC_INIT;
     UINT last_waiting = 0u;
+    UINT diag_ms = 0u;      /* DIAGNOSTIC (test only): see the VC print below */
     ir_motion_settings_t const permitted =
     {
         true, IR_START_BASE_SPEED, IR_START_TURN_SPEED, IR_START_MAX_AGE_MS
@@ -195,6 +196,21 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
         vehicle_controller_print_waiting(state, &inputs, &last_waiting);
 
         next = vehicle_controller_step(state, &inputs);
+
+        /* DIAGNOSTIC (test only): every 2 s say what the controller sees, so
+         * it is obvious WHICH condition is stopping the car from following.
+         * Remove this block when the car follows normally. */
+        diag_ms += VC_PERIOD_MS;
+        if (diag_ms >= 2000u)
+        {
+            diag_ms = 0u;
+            tm_printf((UB *)"VC: %s%s | imu=%d us=%d ir=%d wifi=%d faults=0x%x\n",
+                      vehicle_controller_state_name(state),
+                      (VC_READY == state) ? " (waiting for START)" : "",
+                      (int)inputs.b_imu_ready, (int)inputs.b_ultrasonic_ready,
+                      (int)inputs.b_ir_ready, (int)inputs.b_wifi_connected,
+                      (unsigned int)inputs.fault_mask);
+        }
         if (next != state)
         {
 #if defined(BUDDY3_IR_MOVING_TEST)

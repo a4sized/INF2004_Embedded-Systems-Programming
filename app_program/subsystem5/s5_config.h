@@ -92,7 +92,7 @@
 #define S5_PING_INTERVAL_MS         (60u)
 
 /* The car should come to rest this far from the obstacle. */
-#define S5_STOP_DISTANCE_CM         (10u)
+#define S5_STOP_DISTANCE_CM         (5u)
 
 /* Start stopping this much earlier, because S2 ramps down instead of
  * stopping instantly and a reading is up to S5_PING_INTERVAL_MS old.
@@ -124,16 +124,17 @@
 /* Wait this long after the stop before scanning, so the car is at rest. */
 #define S5_FINE_START_DELAY_MS      (300u)
 
-/* When a ping finds nothing at all, the HC-SR04 keeps its echo pin HIGH
- * for 38 ms (cheap clones up to ~200 ms) and is busy until then. So each
- * fine-scan angle keeps trying, every S5_FINE_RETRY_MS, for up to
- * S5_FINE_READ_TIMEOUT_MS before it counts as missed. */
-#define S5_FINE_RETRY_MS            (10u)
-#define S5_FINE_READ_TIMEOUT_MS     (300u)
+/* Tries per fine-scan angle before giving up on that reading. */
+#define S5_FINE_READ_TRIES          (3u)
 
-/* The profile is still used if no more than this many fine-scan angles
- * (out of 24) got no reading; missed angles are simply skipped. */
-#define S5_FINE_MAX_MISSED          (4u)
+/* Pings taken at each fine-scan angle (1..S5_FILTER_MAX); the MEDIAN is used,
+ * so one spike or one missing echo does not change the profile.  Each extra
+ * ping adds about 60 ms per angle (about 1.5 s over the whole scan).
+ * Simulated, with 13% bad pings, the shorter side was chosen about 36-47% of
+ * the time from 1 ping per angle and 54-81% from 3 (5 pings: 55-86%, but
+ * about 5 s longer).  A finer angle step did NOT help (it gives bad pings
+ * more chances to fake an edge), so the step stays at S5_FINE_STEP_DEG. */
+#define S5_FINE_SAMPLES             (3u)
 
 /* A reading this much further than the last point on the obstacle (or no
  * echo at all) means the beam has passed the obstacle's edge. */
@@ -146,8 +147,11 @@
 #define S5_EDGE_TRIM_DEG            (0u)
 
 /* 1 = servo angles above 90 point to the car's left, 0 = to its right.
- * Checked on the car: 30 degrees faces left, so 150 degrees faces right. */
-#define S5_HIGH_ANGLE_IS_LEFT       (0u)
+ * Checked on the car (from its own scan log): the scan that starts at 85 and
+ * goes down to 30 degrees runs over the car's RIGHT side, so angles above 90
+ * are the LEFT.  If the "left" and "right" in the log ever look swapped
+ * against the car, this is the setting to flip. */
+#define S5_HIGH_ANGLE_IS_LEFT       (1u)
 
 /* ---------------- Bypass decision (s5_avoid.c) ---------------- */
 /* Overall width of the car (widest point, wheels included): measured
@@ -163,10 +167,127 @@
  * Roughly the obstacle's depth plus the car's length. */
 #define S5_BYPASS_DEPTH_CM          (30u)
 
+/* GOING ROUND BY FEEL.  From the front, the sensor cannot tell how wide a flat
+ * obstacle is: a flat face stops echoing once the beam hits it about 20
+ * degrees off straight-on, so a 40 cm box looks as narrow as a 10 cm one and
+ * the sideways distance comes out far too small (the car scrapes the box).
+ * Instead the car drives ALONG the obstacle with the sensor turned to look
+ * straight at it, where the echo is reliable, until the obstacle ends, and
+ * then drives a little further. */
+#define S5_EDGE_LOOK_HIGH_DEG       (170u)  /* servo angle: look at the car's right */
+#define S5_EDGE_LOOK_LOW_DEG        (10u)   /* servo angle: look at the car's left  */
+#define S5_EDGE_TOL_CM              (8u)    /* still "the obstacle" up to this much
+                                             * farther than the first reading     */
+#define S5_EDGE_CONFIRM             (3u)    /* readings in a row without it = end */
+#define S5_EDGE_MAX_MM              (500u)  /* give up if it has not ended by now */
+#define S5_EDGE_WAIT_MM             (300u)  /* when the obstacle is still AHEAD of
+                                             * the car (passing it), how far the
+                                             * car may drive for it to come into
+                                             * view beside it                     */
+#define S5_CAR_LENGTH_CM            (20u)   /* sensor to the REAR of the car.
+                                             * MEASURE this.                      */
+#define S5_SENSOR_TO_AXLE_CM        (10u)   /* sensor back to the middle of the
+                                             * two drive wheels (the point the
+                                             * car turns about).  MEASURE this.
+                                             * Driving sideways, the sensor is
+                                             * this far ahead of that point, so
+                                             * it loses the obstacle this much
+                                             * before the car's middle is clear.  */
+
+/* If neither side has room, reverse S5_REVERSE_MM and scan again, up to
+ * this many times in a row (max 3), before giving up and staying stopped.
+ * Each step back widens the sensor's view of the obstacle's edges. */
+#define S5_BYPASS_MAX_REVERSES      (3u)
+
+/* ---------------- Driving the bypass (s5_drive.c) ---------------- */
+/* 1 = Subsystem 5 carries the bypass decision out itself through
+ * Subsystem 2's s2_set_ir_velocity(): go round the obstacle, or reverse
+ * and scan again. 0 = only decide (s5_avoid_get()). */
+#define S5_DRIVE_BYPASS             (1u)
+
+/* Wheel speeds sent to Subsystem 2 (1..255, PWM duty): for driving and
+ * turning during a bypass, and a slower one for reversing. Too low and
+ * the motors will not turn. */
+#define S5_DRIVE_SPEED              (120)
+#define S5_REVERSE_SPEED            (90)
+
+/* The loop that watches the encoders runs this often. */
+#define S5_DRIVE_POLL_MS            (20u)
+
+/* TURNING ON THE SPOT is done slower than the other moves.  At S5_DRIVE_SPEED
+ * the car spins at roughly 360 degrees a second, so a 90 degree turn is over
+ * in a quarter of a second, and Subsystem 2 then needs another quarter of a
+ * second to ramp the wheels down while the car is still turning.  A fast spin
+ * cannot be stopped on the mark. */
+#ifndef S5_TURN_SPEED
+#define S5_TURN_SPEED               (70)
+#endif
+
+/* Stop the turn EARLY by the angle the car will still turn after the stop
+ * command.  Measured live: this many milliseconds of the car's CURRENT turning
+ * speed is subtracted from the turn.  Raise it if the turn still overshoots,
+ * lower it if it falls short.  0 = no early stop. */
+#ifndef S5_TURN_COAST_MS
+#define S5_TURN_COAST_MS            (140u)
+#endif
+
+/* The same early stop for the STRAIGHT moves.  After the stop command the car
+ * keeps rolling while Subsystem 2 ramps the wheels down (about 5 cm going
+ * forward at S5_DRIVE_SPEED).  The move is stopped early by this many
+ * milliseconds of the car's current speed.  Raise it if a leg still runs past
+ * its distance, lower it if it stops short. */
+#ifndef S5_FORWARD_COAST_MS
+#define S5_FORWARD_COAST_MS         (180u)
+#endif
+#ifndef S5_BACK_COAST_MS
+#define S5_BACK_COAST_MS            (140u)
+#endif
+
+/* A turn should be finished within S5_TURN_MAX_MS.  Every S5_TURN_START_MS
+ * the progress is checked against a straight line to "finished in that
+ * time"; a turn that is behind it (the motors need more than S5_TURN_SPEED
+ * to start or to turn at a useful rate) is raised by S5_TURN_SPEED_STEP,
+ * never above S5_DRIVE_SPEED. */
+#define S5_TURN_START_MS            (300u)
+#define S5_TURN_SPEED_STEP          (15)
+#ifndef S5_TURN_MAX_MS
+#define S5_TURN_MAX_MS              (1500u)
+#endif
+
+/* After a successful bypass, keep driving straight ahead at
+ * S5_DRIVE_SPEED (1), or stop and hand the car back (0). 0: the vehicle
+ * controller hands it back to the line follower (AVOIDING -> FOLLOWING). */
+#define S5_RESUME_AFTER_BYPASS      (0u)
+
+/* Wheels, from Subsystem 2's encoder.h: 2050 ticks per wheel turn, 66 mm
+ * wheel, so pi x 66 = 207 mm per turn. */
+#define S5_ENCODER_TICKS_PER_REV    (2050u)
+#define S5_WHEEL_CIRCUM_MM          (207u)
+
+/* TO MEASURE: distance between the middles of the two drive wheels. Used
+ * to turn on the spot. If a 90 degree turn comes out short, raise it; if
+ * it overshoots, lower it. */
+#define S5_WHEEL_TRACK_MM           (110u)
+
+/* Back off this far before turning, so the car's front corner clears the
+ * obstacle. */
+#define S5_BYPASS_BACKUP_MM         (30u)
+
+/* REVERSE decision: back off this far, then scan again. */
+#define S5_REVERSE_MM               (50u)
+
 /* After a fine scan, the obstacle counts as still in the way while
- * something is within this distance straight ahead (the sensor's whole
- * range), so a bypass side is chosen rather than continuing. */
-#define S5_STILL_BLOCKED_CM         (S5_MAX_RANGE_CM)
+ * something is within this distance straight ahead (also after reversing
+ * S5_REVERSE_MM). */
+#define S5_STILL_BLOCKED_CM         (30u)
+
+/* Give up on one move if it has not finished in this time (stuck wheel,
+ * encoder not counting). */
+#define S5_DRIVE_MOVE_TIMEOUT_MS    (5000u)
+
+/* Pause after each move while Subsystem 2 ramps the wheels down. A
+ * multiple of S5_PING_INTERVAL_MS. */
+#define S5_DRIVE_SETTLE_MS          (240u)
 
 /* Derived: do not edit. */
 #define S5_BYPASS_NEED_CM           (S5_CAR_WIDTH_CM + S5_BYPASS_MARGIN_CM)

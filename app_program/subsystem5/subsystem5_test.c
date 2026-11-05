@@ -10,7 +10,6 @@
  *              no hardware or motion needed).
  *   S5-U09..11 Obstacle profile geometry: sideways distance of a point
  *              (pure function).
- *   S5-U12..17 Bypass decision from a made-up profile (pure function).
  *
  * Lateral checks assume S5_EDGE_TRIM_DEG = 0 (sin 30 deg = 0.5 exactly).
  */
@@ -25,7 +24,6 @@
 #include "s5_report.h"
 #include "s5_guard.h"
 #include "s5_profile.h"
-#include "s5_avoid.h"
 
 #if APP_TEST
 
@@ -34,7 +32,6 @@ EXPORT void subsystem5_test (void)
     S1_TELEMETRY_PKT telemetry;
     bool             b_stopped = false;
     uint8_t          speed_cap;
-    s5_profile_t     profile   = { 0u };
 
     TEST_INIT();
 
@@ -59,7 +56,7 @@ EXPORT void subsystem5_test (void)
     speed_cap = s5_guard_speed_cap(S5_SENSOR_TO_FRONT_CM + S5_STOP_DISTANCE_CM,
                                    false, &b_stopped);
     TEST_CHECK("S5-U05", (0u == speed_cap) && b_stopped,
-               "obstacle at the stop distance: car stops");
+               "obstacle 5 cm from the front: car stops");
 
     speed_cap = s5_guard_speed_cap(S5_SENSOR_TO_FRONT_CM + S5_STOP_TRIGGER_CM,
                                    false, &b_stopped);
@@ -84,36 +81,6 @@ EXPORT void subsystem5_test (void)
                "20 cm away, 30 deg off axis (low side): 10 cm to the side");
     TEST_CHECK("S5-U11", 10u == s5_profile_lateral_cm(20u, 120u),
                "20 cm away, 30 deg off axis (high side): 10 cm to the side");
-
-    /* Bypass decision: always the side with the most clearance. */
-    profile.b_valid         = 1u;
-    profile.left_extent_cm  = 8u;
-    profile.right_extent_cm = 4u;
-    profile.left_clear_cm   = 6u;
-    profile.right_clear_cm  = 3u;
-
-    TEST_CHECK("S5-U12", S5_BYPASS_CONTINUE ==
-                         s5_avoid_choose(&profile, false),
-               "obstacle gone after the scan: continue");
-    TEST_CHECK("S5-U13", S5_BYPASS_STOP == s5_avoid_choose(NULL, true),
-               "scan failed: stop");
-    TEST_CHECK("S5-U14", S5_BYPASS_LEFT == s5_avoid_choose(&profile, true),
-               "narrow gaps: still go round on the wider (left) side");
-
-    profile.right_clear_cm = S5_OBSTACLE_NONE_CM;
-    TEST_CHECK("S5-U15", S5_BYPASS_RIGHT ==
-                         s5_avoid_choose(&profile, true),
-               "right side open: go right");
-
-    profile.left_clear_cm = S5_OBSTACLE_NONE_CM;
-    TEST_CHECK("S5-U16", S5_BYPASS_RIGHT ==
-                         s5_avoid_choose(&profile, true),
-               "equal clearance: shorter detour (right) wins");
-
-    profile.right_extent_cm = profile.left_extent_cm;
-    TEST_CHECK("S5-U17", S5_BYPASS_LEFT ==
-                         s5_avoid_choose(&profile, true),
-               "equal clearance and detour: left");
 
     TEST_SUMMARY("subsystem5");
 }

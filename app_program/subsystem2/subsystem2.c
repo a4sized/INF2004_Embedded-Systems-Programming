@@ -427,8 +427,14 @@ LOCAL void handle_motor_steady_drive(int16_t left_speed, int16_t right_speed) {
         int16_t adj_left  = left_speed - correction;
         int16_t adj_right = right_speed + correction;
 
-        if (adj_left < 0) adj_left = 0;
-        if (adj_right < 0) adj_right = 0;
+        /* Keep each wheel on the side it was commanded: the correction may
+         * slow a wheel down but must never flip it the other way.  (The old
+         * "if (adj < 0) adj = 0" turned EVERY reverse command, such as the
+         * obstacle back-off at -90/-90, into 0/0: the wheels never moved.) */
+        if ((left_speed > 0)  && (adj_left < 0))   adj_left = 0;
+        if ((left_speed < 0)  && (adj_left > 0))   adj_left = 0;
+        if ((right_speed > 0) && (adj_right < 0))  adj_right = 0;
+        if ((right_speed < 0) && (adj_right > 0))  adj_right = 0;
 
         motor_speed(adj_left, adj_right);
     } else {

@@ -74,24 +74,20 @@ static uint16_t angle_to_pulse_width_us(const uint16_t angle_degrees)
 /*
  * The board support package only takes the PWM hardware out of reset when
  * USE_PTMR is 1, and config.h sets it to 0. While in reset the PWM ignores
- * every register write, so we release it ourselves here, but only if it is
- * still in reset: Subsystem 2's motors share the PWM block and set it up
- * first, so resetting it again would switch the motors' PWM off.
+ * every register write, so we release it ourselves here.
  */
 static ER release_pwm_from_reset(void)
 {
     uint32_t loops_left = RESET_WAIT_LOOPS;
 
-    if (0u == (in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM))
-    {
-        clr_w(RESETS_RESET, RESETS_RESET_PWM);
+    set_w(RESETS_RESET, RESETS_RESET_PWM);    /* hold in reset   */
+    clr_w(RESETS_RESET, RESETS_RESET_PWM);    /* then release it */
 
-        /* Wait until the hardware reports that the reset has finished. */
-        while ((0u == (in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM)) &&
-               (loops_left > 0u))
-        {
-            loops_left--;
-        }
+    /* Wait until the hardware reports that the reset has finished. */
+    while (((in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM) == 0u) &&
+           (loops_left > 0u))
+    {
+        loops_left--;
     }
     return (loops_left > 0u) ? E_OK : E_TMOUT;
 }
