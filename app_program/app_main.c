@@ -61,6 +61,7 @@
 #include "subsystem4/subsystem4.h"
 #include "subsystem5/subsystem5.h"
 #include "systemFaults.h"
+#include "vehicle_controller.h"
 
 /*
  * Create and start one task (declared in app.h for every subsystem).
@@ -127,10 +128,11 @@ EXPORT INT usermain(void)
 
 	/* Phase 1: every subsystem creates its kernel objects */
 	CHECK(subsystem1_init(), "subsystem1_init");
+	/* Subsystem 5 releases the PWM block from reset; motors configure it last. */
+	CHECK(subsystem5_init(), "subsystem5_init");
 	CHECK(subsystem2_init(), "subsystem2_init");
 	CHECK(subsystem3_init(), "subsystem3_init");
 	CHECK(subsystem4_init(), "subsystem4_init");
-	CHECK(subsystem5_init(), "subsystem5_init");
 
 	buzzer_play_tone(1000, 500);
 
@@ -139,9 +141,9 @@ EXPORT INT usermain(void)
 	CHECK(subsystem2_start(), "subsystem2_start");
 	CHECK(subsystem3_start(), "subsystem3_start");
     
-    /* TEMPORARILY DISABLED: Prevent S4 and S5 from stopping the motors during the S2 test */
-	// CHECK(subsystem4_start(), "subsystem4_start");
-	// CHECK(subsystem5_start(), "subsystem5_start");
+	CHECK(subsystem4_start(), "subsystem4_start");
+	CHECK(subsystem5_start(), "subsystem5_start");
+	CHECK(vehicle_controller_start(), "vehicle_controller_start");
 
 	tm_printf((UB*)"all subsystems started\n\n");
 

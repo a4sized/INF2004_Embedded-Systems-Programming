@@ -4,6 +4,11 @@ Tests that two or more subsystems work together. There is one test (or more) for
 
 See `testing/README.md` for how to run tests and record results.
 
+The pending cross-subsystem fault cases are recorded in
+`FAULT_INTEGRATION_PENDING.md`. Buddy 3's initialization-failure report is
+source-wired and builds with Buddy 1, but no physical or motor response
+result is claimed yet.
+
 ## Test cases
 
 Define a test here before running it. Test IDs never change.

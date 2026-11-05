@@ -136,6 +136,13 @@ EXPORT void startup_clock(ATR clkatr)
 	if(clkatr & CLKATR_RTC) {
 		clock_config( CLK_KIND_RTC, CLK_RTC_SRC, CLK_PLL_USB_FREQ, CLK_RTC_FREQ);
 	}
+
+	/* Watchdog tick generator: divides 12 MHz clk_ref by 12 (XOSC_MHz)
+	 * to generate 1 MHz tick reference for RP2040 hardware timer.
+	 * Without this, cold boot leaves CYCLES=0, which causes the timer to tick
+	 * on every cycle of clk_ref (12 MHz instead of 1 MHz), making microsecond
+	 * delays 12x too fast! */
+	out_w(WATCHDOG_TICK, (XOSC_MHz) | WATCHDOG_TICK_ENABLE);
 }
 
 EXPORT void shutdown_clock(void)

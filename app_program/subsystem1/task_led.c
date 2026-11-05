@@ -134,7 +134,7 @@ EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
     S1_TELEMETRY_PKT snap;
     s1_get_telemetry(&snap);
 
-    /* Output CSV log only on active faults or command events to avoid serial bus congestion */
+    /* Output only faults and command events to avoid serial congestion. */
     if (snap.fault_mask != 0 ||
         (event_type != NULL && (event_type[0] == 'C' && event_type[1] == 'M' && event_type[2] == 'D'))) {
 
@@ -207,8 +207,10 @@ EXPORT void led_task(INT stacd, void *exinf) {
 
         /* Queue 8-byte telemetry packet every S1_TELEM_TICKS (1 second) */
         if (++ticks % S1_TELEM_TICKS == 0) {
+            extern INT s4_get_max_hump_mm(void);
             tk_loc_mtx(mtx_telemetry, TMO_FEVR);
             s1_telemetry.seq++;
+            s1_telemetry.hump_height_mm = (uint32_t)s4_get_max_hump_mm();
             snap = s1_telemetry;
             tk_unl_mtx(mtx_telemetry);
 

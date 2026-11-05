@@ -67,7 +67,7 @@
 #define S4_HUMP_DOWN_DEG    (-3.0f) /* below this we are going down          */
 #define S4_HUMP_EXIT_DEG    2.0f    /* within +/- this of level = finished   */
 #define S4_HUMP_EXIT_N      5       /* ... for this many samples in a row    */
-#define S4_HUMP_MAX_MS      4000    /* longer than this is a slope, not a hump*/
+#define S4_HUMP_MAX_MS      15000   /* longer than this is a slope, not a hump*/
 #define S4_HUMP_MIN_CM      0.3f    /* smaller than this is just noise       */
 
 /* ------------------------------------------------------------------ *
@@ -114,7 +114,11 @@
  *   0 = no encoders: assume the robot drives at S4_FALLBACK_SPEED_CM_S.  Hump
  *       heights are then only rough. */
 #ifndef S4_USE_ENCODER_DISTANCE     /* (#ifndef: the PC tests change it) */
+<<<<<<< HEAD
 #define S4_USE_ENCODER_DISTANCE 1
+=======
+#define S4_USE_ENCODER_DISTANCE 0
+>>>>>>> origin/main
 #endif
 #define S4_FALLBACK_SPEED_CM_S 20.0f
 

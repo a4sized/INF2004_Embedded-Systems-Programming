@@ -138,10 +138,14 @@ INT s4_get_turn_rate(void)
 
 BOOL s4_is_calibrated(void)
 {
+#if !S4_PROPAGATE_FAULTS
+    return TRUE;
+#else
     UINT bits = 0U;
 
     return (tk_wai_flg(s4_flg, S4_FLG_CALIBRATED, TWF_ORW, &bits, TMO_POL) == E_OK)
            ? TRUE : FALSE;
+#endif
 }
 
 /* imu_task owns the hump counters and the collision condition, so these two

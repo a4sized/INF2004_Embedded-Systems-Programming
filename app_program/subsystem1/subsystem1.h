@@ -44,7 +44,8 @@ typedef enum {
 typedef struct __attribute__((packed)){
     /* Word 0 (32 bits) */
     uint32_t seq         : 8;   /* 0..255 rolling packet sequence counter */
-    int32_t  speed_mm_s  : 10;  /* -512..+511 mm/s signed wheel speed */
+    uint32_t hump_height_mm : 10; /* 0..1023 mm peak hump height from S4 IMU */
+#define speed_mm_s hump_height_mm
     uint32_t obstacle_cm : 9;   /* 0..511 cm ultrasonic distance reading */
     uint32_t car_state   : 3;   /* 0..7 vehicle state machine state */
     uint32_t hump_state  : 2;   /* 0..3 terrain/ramp estimation state */

@@ -264,8 +264,13 @@ static void hump_update(float pitch_rel, float ds_cm, UW t_ms)
         /* Clearly tilted for several samples in a row: it is a climb. */
         if (pitch_rel > S4_HUMP_ENTER_DEG) {
             if (++enter_n >= S4_HUMP_ENTER_N) {
+                INT live_mm;
                 hump = HUMP_UP;
                 peak_cm = height_cm;
+                live_mm = s4_round(peak_cm * 10.0f);
+                if (live_mm > (INT)s4_max_hump_mm) {
+                    s4_max_hump_mm = (UB)s4_clip_u(live_mm, 8);
+                }
                 hump_start_ms = t_ms;
             }
         } else {
@@ -278,7 +283,12 @@ static void hump_update(float pitch_rel, float ds_cm, UW t_ms)
     height_cm += ds_cm * s;
     length_cm += ds_cm;
     if (height_cm > peak_cm) {
+        INT live_mm;
         peak_cm = height_cm;
+        live_mm = s4_round(peak_cm * 10.0f);
+        if (live_mm > (INT)s4_max_hump_mm) {
+            s4_max_hump_mm = (UB)s4_clip_u(live_mm, 8);
+        }
     }
 
     if (hump == HUMP_UP && pitch_rel < S4_HUMP_DOWN_DEG) {

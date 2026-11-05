@@ -18,8 +18,8 @@ IMPORT ID fault_flag;
 // motor must stop, requires manual clearance
 #define TIER1_FATAL_MASK  (FAULT_ESTOP | FAULT_MOTOR | FAULT_IR_SENS | FAULT_IMU_SENS)
 
-// motor pauses and resumes once flag is cleared
-#define TIER2_HAZARD_MASK (FAULT_WIFI | FAULT_US_SENS)
+// motor pauses for a local sensing hazard; Wi-Fi loss stays diagnostic
+#define TIER2_HAZARD_MASK (FAULT_US_SENS)
 
 
 #endif 
