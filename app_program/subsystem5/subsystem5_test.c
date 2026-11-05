@@ -11,7 +11,6 @@
  *   S5-U09..11 Obstacle profile geometry: sideways distance of a point
  *              (pure function).
  *   S5-U12..17 Bypass decision from a made-up profile (pure function).
- *   S5-U18..19 Bypass driving maths: encoder ticks and turns (pure).
  *
  * Lateral checks assume S5_EDGE_TRIM_DEG = 0 (sin 30 deg = 0.5 exactly).
  */
@@ -27,7 +26,6 @@
 #include "s5_guard.h"
 #include "s5_profile.h"
 #include "s5_avoid.h"
-#include "s5_drive.h"
 
 #if APP_TEST
 
@@ -116,14 +114,6 @@ EXPORT void subsystem5_test (void)
     TEST_CHECK("S5-U17", S5_BYPASS_LEFT ==
                          s5_avoid_choose(&profile, true),
                "equal clearance and detour: left");
-
-    /* Bypass driving maths */
-    TEST_CHECK("S5-U18", S5_ENCODER_TICKS_PER_REV ==
-                         s5_drive_ticks_for_mm(S5_WHEEL_CIRCUM_MM),
-               "one wheel circumference is one encoder revolution");
-    TEST_CHECK("S5-U19", (s5_drive_turn_mm(360u) -
-                          (4u * s5_drive_turn_mm(90u))) <= 3u,
-               "four 90 deg turns make one full turn (within rounding)");
 
     TEST_SUMMARY("subsystem5");
 }

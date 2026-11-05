@@ -163,80 +163,10 @@
  * Roughly the obstacle's depth plus the car's length. */
 #define S5_BYPASS_DEPTH_CM          (30u)
 
-/* ---------------- Driving the bypass (s5_drive.c) ---------------- */
-/* 1 = Subsystem 5 carries the bypass decision out itself through
- * Subsystem 2's s2_set_ir_velocity(): turn towards the side with the most
- * clearance and go round the obstacle. 0 = only decide (s5_avoid_get()). */
-#define S5_DRIVE_BYPASS             (1u)
-
-/* Wheel speeds sent to Subsystem 2 (1..255, PWM duty): for driving and
- * turning during a bypass, and a slower one for the short back-up. Too low and
- * the motors will not turn. */
-#define S5_DRIVE_SPEED              (120)
-#define S5_REVERSE_SPEED            (70)
-
-/* Reversing is never boosted (see stall boost below) past this speed. */
-#define S5_REVERSE_MAX_SPEED        (110u)
-
-/* After a successful bypass, keep driving straight ahead at
- * S5_DRIVE_SPEED (1), or stop and hand the car back (0). 0: the vehicle
- * controller hands it back to the line follower (AVOIDING -> FOLLOWING). */
-#define S5_RESUME_AFTER_BYPASS      (0u)
-
-/* Wheels, from Subsystem 2's encoder.h: 2050 ticks per wheel turn, 66 mm
- * wheel, so pi x 66 = 207 mm per turn. */
-#define S5_ENCODER_TICKS_PER_REV    (2050u)
-#define S5_WHEEL_CIRCUM_MM          (207u)
-
-/* TO MEASURE: distance between the middles of the two drive wheels. Used
- * to turn on the spot. If a 90 degree turn comes out short, raise it; if
- * it overshoots, lower it. */
-#define S5_WHEEL_TRACK_MM           (110u)
-
-/* Back off this far before turning, so the car's front corner clears the
- * obstacle. */
-#define S5_BYPASS_BACKUP_MM         (30u)
-
 /* After a fine scan, the obstacle counts as still in the way while
  * something is within this distance straight ahead (the sensor's whole
- * range), so the car goes round it rather than driving on. */
+ * range), so a bypass side is chosen rather than continuing. */
 #define S5_STILL_BLOCKED_CM         (S5_MAX_RANGE_CM)
-
-/* Stall boost: if the encoders move less than S5_DRIVE_STALL_TICKS in
- * S5_DRIVE_STALL_MS during a move (turning on the spot needs more power
- * than driving straight), raise that move's speed by S5_DRIVE_BOOST_STEP,
- * up to 255 (S5_REVERSE_MAX_SPEED when reversing). Not checked during the
- * first S5_DRIVE_STALL_GRACE_MS of a move: Subsystem 2 pauses 100 ms when
- * a wheel changes direction and then ramps the speed up gradually. */
-#define S5_DRIVE_STALL_GRACE_MS     (600u)
-#define S5_DRIVE_STALL_MS           (300u)
-#define S5_DRIVE_STALL_TICKS        (20u)
-#define S5_DRIVE_BOOST_STEP         (30u)
-
-/* Subsystem 2 ramps a wheel's speed by this much every 20 ms, also when
- * stopping, so the car coasts on after the wheels are told to stop. Each
- * move stops early by that coasting distance (worked out from how fast
- * the wheels turn), so turns and distances come out right. */
-#define S5_S2_RAMP_STEP             (10u)
-
-/* After a move has stopped, if it came up more than
- * S5_DRIVE_TOLERANCE_TICKS short (motors that stop dead instead of
- * coasting), drive the rest, up to S5_DRIVE_PASSES passes in all. 20
- * ticks is about 2 mm of wheel travel. */
-#define S5_DRIVE_TOLERANCE_TICKS    (20u)
-#define S5_DRIVE_PASSES             (3u)
-
-/* Give up on one move if it has not finished in this time (stuck wheel,
- * encoder not counting). */
-#define S5_DRIVE_MOVE_TIMEOUT_MS    (5000u)
-
-/* After each move, wait at least S5_DRIVE_SETTLE_MS and until the
- * encoders show the wheels at rest (at most S5_DRIVE_REST_MAX_MS):
- * Subsystem 2 ramps them down gradually, and starting the next move while
- * a wheel still turns would swing the car off course. A multiple of
- * S5_PING_INTERVAL_MS. */
-#define S5_DRIVE_REST_MAX_MS        (1200u)
-#define S5_DRIVE_SETTLE_MS          (240u)
 
 /* Derived: do not edit. */
 #define S5_BYPASS_NEED_CM           (S5_CAR_WIDTH_CM + S5_BYPASS_MARGIN_CM)

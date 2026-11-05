@@ -13,9 +13,8 @@
  * A side narrower than S5_BYPASS_NEED_CM (car width + margin) is still
  * taken if it is the widest; the console print flags it as narrow.
  *
- * The decision stays published until the next fine scan. With
- * S5_DRIVE_BYPASS = 1 Subsystem 5 also carries it out (s5_drive.c);
- * otherwise whoever drives the car does.
+ * The decision stays published until the next fine scan. Subsystem 5 only
+ * decides; it does not move the car.
  */
 #ifndef S5_AVOID_H
 #define S5_AVOID_H
