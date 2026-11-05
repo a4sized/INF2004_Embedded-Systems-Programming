@@ -13,9 +13,20 @@
 #define S5_PIN_ECHO                 (0u)    /* HC-SR04 "Echo" (3.3 V safe) */
 
 /* ---------------- Ultrasonic sensor ---------------- */
-/* Longest echo we wait for. 8750 us is about 1.5 m of range.
- * Raise to 23500 for the sensor's full ~4 m range. */
-#define ECHO_TIMEOUT_US             (8750u)
+/* How far the sensor looks. Anything further away counts as "no
+ * obstacle", so far-off walls and furniture are ignored. Raise it to see
+ * further (the sensor itself reaches about 400 cm). */
+#define S5_MAX_RANGE_CM             (50u)
+
+/* While driving, ignore anything further than this straight ahead (or in
+ * the start-up sweep): it does not slow or stop the car and is reported as
+ * "no obstacle". The fine scan still looks out to S5_MAX_RANGE_CM, so it
+ * can see the obstacle's edges and the gaps beside it. */
+#define S5_DETECT_RANGE_CM          (15u)
+
+/* Longest echo to wait for: sound goes there and back at 343 m/s, i.e.
+ * 20000 / 343 = about 58 us per cm of range. Derived: do not edit. */
+#define ECHO_TIMEOUT_US             ((S5_MAX_RANGE_CM * 20000u) / 343u)
 
 /* Distance drv_ultrasonic_measure() gives when nothing echoes back. */
 #define NO_OBSTACLE                 (0xFFFFu)
@@ -81,11 +92,11 @@
 #define S5_PING_INTERVAL_MS         (60u)
 
 /* The car should come to rest this far from the obstacle. */
-#define S5_STOP_DISTANCE_CM         (5u)
+#define S5_STOP_DISTANCE_CM         (10u)
 
 /* Start stopping this much earlier, because S2 ramps down instead of
  * stopping instantly and a reading is up to S5_PING_INTERVAL_MS old.
- * Tune on the track: raise it if the car stops closer than 5 cm. */
+ * Tune on the track: raise it if the car stops closer than 10 cm. */
 #define S5_BRAKE_MARGIN_CM          (2u)
 
 /* Distance from the sensor's face to the front of the car. Measure this:
@@ -97,7 +108,7 @@
 #define S5_RESUME_HYSTERESIS_CM     (5u)
 
 /* Slow down when an obstacle is within this distance... */
-#define S5_SLOW_DISTANCE_CM         (30u)
+#define S5_SLOW_DISTANCE_CM         (15u)
 /* ...to at most this speed (S2's 0..255 PWM scale). */
 #define S5_SLOW_SPEED_CAP           (80u)
 /* No obstacle near: no limit. */
@@ -113,15 +124,20 @@
 /* Wait this long after the stop before scanning, so the car is at rest. */
 #define S5_FINE_START_DELAY_MS      (300u)
 
-/* Tries per fine-scan angle before giving up on that reading. */
-#define S5_FINE_READ_TRIES          (3u)
+/* When a ping finds nothing at all, the HC-SR04 keeps its echo pin HIGH
+ * for 38 ms (cheap clones up to ~200 ms) and is busy until then. So each
+ * fine-scan angle keeps trying, every S5_FINE_RETRY_MS, for up to
+ * S5_FINE_READ_TIMEOUT_MS before it counts as missed. */
+#define S5_FINE_RETRY_MS            (10u)
+#define S5_FINE_READ_TIMEOUT_MS     (300u)
+
+/* The profile is still used if no more than this many fine-scan angles
+ * (out of 24) got no reading; missed angles are simply skipped. */
+#define S5_FINE_MAX_MISSED          (4u)
 
 /* A reading this much further than the last point on the obstacle (or no
  * echo at all) means the beam has passed the obstacle's edge. */
 #define S5_EDGE_JUMP_CM             (15u)
-
-/* Readings taken past each edge to measure the clearance (max 3). */
-#define S5_CLEAR_STEPS              (3u)
 
 /* The sensor's beam is a cone, so it still "sees" the obstacle a little
  * past its real edge and the width comes out too big. Tune on the track
@@ -133,7 +149,27 @@
  * Checked on the car: 30 degrees faces left, so 150 degrees faces right. */
 #define S5_HIGH_ANGLE_IS_LEFT       (0u)
 
+/* ---------------- Bypass decision (s5_avoid.c) ---------------- */
+/* Overall width of the car (widest point, wheels included): measured
+ * 127.5 mm, rounded up to whole cm. The car only goes round an obstacle on
+ * a side whose free gap is at least S5_CAR_WIDTH_CM + S5_BYPASS_MARGIN_CM.
+ * The ultrasonic sensor is on the car's centre line, so sideways distances
+ * need no offset. */
+#define S5_CAR_WIDTH_CM             (13u)
+#define S5_BYPASS_MARGIN_CM         (5u)
+
+/* Only things up to this far beyond the obstacle's front count as being
+ * "beside" it (they block the way round). Anything further ahead does not.
+ * Roughly the obstacle's depth plus the car's length. */
+#define S5_BYPASS_DEPTH_CM          (30u)
+
+/* After a fine scan, the obstacle counts as still in the way while
+ * something is within this distance straight ahead (the sensor's whole
+ * range), so a bypass side is chosen rather than continuing. */
+#define S5_STILL_BLOCKED_CM         (S5_MAX_RANGE_CM)
+
 /* Derived: do not edit. */
+#define S5_BYPASS_NEED_CM           (S5_CAR_WIDTH_CM + S5_BYPASS_MARGIN_CM)
 #define S5_STOP_TRIGGER_CM          (S5_STOP_DISTANCE_CM + S5_BRAKE_MARGIN_CM)
 #define S5_RESUME_GAP_CM            (S5_STOP_TRIGGER_CM + \
                                      S5_RESUME_HYSTERESIS_CM)

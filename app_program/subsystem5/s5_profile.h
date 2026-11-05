@@ -9,12 +9,17 @@
  *   - location:        lateral distance from the car's centre line to the
  *                      obstacle's left and right edges
  *   - width:           left extent + right extent
- *   - left / right clearance: nearest thing seen beyond each edge
+ *   - left / right clearance: sideways free gap between each edge and the
+ *                      next thing beside the obstacle (a wall, another
+ *                      obstacle), i.e. the room the car has to pass. Only
+ *                      things up to S5_BYPASS_DEPTH_CM beyond the
+ *                      obstacle's front count: anything further ahead does
+ *                      not block the way round.
  *
  * An edge is where the reading jumps by more than S5_EDGE_JUMP_CM compared
  * with the last point on the obstacle (or nothing echoes back).
  *
- * Call s5_profile_start/add/wants_more/finish only from the scanning task.
+ * Call s5_profile_start/add/finish only from the scanning task.
  * s5_profile_get() and s5_profile_lateral_cm() may be called from any task.
  */
 #ifndef S5_PROFILE_H
@@ -35,7 +40,7 @@ typedef struct
     uint64_t width_cm        : 9;   /* left extent + right extent           */
     uint64_t left_extent_cm  : 9;   /* centre line -> left edge, sideways   */
     uint64_t right_extent_cm : 9;   /* centre line -> right edge, sideways  */
-    uint64_t left_clear_cm   : 9;   /* 511 = nothing seen past the edge,    */
+    uint64_t left_clear_cm   : 9;   /* free gap; 511 = nothing seen beside, */
     uint64_t right_clear_cm  : 9;   /*   0 = no edge (blocked to the limit) */
 } s5_profile_t;
 
@@ -45,11 +50,6 @@ void s5_profile_start (const uint16_t center_cm);
 /* Add one fine-scan reading (angle_deg != 90, distance in cm,
  * S5_OBSTACLE_NONE_CM if nothing echoed back). */
 void s5_profile_add (const uint16_t angle_deg, const uint16_t distance_cm);
-
-/* True while the given side still needs readings: its edge has not been
- * found yet, or fewer than S5_CLEAR_STEPS readings were taken past it.
- * b_high_side = true for angles above 90, false for angles below 90. */
-bool s5_profile_wants_more (const bool b_high_side);
 
 /* Work out width, extents and clearances and publish the profile.
  * b_scan_ok = false publishes an invalid profile (scan failed). */
