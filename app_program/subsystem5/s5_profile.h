@@ -17,7 +17,10 @@
  *                      not block the way round.
  *
  * An edge is where the reading jumps by more than S5_EDGE_JUMP_CM compared
- * with the last point on the obstacle (or nothing echoes back).
+ * with the last point on the obstacle (or nothing echoes back). The scan of
+ * a side stops at its edge (s5_profile_edge_found()), so only the first
+ * reading past the edge can show something beside the obstacle; if it shows
+ * nothing, that side's clearance is "open" (511).
  *
  * Call s5_profile_start/add/finish only from the scanning task.
  * s5_profile_get() and s5_profile_lateral_cm() may be called from any task.
@@ -50,6 +53,13 @@ void s5_profile_start (const uint16_t center_cm);
 /* Add one fine-scan reading (angle_deg != 90, distance in cm,
  * S5_OBSTACLE_NONE_CM if nothing echoed back). */
 void s5_profile_add (const uint16_t angle_deg, const uint16_t distance_cm);
+
+/* True once the fine scan of one side (b_high_side = angles above 90) has
+ * passed the obstacle's edge: a reading jumped more than S5_EDGE_JUMP_CM
+ * further than the last point on the obstacle, or nothing echoed back.
+ * The obstacle is not there any more, so that side need not be scanned
+ * further. Call only from the scanning task. */
+bool s5_profile_edge_found (const bool b_high_side);
 
 /* Work out width, extents and clearances and publish the profile.
  * b_scan_ok = false publishes an invalid profile (scan failed). */

@@ -15,6 +15,7 @@
 #include <stdbool.h>
 #include "drv_servo.h"
 #include "s5_config.h"
+#include "s5_log.h"
 
 /* PWM clock: divide the 125 MHz system clock down to 1 MHz. */
 #define SYSTEM_CLOCK_HZ         (125000000u)
@@ -150,8 +151,8 @@ ER drv_servo_init(void)
     }
 
     g_servo.b_ready = 1u;
-    tm_printf((UB*)"S5 servo ready at %u degrees\n",
-              (unsigned int)g_servo.angle_degrees);
+    S5_LOG((UB*)"S5 servo ready at %u degrees\n",
+           (unsigned int)g_servo.angle_degrees);
     return E_OK;
 }
 

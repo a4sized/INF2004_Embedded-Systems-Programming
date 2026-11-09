@@ -11,8 +11,11 @@
  * Once stopped, the car stays stopped until the gap is wider than
  * S5_RESUME_GAP_CM, so it does not creep forward on noisy readings.
  *
- * Hold: while the sensor is not watching the path (start-up scan, fine
+ * Hold: while the sensor is not watching the path (start-up, fine
  * scan), the cap is forced to 0 so the car cannot move.
+ * Drive: while Subsystem 5 drives a bypass itself (s5_drive.c), the cap is
+ * lifted to S5_FULL_SPEED_CAP so the car can turn and reverse next to the
+ * obstacle; the bypass code watches the path ahead itself.
  */
 #ifndef S5_GUARD_H
 #define S5_GUARD_H
@@ -43,5 +46,11 @@ bool s5_guard_is_stopped (void);
  * cap. Call only from subsystem5_start() (before the scanning task exists)
  * or from the scanning task. */
 void s5_guard_set_hold (const bool b_hold);
+
+/* b_drive = true: send S5_FULL_SPEED_CAP now and keep it there (Subsystem 5
+ * is driving a bypass). b_drive = false: back to normal; the next
+ * s5_guard_update() sends the normal cap. Hold wins over drive. Call only
+ * from the scanning task. */
+void s5_guard_set_drive (const bool b_drive);
 
 #endif /* S5_GUARD_H */

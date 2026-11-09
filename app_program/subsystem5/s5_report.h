@@ -36,11 +36,6 @@ void s5_report_distance (const uint8_t position, const uint16_t distance_mm);
  * scale: 0..510 cm, S5_OBSTACLE_NONE_CM = nothing seen. */
 uint16_t s5_report_mm_to_cm (const uint16_t distance_mm);
 
-/* Forget the distances at every scan position except keep_position (set
- * them to "nothing seen"). Used after the start-up scan, when the sensor
- * stays facing ahead and old side readings must not hold the car. */
-void s5_report_keep_only (const uint8_t keep_position);
-
 /* True while Subsystem 5 has FAULT_US_SENS reported. */
 bool s5_report_is_faulted (void);
 

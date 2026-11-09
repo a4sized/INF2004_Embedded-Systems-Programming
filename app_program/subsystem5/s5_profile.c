@@ -27,6 +27,7 @@
 #include <tk/tkernel.h>
 #include "../app.h"
 #include "s5_config.h"
+#include "s5_log.h"
 #include "s5_profile.h"
 
 #define SIDE_LOW            (0u)    /* angles below 90 */
@@ -194,14 +195,15 @@ static void s5_profile_on_obstacle (const uint8_t side,
 }
 
 /* A reading past the edge: if something was seen beside the obstacle (not
- * far beyond it), keep the one nearest sideways. */
+ * far beyond it, and nearer than the floor echo S5_FLOOR_ECHO_CM), keep the
+ * one nearest sideways. */
 static void s5_profile_past_edge (const uint8_t side,
                                   const uint16_t angle_deg,
                                   const uint16_t distance_cm)
 {
     g_side[side].b_edge_found = 1u;
 
-    if ((S5_OBSTACLE_NONE_CM != distance_cm) &&
+    if ((distance_cm < S5_FLOOR_ECHO_CM) &&
         (s5_profile_ahead_cm(distance_cm, angle_deg) <=
          (g_work.closest_cm + S5_BYPASS_DEPTH_CM)))
     {
@@ -228,6 +230,13 @@ void s5_profile_add (const uint16_t angle_deg, const uint16_t distance_cm)
     {
         s5_profile_on_obstacle(side, angle_deg, clip_cm);
     }
+}
+
+bool s5_profile_edge_found (const bool b_high_side)
+{
+    const uint8_t side = b_high_side ? SIDE_HIGH : SIDE_LOW;
+
+    return (0u != g_side[side].b_edge_found);
 }
 
 /* Sideways distance from the centre line to one side's edge. The real
@@ -285,27 +294,30 @@ static uint16_t s5_profile_clearance (const uint8_t side,
     return clear_cm;
 }
 
-/* Print a finished profile on the console. */
+/* Print a finished profile on the console. The clearance line (left and
+ * right edge of the obstacle from the car's centre line) is always printed,
+ * also in the clearance test; the rest only in normal running. */
 static void s5_profile_print (const s5_profile_t * const p_profile)
 {
     if (0u == p_profile->b_valid)
     {
-        tm_printf((UB *)"S5 profile: scan failed, no profile\n");
+        tm_printf((UB *)"S5 clearance: scan failed, not measured\n");
     }
     else
     {
-        tm_printf((UB *)"S5 profile: closest %u cm at %u deg, "
-                  "width %u cm (left %u, right %u)\n",
-                  (unsigned int)p_profile->closest_cm,
-                  (unsigned int)p_profile->closest_angle,
-                  (unsigned int)p_profile->width_cm,
+        tm_printf((UB *)"S5 clearance: left %u cm, right %u cm "
+                  "(obstacle edges from the car's centre)\n",
                   (unsigned int)p_profile->left_extent_cm,
                   (unsigned int)p_profile->right_extent_cm);
-        tm_printf((UB *)"S5 profile: gap beside it left %u cm, right %u cm "
-                  "(0 = blocked, %u = open)\n",
-                  (unsigned int)p_profile->left_clear_cm,
-                  (unsigned int)p_profile->right_clear_cm,
-                  (unsigned int)S5_OBSTACLE_NONE_CM);
+        S5_LOG((UB *)"S5 profile: closest %u cm at %u deg, width %u cm\n",
+               (unsigned int)p_profile->closest_cm,
+               (unsigned int)p_profile->closest_angle,
+               (unsigned int)p_profile->width_cm);
+        S5_LOG((UB *)"S5 profile: gap beside it left %u cm, right %u cm "
+               "(0 = blocked, %u = open)\n",
+               (unsigned int)p_profile->left_clear_cm,
+               (unsigned int)p_profile->right_clear_cm,
+               (unsigned int)S5_OBSTACLE_NONE_CM);
     }
 }
 

@@ -15,7 +15,9 @@ ER subsystem5_init (void);
  * scan (called after every subsystem's init). */
 ER subsystem5_start (void);
 
-/* True only after the first sweep, a good forward reading and a clear path. */
+/* True once the servo has turned the sensor to face the front of the car
+ * at start-up (there is no start-up sweep). An obstacle ahead or a sensor
+ * fault is handled separately (subsystem5_is_avoiding, FAULT_US_SENS). */
 bool subsystem5_startup_scan_ready (void);
 
 /* True from the moment Subsystem 5 stops the car for an obstacle until it

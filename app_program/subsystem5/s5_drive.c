@@ -15,6 +15,7 @@
 #include "../app.h"
 #include "../subsystem2/subsystem2.h"
 #include "s5_config.h"
+#include "s5_log.h"
 #include "s5_drive.h"
 
 /* Turning on the spot by angle a: each wheel rolls pi x track x a / 360.
@@ -217,8 +218,8 @@ void s5_drive_nudge (const uint32_t elapsed_ms)
             g_turn_speed = S5_DRIVE_SPEED;
         }
         s5_drive_wheels_for_move();
-        tm_printf((UB *)"S5 turn: wheels not moving, speed raised to %d\n",
-                  (int)g_turn_speed);
+        S5_LOG((UB *)"S5 turn: wheels not moving, speed raised to %d\n",
+               (int)g_turn_speed);
     }
 }
 
@@ -228,19 +229,19 @@ void s5_drive_print_result (const s5_move_t move, const uint16_t amount,
     static const char * const names[] = { "FORWARD mm", "BACK mm",
                                           "TURN LEFT deg", "TURN RIGHT deg" };
 
-    tm_printf((UB *)"S5 leg %s %u: %s after %u ms, wheels turned "
-              "L=%d R=%d ticks (needed %u)\n",
-              names[(unsigned int)move], (unsigned int)amount,
-              b_done ? "DONE" : "NOT DONE", (unsigned int)elapsed_ms,
-              (int)(get_left_encoder_ticks() - g_move.start_left),
-              (int)(get_right_encoder_ticks() - g_move.start_right),
-              (unsigned int)g_move.target_ticks);
-    tm_printf((UB *)"S5 move: stopped %u ticks early to allow for coasting"
-              "%s\n", (unsigned int)g_coast_ticks,
-              s5_drive_is_turn(move) ? " (turn speed shown below)" : "");
+    S5_LOG((UB *)"S5 leg %s %u: %s after %u ms, wheels turned "
+           "L=%d R=%d ticks (needed %u)\n",
+           names[(unsigned int)move], (unsigned int)amount,
+           b_done ? "DONE" : "NOT DONE", (unsigned int)elapsed_ms,
+           (int)(get_left_encoder_ticks() - g_move.start_left),
+           (int)(get_right_encoder_ticks() - g_move.start_right),
+           (unsigned int)g_move.target_ticks);
+    S5_LOG((UB *)"S5 move: stopped %u ticks early to allow for coasting"
+           "%s\n", (unsigned int)g_coast_ticks,
+           s5_drive_is_turn(move) ? " (turn speed shown below)" : "");
     if (s5_drive_is_turn(move))
     {
-        tm_printf((UB *)"S5 turn: speed %d\n", (int)g_turn_speed);
+        S5_LOG((UB *)"S5 turn: speed %d\n", (int)g_turn_speed);
     }
 }
 

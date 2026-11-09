@@ -17,8 +17,7 @@
  *   The latest distance (cm, 9 bits) at each scan position is kept, and the
  *   nearest one (in cm) is sent with s1_set_obstacle() after every reading,
  *   so telemetry always shows the closest thing the scanner currently sees.
- *   After the start-up scan only the straight-ahead position is kept
- *   (s5_report_keep_only), since the sensor then stays facing forward.
+ *   Only the straight-ahead position is used (there is no start-up sweep).
  *
  * Casts in this file: (UB *) only retypes a string literal for the T-Kernel
  * tm_printf() API. The other casts are commented where they are made.
@@ -30,6 +29,7 @@
 #include "../systemFaults.h"
 #include "../subsystem1/subsystem1.h"
 #include "s5_config.h"
+#include "s5_log.h"
 #include "s5_report.h"
 
 /* ---- Minimum-bit storage ------------------------------------------------
@@ -108,8 +108,8 @@ void s5_report_sensor_ok (void)
             s1_clear_fault(FAULT_US_SENS);
             g_health.b_faulted   = 0u;
             g_health.good_streak = 0u;
-            tm_printf((UB *)"S5 ultrasonic recovered: "
-                      "FAULT_US_SENS cleared\n");
+            S5_LOG((UB *)"S5 ultrasonic recovered: "
+                   "FAULT_US_SENS cleared\n");
         }
     }
 }
@@ -131,8 +131,8 @@ void s5_report_sensor_error (void)
         if (0u == g_health.b_faulted)
         {
             g_health.b_faulted = 1u;
-            tm_printf((UB *)"S5 ultrasonic fault: FAULT_US_SENS reported\n");
-            s1_csv_log_event("S5_FAULT", "US_SENS");
+            S5_LOG((UB *)"S5 ultrasonic fault: FAULT_US_SENS reported\n");
+            s5_log_event("S5_FAULT", "US_SENS");
         }
     }
 }
@@ -143,21 +143,8 @@ void s5_report_scanner_failed (void)
     g_health.good_streak = 0u;
     g_health.b_faulted   = 1u;
     s1_report_fault(FAULT_US_SENS);
-    tm_printf((UB *)"S5 scanner hardware failed: FAULT_US_SENS reported\n");
-    s1_csv_log_event("S5_FAULT", "SCANNER_INIT");
-}
-
-void s5_report_keep_only (const uint8_t keep_position)
-{
-    uint64_t keep_mask = 0u;   /* invalid position: forget everything */
-
-    if (keep_position < S5_SCAN_POSITIONS)
-    {
-        /* Cast only widens to 64 bits before shifting. */
-        keep_mask = (uint64_t)CM_FIELD_MASK << s5_field_shift(keep_position);
-    }
-
-    g_latest_cm = (g_latest_cm & keep_mask) | (CM_ALL_NONE & ~keep_mask);
+    S5_LOG((UB *)"S5 scanner hardware failed: FAULT_US_SENS reported\n");
+    s5_log_event("S5_FAULT", "SCANNER_INIT");
 }
 
 bool s5_report_is_faulted (void)
