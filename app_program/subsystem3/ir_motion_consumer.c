@@ -21,6 +21,10 @@
 static ID settings_mutex;
 /* True while Subsystem 5 drives an obstacle bypass: no Buddy 2 writes. */
 static bool b_output_paused = false;
+/* A search requested after a bypass (ir_motion_consumer_request_search),
+ * not yet applied; and which way the line is. */
+static bool b_search_pending = false;
+static bool b_search_left = false;
 /* Movement stays disabled until the Vehicle Controller explicitly enables it. */
 static ir_motion_settings_t settings =
 {
@@ -105,6 +109,7 @@ ER ir_motion_consumer_init (void)
         .max_age_ms = IR_START_MAX_AGE_MS
     };
     b_output_paused = false;
+    b_search_pending = false;
     settings_mutex = tk_cre_mtx(&config);
     return (settings_mutex < E_OK) ? settings_mutex : E_OK;
 }
@@ -117,6 +122,18 @@ ER ir_motion_consumer_set_paused (bool b_paused)
         return status;
     }
     b_output_paused = b_paused;
+    return tk_unl_mtx(settings_mutex);
+}
+
+ER ir_motion_consumer_request_search (bool b_line_on_left)
+{
+    ER const status = tk_loc_mtx(settings_mutex, TMO_FEVR);
+    if (E_OK != status)
+    {
+        return status;
+    }
+    b_search_pending = true;
+    b_search_left = b_line_on_left;
     return tk_unl_mtx(settings_mutex);
 }
 
@@ -142,6 +159,7 @@ ER ir_motion_consumer_set_following (ir_motion_settings_t const * p_settings)
     {
         /* Serialize revocation with the consumer's own Buddy 2 write. */
         s2_set_ir_velocity(0, 0);
+        b_search_pending = false;   /* a later START starts afresh */
     }
     return tk_unl_mtx(settings_mutex);
 }
@@ -193,6 +211,20 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
                  * cycle under load. Freshness is checked by the controller.
                  */
                 p_snapshot = &snapshot;
+            }
+            /* Handed back after a bypass: start in SEARCH toward the line,
+             * not WAIT (which would sit still with both sensors white).
+             * Applied only on a cycle that really follows, with a fresh
+             * snapshot, so the update below keeps it (a paused, stale or
+             * unready update resets the controller). */
+            if (b_search_pending && settings.b_follow_allowed &&
+                !b_output_paused && ((void *)0 != p_snapshot))
+            {
+                follow.mode = IR_FOLLOW_SEARCH;
+                follow.last_side = b_search_left ? IR_SEARCH_LEFT :
+                                                   IR_SEARCH_RIGHT;
+                follow.b_last_side_valid = true;
+                b_search_pending = false;
             }
 #if defined(BUDDY3_IR_MOVING_TEST)
             b_allowed = settings.b_follow_allowed;
