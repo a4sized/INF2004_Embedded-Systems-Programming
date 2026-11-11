@@ -271,13 +271,12 @@
  * the fine scan (S5_FINE_MIN_ANGLE..S5_FINE_MAX_ANGLE, i.e. 45 degrees off
  * ahead), so this is at most 45: the sensor looks 45 degrees forward at the
  * side.  A flat side only echoes up to about S5_FLAT_ECHO_MAX_DEG off
- * square-on, so at 45 it may not be seen at all: the car then goes past by
- * distance (S5_EDGE_WAIT_MM, then S5_SENSOR_TO_REAR_CM + the margin).  When
- * it is seen and then ends, the back corner is a little ahead of the sensor
- * (the beam meets the side ahead of it), and that is added before the car
- * turns in, as well as S5_SENSOR_TO_REAR_CM + S5_BYPASS_CLEAR_MARGIN_CM
- * (the sensor is at the front of the car).  Square-on (90) would see the
- * side best, but needs the servo to turn to 0 / 180 degrees. */
+ * square-on, so at 45 it may not be seen at all: it is then taken as a
+ * short obstacle, and the car drives just S5_PASS_CLEAR_MM before it turns
+ * in.  When it is seen and then ends, the car drives S5_PASS_CLEAR_MM more
+ * from there.
+ * Square-on (90) would see the side best, but needs the servo to turn to
+ * 0 / 180 degrees. */
 #define S5_PASS_LOOK_OFF_DEG        (45u)
 /* Still "the obstacle" up to this much (cm) farther than the first
  * reading. */
@@ -290,10 +289,6 @@
  * long to get round, and the car goes back to the line (s5_bypass.c). */
 #define S5_EDGE_MAX_MM              (500u)
 
-/* When the obstacle is still AHEAD of the car (passing it), how far (mm)
- * the car may drive for it to come into view beside it. */
-#define S5_EDGE_WAIT_MM             (400u)
-
 /* Sensor back to the middle of the two drive wheels (the point the car
  * turns about; the drive wheels are at the rear).  Driving sideways, the
  * sensor is this far ahead of that point, so it loses the obstacle this
@@ -302,22 +297,20 @@
                                              * middle of the REAR drive
                                              * wheels), rounded up            */
 
-/* Sensor back to the very REAR of the car (cm).  The sensor is at the front,
- * so when it stops seeing the obstacle's side, the rest of the car is still
- * beside it: passing it, the car drives this + S5_BYPASS_CLEAR_MARGIN_CM
- * more, so the whole car is past the back corner before it turns in.  MEASURE
- * it (20 was the earlier estimate, S5_CAR_LENGTH_CM). */
-#define S5_SENSOR_TO_REAR_CM        (20u)
+/* Passing it: once the sensor stops seeing the obstacle's side, the car
+ * drives this much further (mm) before it turns back in toward the line:
+ * about one car's length (22 cm), since the sensor is at the front of the
+ * car and the rest of it is still beside the obstacle.  Raise it if the
+ * back of the car clips the corner when it turns in. */
+#define S5_PASS_CLEAR_MM            (220u)
 
 /* Extra room left between the car and the obstacle when driving round it,
  * on top of the car's own size.  Driving out, on the S5_BYPASS_TURN_DEG
  * slant only part of each cm driven is sideways, so the car drives
  * (planned edge + half its width + this margin) / sin(turn): then, once it
- * turns back, its side is this far clear of the edge.  Passing it, after
- * the sensor stops seeing the side, it drives on until the rear of the car
- * is this far past the back corner (S5_SENSOR_TO_REAR_CM).  Raise it (in
- * cm) if the car still clips the obstacle; lower it if the detour is far
- * wider than needed. */
+ * turns back, its side is this far clear of the edge (passing it, see
+ * S5_PASS_CLEAR_MM).  Raise it (in cm) if the car still clips the obstacle
+ * on the way out; lower it if the detour is far wider than needed. */
 #define S5_BYPASS_CLEAR_MARGIN_CM   (3u)    /* 3 (was 10): a smaller detour;
                                              * raise it if the car clips the
                                              * obstacle                         */

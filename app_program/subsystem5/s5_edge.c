@@ -22,13 +22,10 @@ static uint8_t  g_clear_count = 0u;    /* readings in a row without it      */
 static uint32_t g_seen_ticks  = 0u;    /* move progress when last seen      */
 static bool     g_b_found     = false; /* true = the obstacle has ended     */
 static bool     g_b_wait      = false; /* obstacle not yet beside the car   */
-static uint32_t g_wait_limit  = 0u;    /* give up waiting after this        */
 
-void s5_edge_start (const bool b_wait_for_obstacle,
-                    const uint32_t wait_limit_ticks)
+void s5_edge_start (const bool b_wait_for_obstacle)
 {
     g_b_wait      = b_wait_for_obstacle;
-    g_wait_limit  = wait_limit_ticks;
     g_b_have_face = false;
     g_face_cm     = 0u;
     g_clear_count = 0u;
@@ -75,10 +72,11 @@ bool s5_edge_feed (const bool b_good, const uint16_t distance_cm,
     }
     else if ((!g_b_have_face) && g_b_wait && (!b_near))
     {
-        /* Still waiting for the obstacle to come into view beside the car
-         * (nothing, or only something far away, seen yet); give up once it
-         * has not appeared within the limit. */
-        if ((!g_b_found) && (moved_ticks >= g_wait_limit))
+        /* The obstacle is not in view beside the car (nothing, or only
+         * something far away, seen yet): take it as a short one that has
+         * already ended here. If it does come into view later, the branch
+         * below takes that back, so the caller carries on past it. */
+        if (!g_b_found)
         {
             g_b_found    = true;
             g_seen_ticks = moved_ticks;
@@ -140,7 +138,3 @@ bool s5_edge_was_seen (void)
     return (0u != g_face_cm);
 }
 
-uint16_t s5_edge_face_cm (void)
-{
-    return g_face_cm;
-}

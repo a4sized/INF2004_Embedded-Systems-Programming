@@ -21,10 +21,9 @@
  *      (S5_PASS_LOOK_OFF_DEG off straight ahead, within the fine scan's
  *      limits), until it ends (its length is not known from the front).
  *      The sensor, at the front of the car, is then about level with the
- *      back corner (looking forward, the corner is a little ahead of it,
- *      s5_bypass_pass_extra_mm), so the car drives S5_SENSOR_TO_REAR_CM +
- *      S5_BYPASS_CLEAR_MARGIN_CM more, until the whole car is past it. If
- *      the side is never seen, it goes by distance (S5_EDGE_WAIT_MM);
+ *      back corner, so the car drives S5_PASS_CLEAR_MM (about one car's
+ *      length) more, until the whole car is past it. If the side is never
+ *      seen, it is taken as a short obstacle: just S5_PASS_CLEAR_MM;
  *   5. turns in S5_BYPASS_TURN_DEG and drives back on the same slant until
  *      Subsystem 3's IR sensors find the line, plus S5_IR_TO_AXLE_MM so the
  *      drive wheels are on it; turns back to the original heading. If the
@@ -83,8 +82,6 @@ _Static_assert(((S5_FORWARD_DEG + S5_BYPASS_TURN_DEG) <= S5_FINE_MAX_ANGLE) &&
                ((S5_FORWARD_DEG - S5_BYPASS_TURN_DEG) >= S5_FINE_MIN_ANGLE),
                "the out-leg look angle (90 +/- the turn) must be within the "
                "fine scan's limits");
-_Static_assert(S5_SENSOR_TO_REAR_CM >= S5_SENSOR_TO_AXLE_CM,
-               "the rear of the car must be behind its rear axle");
 _Static_assert(0u == (S5_PING_INTERVAL_MS % S5_DRIVE_POLL_MS),
                "ping interval must be a multiple of the drive poll");
 
@@ -282,7 +279,7 @@ static along_result_t s5_bypass_out (const uint16_t look_deg,
 
     *p_b_front_ended = false;
     s5_sense_servo_to(look_deg, S5_LOOK_SIDE);
-    s5_edge_start(false, 0u);
+    s5_edge_start(false);
     run = s5_bypass_run(S5_MOVE_FORWARD, distance_mm, &hooks);
     *p_driven_mm = s5_drive_mm_for_ticks(s5_drive_progress_ticks());
 
@@ -308,28 +305,9 @@ static along_result_t s5_bypass_out (const uint16_t look_deg,
 
 typedef struct
 {
-    uint16_t base_mm;        /* drive this far once the side has ended (plus
-                              * how far ahead of the sensor it was seen)  */
+    uint16_t extra_mm;       /* drive this far once the side has ended      */
     bool     b_edge_found;   /* the obstacle has (for now) ended            */
 } along_ctx_t;
-
-/*
- * How far to drive on once the side has ended: base_mm, plus how far ahead
- * of the sensor the beam met the side. Looking S5_PASS_LOOK_OFF_DEG off
- * straight ahead at a side (distance + pivot) away, that is
- * (distance + pivot) x cos(S5_PASS_LOOK_OFF_DEG), taken as
- * sin(90 - S5_PASS_LOOK_OFF_DEG): 0 when looking square-on. The cast is
- * safe: a few hundred mm at most.
- */
-static uint16_t s5_bypass_pass_extra_mm (const uint16_t base_mm)
-{
-    const uint32_t seen_mm = ((uint32_t)s5_edge_face_cm() +
-                              S5_SENSOR_PIVOT_CM) * S5_MM_PER_CM;
-
-    return (uint16_t)(base_mm +
-                      ((seen_mm * s5_profile_sin_q14(
-                            S5_FORWARD_DEG - S5_PASS_LOOK_OFF_DEG)) >> 14));
-}
 
 /* Every reading while passing it: follow the obstacle's side, and set the
  * move's end once it has ended (or take that back if the obstacle shows up
@@ -348,19 +326,16 @@ static bool s5_bypass_along_ping (const bool b_good,
         p_along->b_edge_found = true;
         if (!s5_edge_was_seen())
         {
-            S5_LOG((UB *)"S5 along: obstacle NOT seen beside the car, going "
-                   "by distance only (servo looking the wrong way, or "
-                   "obstacle out of range?)\n");
+            S5_LOG((UB *)"S5 along: obstacle NOT seen beside the car, taken "
+                   "as a short one (or the servo is looking the wrong way)\n");
             s5_log_event("S5_ALONG", "NOT_SEEN");
         }
-        const uint16_t extra_mm = s5_bypass_pass_extra_mm(p_along->base_mm);
-
         s5_drive_retarget(s5_edge_last_seen_ticks() +
-                          s5_drive_ticks_for_mm(extra_mm));
+                          s5_drive_ticks_for_mm(p_along->extra_mm));
         S5_LOG((UB *)"S5 along: obstacle ends after %u mm, driving %u mm "
                "more\n",
                (unsigned int)s5_drive_mm_for_ticks(s5_edge_last_seen_ticks()),
-               (unsigned int)extra_mm);
+               (unsigned int)p_along->extra_mm);
     }
     else if ((!b_ended) && p_along->b_edge_found)
     {
@@ -382,23 +357,22 @@ static bool s5_bypass_along_ping (const bool b_good,
 
 /*
  * Drive straight past the obstacle with the sensor turned to look at its
- * side (look_deg) until it has ended, then base_mm further (plus however
- * far ahead of the sensor the beam met the side, s5_bypass_pass_extra_mm).
- * The obstacle is still ahead of the car at first, so the car first drives
- * until it comes into view beside it. *p_driven_mm receives how far the car
- * went. The servo turns to look ahead again afterwards.
+ * side (look_deg) until it has ended, then extra_mm further. If its side is
+ * not in view, it is taken as a short obstacle that has already ended (just
+ * extra_mm), unless it comes into view on the way. *p_driven_mm receives
+ * how far the car went. The servo turns to look ahead again afterwards.
  */
 static along_result_t s5_bypass_along (const uint16_t look_deg,
-                                       const uint16_t base_mm,
+                                       const uint16_t extra_mm,
                                        uint16_t * const p_driven_mm)
 {
-    along_ctx_t       along  = { base_mm, false };
+    along_ctx_t       along  = { extra_mm, false };
     const run_hooks_t hooks  = { NULL, s5_bypass_along_ping, &along };
     along_result_t    result = ALONG_DONE;
     run_result_t      run;
 
     s5_sense_servo_to(look_deg, S5_LOOK_SIDE);
-    s5_edge_start(true, s5_drive_ticks_for_mm(S5_EDGE_WAIT_MM));
+    s5_edge_start(true);
     run = s5_bypass_run(S5_MOVE_FORWARD, S5_EDGE_MAX_MM, &hooks);
 
     *p_driven_mm = s5_drive_mm_for_ticks(s5_drive_progress_ticks());
@@ -656,20 +630,14 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
      * its width + the margin sideways:
      *   out = (plan + half width + margin) / sin(turn).
      * Passing it (step 4, straight): when the sensor loses the side the
-     * back corner is level with it, or (looking forward) a little ahead,
-     * which s5_bypass_pass_extra_mm adds. The sensor is at the front of the
-     * car, so the car drives sensor-to-rear + margin more: then the whole
-     * car is past the corner, and turning in (about the rear axle) cannot
-     * touch it.
-     * Casts are safe: the cm values are at most a few hundred, so both fit
+     * car drives S5_PASS_CLEAR_MM (about one car's length) more, so the
+     * rest of the car is past the corner before it turns in.
+     * The cast is safe: the cm values are at most a few hundred, so it fits
      * 16 bits easily (the divisor is at least sin(5 deg), static assert). */
     const uint16_t  out_mm_plan = (uint16_t)(
                     ((((uint32_t)plan_cm + HALF_CAR_CM +
                        S5_BYPASS_CLEAR_MARGIN_CM) * S5_MM_PER_CM) << 14) /
                     s5_profile_sin_q14(S5_BYPASS_TURN_DEG));
-    const uint16_t  pass_clear_mm = (uint16_t)((S5_SENSOR_TO_REAR_CM +
-                                                S5_BYPASS_CLEAR_MARGIN_CM) *
-                                               S5_MM_PER_CM);
     leg_log_t       legs          = { { S5_MOVE_FORWARD }, { 0u }, 0u };
     along_result_t  along         = ALONG_DONE;
     uint16_t        out_mm        = 0u;
@@ -714,7 +682,7 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
     if (b_ok)
     {
         s5_bypass_log_leg(&legs, turn_in, S5_BYPASS_TURN_DEG);
-        along = s5_bypass_along(look_deg, pass_clear_mm, &pass_mm);
+        along = s5_bypass_along(look_deg, S5_PASS_CLEAR_MM, &pass_mm);
         s5_bypass_log_leg(&legs, S5_MOVE_FORWARD, pass_mm);
         b_ok  = (ALONG_DONE == along);
     }

@@ -9,14 +9,12 @@
 #include <stdint.h>
 
 /* Start looking for the end of the obstacle (call as the move starts).
- * b_wait_for_obstacle = true when the obstacle is still AHEAD of the car and
- * will only come into view beside it as the car drives (passing it): nothing
- * seen at first (or only an echo further than S5_EDGE_NEAR_CM) then means
- * "not there yet", not "already clear", and the wait is given up after
- * wait_limit_ticks.  false when the obstacle is already
- * beside the car at the start. */
-void s5_edge_start (const bool b_wait_for_obstacle,
-                    const uint32_t wait_limit_ticks);
+ * b_wait_for_obstacle = true when passing it: while nothing (or only an echo
+ * further than S5_EDGE_NEAR_CM) has been seen beside the car, it is taken
+ * as a short obstacle that has already ended, until it does come into view
+ * (then it is followed as usual).  false when the obstacle is already in
+ * view at the start (driving out). */
+void s5_edge_start (const bool b_wait_for_obstacle);
 
 /*
  * Feed one reading taken with the sensor looking straight at the obstacle.
@@ -37,9 +35,6 @@ bool s5_edge_feed (const bool b_good, const uint16_t distance_cm,
 /* How far the move had gone when the obstacle was last seen (ticks). */
 uint32_t s5_edge_last_seen_ticks (void);
 
-/* How far away (cm) the obstacle's face was when last seen; 0 if it was
- * never seen. */
-uint16_t s5_edge_face_cm (void);
 
 /* True once the obstacle has been seen beside the car at least once since
  * s5_edge_start().  False means the end was only assumed (nothing seen at
