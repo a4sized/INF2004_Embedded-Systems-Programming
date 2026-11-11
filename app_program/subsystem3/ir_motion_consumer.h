@@ -14,8 +14,8 @@ typedef struct
 } ir_motion_settings_t;
 
 /* Provisional first-run targets in Buddy 2's 0..255 units. */
-#define IR_START_BASE_SPEED 51u  /* 20% of the 0..255 PWM range. */
-#define IR_START_TURN_SPEED 22u
+#define IR_START_BASE_SPEED 51u  /* Trial: 20% of 0..255 PWM. */
+#define IR_START_TURN_SPEED 64u  /* Keep 25% for junction/search torque. */
 #define IR_START_MAX_AGE_MS 20u
 
 /** Create the task-side permission mutex before tasks start. */
@@ -31,6 +31,15 @@ ER ir_motion_consumer_set_following (ir_motion_settings_t const * p_settings);
  *  without being overwritten. Task context only.
  */
 ER ir_motion_consumer_set_paused (bool b_paused);
+
+/** Vehicle Controller handoff after an obstacle bypass: the next cycle that
+ *  follows the line starts in the SEARCH state, turning toward the line
+ *  (b_line_on_left, else right), instead of waiting; if either sensor
+ *  already sees the line it tracks as usual, and still remembers that side
+ *  for its next correction. Call after following is permitted again; a
+ *  revocation cancels it. Task context only.
+ */
+ER ir_motion_consumer_request_search (bool b_line_on_left);
 
 void ir_motion_consumer_task (INT stacd, void * exinf);
 #endif

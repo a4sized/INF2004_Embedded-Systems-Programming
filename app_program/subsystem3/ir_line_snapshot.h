@@ -24,6 +24,8 @@ typedef struct
     bool b_lost;
     bool b_barcode_capturing;
     bool b_barcode_decoded;
+    uint32_t barcode_decode_sequence;
+    char decoded_letter;
     bool b_gpio_ready;
     bool b_ready;
 } ir_line_snapshot_t;

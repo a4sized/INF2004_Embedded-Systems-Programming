@@ -8,11 +8,12 @@ and decodes all packed bit-fields into human-readable engineering units and
 individual fault flags in real-time.
 """
 
+import os
 import struct
 import sys
 import paho.mqtt.client as mqtt
 
-BROKER_IP = "10.33.147.245"
+BROKER_IP = os.environ.get("MQTT_BROKER_IP", "10.33.147.245")
 BROKER_PORT = 1883
 TOPIC_TELEM = "robot/inf2004team15/telemetry"
 
@@ -25,15 +26,19 @@ FAULT_NAMES = {
     (1 << 4): "FAULT_IMU_SENS",
     (1 << 5): "FAULT_WIFI",
     (1 << 6): "FAULT_CMD_REJECTED",
+    (1 << 7): "FAULT_IR_NAV",
 }
 
-# State machine names matching subsystem2.h
+# State machine names (0..4 kept compatible with motor FSM; 5..7 match subsystem4.h S4_MOTION)
 STATE_NAMES = {
     0: "MOTOR_STOPPED",
     1: "MOTOR_RAMPING",
     2: "MOTOR_STEADY_DRIVE",
     3: "MOTOR_REVERSING",
     4: "MOTOR_SAFETY_HALT",
+    5: "DESCENDING_HUMP",
+    6: "PICKED_UP",
+    7: "OVERTURNED",
 }
 
 # Hump / terrain names
@@ -59,9 +64,10 @@ def decode_faults(mask):
     return " | ".join(active)
 
 def on_connect(client, userdata, flags, rc, properties=None):
+    broker_ip = userdata.get("broker_ip", BROKER_IP) if isinstance(userdata, dict) else BROKER_IP
     if rc == 0:
         print("\n" + "=" * 80)
-        print(f" [OK] CONNECTED TO BROKER ({BROKER_IP}:{BROKER_PORT})")
+        print(f" [OK] CONNECTED TO BROKER ({broker_ip}:{BROKER_PORT})")
         print(f" [OK] LISTENING FOR 8-BYTE PACKETS ON: {TOPIC_TELEM}")
         print("=" * 80 + "\n")
         client.subscribe(TOPIC_TELEM)
@@ -114,18 +120,21 @@ def on_message(client, userdata, msg):
     print("-" * 80)
 
 def main():
+    broker_ip = sys.argv[1] if len(sys.argv) > 1 else BROKER_IP
+
     # Support paho-mqtt v2 and v1
     try:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     except AttributeError:
         client = mqtt.Client()
 
+    client.user_data_set({"broker_ip": broker_ip})
     client.on_connect = on_connect
     client.on_message = on_message
 
-    print(f"Connecting to Mosquitto at {BROKER_IP}:{BROKER_PORT}...")
+    print(f"Connecting to Mosquitto at {broker_ip}:{BROKER_PORT}...")
     try:
-        client.connect(BROKER_IP, BROKER_PORT, 60)
+        client.connect(broker_ip, BROKER_PORT, 60)
         client.loop_forever()
     except KeyboardInterrupt:
         print("\nGround Station monitor stopped.")

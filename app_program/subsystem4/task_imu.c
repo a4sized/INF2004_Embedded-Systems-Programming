@@ -4,12 +4,12 @@
  *  Each time round the loop it:
  *    1. reads the accelerometer and magnetometer,
  *    2. turns the readings into tilt, turn rate, vibration,
- *    3. runs the hump detector and the collision detector,
+ *    3. runs the hump detector and the picked-up / overturned detector,
  *    4. puts a message in the buffer for report_task.
  *  It is the ONLY code that talks to the sensor.
  *
  *  Read the file from top to bottom: small helpers first, then calibration,
- *  then the hump and collision detectors, then the task itself.
+ *  then the hump and lift detectors, then the task itself.
  */
 
 #include "subsystem4.h"
@@ -264,13 +264,8 @@ static void hump_update(float pitch_rel, float ds_cm, UW t_ms)
         /* Clearly tilted for several samples in a row: it is a climb. */
         if (pitch_rel > S4_HUMP_ENTER_DEG) {
             if (++enter_n >= S4_HUMP_ENTER_N) {
-                INT live_mm;
                 hump = HUMP_UP;
                 peak_cm = height_cm;
-                live_mm = s4_round(peak_cm * 10.0f);
-                if (live_mm > (INT)s4_max_hump_mm) {
-                    s4_max_hump_mm = (UB)s4_clip_u(live_mm, 8);
-                }
                 hump_start_ms = t_ms;
             }
         } else {
@@ -283,12 +278,7 @@ static void hump_update(float pitch_rel, float ds_cm, UW t_ms)
     height_cm += ds_cm * s;
     length_cm += ds_cm;
     if (height_cm > peak_cm) {
-        INT live_mm;
         peak_cm = height_cm;
-        live_mm = s4_round(peak_cm * 10.0f);
-        if (live_mm > (INT)s4_max_hump_mm) {
-            s4_max_hump_mm = (UB)s4_clip_u(live_mm, 8);
-        }
     }
 
     if (hump == HUMP_UP && pitch_rel < S4_HUMP_DOWN_DEG) {
@@ -315,29 +305,22 @@ static void hump_update(float pitch_rel, float ds_cm, UW t_ms)
 }
 
 /* ======================================================================
- *  5. Collision detector
+ *  5. Motion filters: gravity and shaking
  *
- *  Gravity changes slowly (the car tilts slowly), a hit changes the reading
- *  suddenly.  So keep a slow average of the three readings (= gravity) and
- *  look at how far the newest reading is from it.  More than 1 g away in
- *  any axis = a hit.  The same number, smoothed, tells us how much the car
- *  is shaking (used to tell "standing still" from "driving").
+ *  Gravity changes slowly (the car tilts slowly), a knock or a shake changes
+ *  the reading suddenly.  So keep a slow average of the three readings (= the
+ *  direction of gravity) and look at how far the newest reading is from it.
+ *  The biggest distance, smoothed, is how much the car is shaking.  It tells
+ *  "standing still" from "driving", and "resting on the floor" from "in a
+ *  hand".  A knock is no longer a fault: it only shows up as shaking.
  * ====================================================================== */
 static float   slow[3];             /* slow average of the readings (fwd,left,up) */
 static float   vibration_g;
-static UW      last_impact_ms;
-static BOOL    collision_on;
-static UW      collision_set_ms;
 
-static void collision_update(const CAR_VEC *a, UW t_ms)
+static void filters_update(const CAR_VEC *a)
 {
     float v[3], dyn = 0.0f;
-    UINT  axis, bits;
-    /* Consume a "release the collision" request, if any.  The kernel clears
-     * only that one bit (TWF_BITCLR), atomically.  It is consumed even when no
-     * collision is active, so an old request can not release a later one. */
-    BOOL  clear_req = (tk_wai_flg(s4_flg, S4_FLG_CLEAR_REQ, TWF_ORW | TWF_BITCLR,
-                                  &bits, TMO_POL) == E_OK) ? TRUE : FALSE;
+    UINT  axis;
 
     v[0] = a->fwd;  v[1] = a->left;  v[2] = a->up;
     for (axis = 0; axis < 3; axis++) {
@@ -347,34 +330,239 @@ static void collision_update(const CAR_VEC *a, UW t_ms)
         slow[axis] += S4_SLOW_ALPHA * (v[axis] - slow[axis]);
     }
     vibration_g += S4_SLOW_ALPHA * (dyn - vibration_g);
+}
 
-    if ((dyn > S4_IMPACT_G) && ((t_ms - last_impact_ms) > S4_IMPACT_HOLDOFF_MS)) {
-        S4_MSG m = {0};
+/* ======================================================================
+ *  5b. Picked up / overturned detector
+ *
+ *  Either one makes the car STOP COMPLETELY: the motors are halted through
+ *  Subsystem 2 (s4_stop_motors) and the IMU fault bit is raised.  Three signs
+ *  (the numbers are in s4_config.h):
+ *
+ *   - OVERTURNED: gravity is far from the car's "up" for 0.3 s.  Since gravity
+ *     is the reading of the slow average, a shove or a knock does not move it.
+ *   - PICKED UP, by force: the total pull on the sensor, |a|, is not 1 g.
+ *     At rest, and while driving, it is 1 g whatever the tilt.  Lifting
+ *     pushes it above 1 g; setting down, or a fall, takes it below.  It has to
+ *     last 120 ms: a knock lasts one or two samples.
+ *   - PICKED UP, tilted: gravity is more than 35 deg from "up" for 0.5 s.
+ *
+ *  Which of the two it is follows the tilt (60 deg to become OVERTURNED, back
+ *  within 45 deg to become PICKED_UP again), so a tipped car that is righted by
+ *  hand reads PICKED_UP, and a lifted car turned over in the hand reads
+ *  OVERTURNED.  A car HELD tilted past 60 deg reads OVERTURNED too: tilt is
+ *  all the sensor can see.
+ *
+ *  Once it has fired the condition is held until the car is PUT DOWN: upright,
+ *  1 g, and not shaking, for S4_PUTDOWN_MS.  The motors are off, so any
+ *  shaking is a hand: a carried car never counts as put down.  Everything is
+ *  compared as squares, so there is no square root in the 20 ms loop (the
+ *  one in tilt_deg() is only used when an event is reported).
+ *
+ *  Nothing fires until the sensor is calibrated (an uncalibrated car does not
+ *  know which way is up) and S4_ARM_MS after the first reading.
+ * ====================================================================== */
+#define S4_ARM_SAMPLES  ((S4_ARM_MS + S4_SAMPLE_MS - 1) / S4_SAMPLE_MS)
+#define S4_LIFT_HI2     ((1.0f + S4_LIFT_G) * (1.0f + S4_LIFT_G))
+#define S4_LIFT_LO2     ((1.0f - S4_LIFT_G) * (1.0f - S4_LIFT_G))
+#define S4_REST_HI2     ((1.0f + S4_PUTDOWN_G) * (1.0f + S4_PUTDOWN_G))
+#define S4_REST_LO2     ((1.0f - S4_PUTDOWN_G) * (1.0f - S4_PUTDOWN_G))
+#define S4_REST_VIB_G   ((float)S4_STILL_VIB_MG / 1000.0f)
 
-        last_impact_ms   = t_ms;
-        collision_on     = TRUE;
-        collision_set_ms = t_ms;
-        s4_fault_set(S4_FAULT_COLLISION);
+static UB      lift_state;          /* S4_LIFT_*; written here only          */
+static UB      force_n, carry_n, over_n, right_n;   /* samples in a row showing each sign */
+static UB      armed_n;             /* samples since the first one (saturates) */
+static BOOL    rest_timing;         /* is the "resting" clock running?       */
+static UW      rest_start_ms;
 
-        m.type                = S4_MSG_COLLISION;
-        m.time16              = t_ms & 0xFFFFU;
-        m.p.collision.impact  = (UB)s4_clip_u(s4_round(dyn * 10.0f / (float)S4_IMPACT_STEP_DG), 8);
-        send_msg(&m);
+static UB count_up(UB n)   { return (n < 255U) ? (UB)(n + 1U) : n; }
+static UB count_down(UB n) { return (n > 0U)   ? (UB)(n - 1U) : n; }
+
+/* Square root by Newton's method (no maths library).  Only used to report the
+ * tilt when an event happens, never in the sampling loop. */
+static float sqrt_f(float x)
+{
+    float r = (x > 1.0f) ? (x * 0.5f) : 1.0f;
+    UINT  i;
+
+    if (x <= 0.0f) {
+        return 0.0f;
+    }
+    for (i = 0; i < 8; i++) {
+        r = 0.5f * (r + x / r);
+    }
+    return r;
+}
+
+/* The angle between gravity and the car's "up" axis, 0 (upright) to 180
+ * (upside down), from the slow average. */
+static float tilt_deg(void)
+{
+    float horiz = sqrt_f(slow[0] * slow[0] + slow[1] * slow[1]);
+    float up    = slow[2];
+    float a;
+
+    if (absf(up) >= horiz) {
+        a = (absf(up) > 0.0f) ? atan_deg(horiz / absf(up)) : 90.0f;   /* 0..45 from vertical */
+        return (up >= 0.0f) ? a : (180.0f - a);
+    }
+    a = atan_deg(absf(up) / horiz);                                   /* 0..45 from horizontal */
+    return (up >= 0.0f) ? (90.0f - a) : (90.0f + a);
+}
+
+/* Is the car lying still and level? */
+static BOOL is_resting(void)
+{
+    float g2 = slow[0] * slow[0] + slow[1] * slow[1] + slow[2] * slow[2];
+
+    return ((slow[2] > 0.0f) &&
+            (slow[2] * slow[2] > S4_PUTDOWN_COS2 * g2) &&
+            (g2 < S4_REST_HI2) && (g2 > S4_REST_LO2) &&
+            (vibration_g < S4_REST_VIB_G)) ? TRUE : FALSE;
+}
+
+static void send_lift_msg(UINT reason)
+{
+    S4_MSG m = {0};
+
+    m.type          = S4_MSG_LIFT;
+    m.time16        = (UINT)(now_ms() & 0xFFFFU);
+    m.p.lift.reason = reason & 0x3U;
+    m.p.lift.tilt   = s4_clip_u(s4_round(tilt_deg()), 8);
+    send_msg(&m);
+}
+
+/* The car has just been picked up or overturned.  STOP FIRST (the motors are
+ * the point), then raise the fault bit and tell report_task. */
+static void lift_start(UB reason)
+{
+    lift_state  = reason;
+    force_n = carry_n = over_n = right_n = 0U;
+    rest_timing = FALSE;
+    s4_stop_motors();
+    s4_fault_set(S4_FAULT_LIFTED);
+    send_lift_msg(reason);
+    send_fault_msg();
+}
+
+/* The car is still stopped but the REASON has changed: it was tipped over while
+ * being carried, or righted by hand.  Report it; the motors are already
+ * stopped and the fault bit is already set, so neither is touched. */
+static void lift_reason_change(UB reason)
+{
+    lift_state = reason;
+    over_n = right_n = 0U;
+    send_lift_msg(reason);
+}
+
+/* The car has been put down (or a clear was accepted). */
+static void lift_release(void)
+{
+    lift_state  = S4_LIFT_NONE;
+    force_n = carry_n = over_n = right_n = 0U;
+    rest_timing = FALSE;
+    s4_fault_clear(S4_FAULT_LIFTED);
+    send_lift_msg(S4_LIFT_NONE);
+    send_fault_msg();
+}
+
+/* The sensor was (re)started: forget what we thought we knew and wait for the
+ * filters to settle again.  If it was lifted, the sensor going away and coming
+ * back means we no longer know: start again from "on the ground". */
+static void lift_reset(void)
+{
+    force_n = carry_n = over_n = right_n = 0U;
+    armed_n = 0U;
+    rest_timing = FALSE;
+    if (lift_state != S4_LIFT_NONE) {
+        lift_state = S4_LIFT_NONE;
+        s4_fault_clear(S4_FAULT_LIFTED);
         send_fault_msg();
     }
+}
 
-    /* Release the fault after S4_COLLISION_HOLD_MS, or when asked to. */
-    if (collision_on) {
-        BOOL release = clear_req;
+static void lift_update(const CAR_VEC *a, UW t_ms)
+{
+    UINT  bits;
+    /* A "clear" request (s4_clear_lifted) is consumed every sample, even when
+     * nothing is lifted, so an old request can not release a later event. */
+    BOOL  clear_req = (tk_wai_flg(s4_flg, S4_FLG_CLEAR_REQ, TWF_ORW | TWF_BITCLR,
+                                  &bits, TMO_POL) == E_OK) ? TRUE : FALSE;
+    float g2 = slow[0] * slow[0] + slow[1] * slow[1] + slow[2] * slow[2];
+    float up = slow[2];
+    float m2 = a->fwd * a->fwd + a->left * a->left + a->up * a->up;
 
-        if ((S4_COLLISION_HOLD_MS > 0) &&
-            ((t_ms - collision_set_ms) > S4_COLLISION_HOLD_MS)) {
-            release = TRUE;
+    armed_n = count_up(armed_n);
+    if ((!calibrated) || (armed_n < S4_ARM_SAMPLES)) {
+        return;
+    }
+
+    if (lift_state == S4_LIFT_NONE) {
+        BOOL force = ((m2 > S4_LIFT_HI2) || (m2 < S4_LIFT_LO2)) ? TRUE : FALSE;
+        BOOL carry = ((up <= 0.0f) || (up * up < S4_CARRY_COS2 * g2)) ? TRUE : FALSE;
+        BOOL over  = ((up <= 0.0f) || (up * up < S4_OVERTURN_COS2 * g2)) ? TRUE : FALSE;
+
+        /* "In a row" is forgiving: a sample that misses counts one down, it
+         * does not wipe the count (noise would otherwise hide a real lift). */
+        force_n = force ? count_up(force_n) : count_down(force_n);
+        carry_n = carry ? count_up(carry_n) : 0U;
+        over_n  = over  ? count_up(over_n)  : 0U;
+
+        if (over_n >= S4_OVERTURN_N) {
+            lift_start(S4_LIFT_OVERTURNED);
+        } else if ((force_n >= S4_LIFT_N) || (carry_n >= S4_CARRY_N)) {
+            /* Lifted (or carried tilted).  If it is already tipped past the
+             * overturn limit, that is what it is. */
+            lift_start(over ? S4_LIFT_OVERTURNED : S4_LIFT_PICKED_UP);
+        }
+        return;
+    }
+
+    /* Stopped.  The REASON follows the tilt: tipped past the limit it is
+     * OVERTURNED (also when a hand turns a lifted car over); back within 45 deg
+     * of upright it is PICKED_UP again (a hand has righted it; it is not
+     * resting yet).  Hysteresis: 60 deg to enter, 45 deg to leave. */
+    {
+        BOOL over_now = ((up <= 0.0f) || (up * up < S4_OVERTURN_COS2 * g2)) ? TRUE : FALSE;
+        BOOL righted  = ((up > 0.0f) && (up * up > S4_RIGHTED_COS2 * g2)) ? TRUE : FALSE;
+
+        over_n  = over_now ? count_up(over_n)  : 0U;
+        right_n = righted  ? count_up(right_n) : 0U;
+        if ((lift_state == S4_LIFT_PICKED_UP) && (over_n >= S4_OVERTURN_N)) {
+            lift_reason_change(S4_LIFT_OVERTURNED);
+        } else if ((lift_state == S4_LIFT_OVERTURNED) && (right_n >= S4_RIGHTED_N)) {
+            lift_reason_change(S4_LIFT_PICKED_UP);
+        }
+    }
+
+    /* Picked up or overturned: wait until it is resting level again. */
+    {
+        BOOL resting = is_resting();
+        BOOL release = FALSE;
+
+        if (resting) {
+            if (!rest_timing) {
+                rest_timing   = TRUE;
+                rest_start_ms = t_ms;
+            }
+        } else {
+            rest_timing = FALSE;
+        }
+
+#if !S4_LIFT_LATCH
+        if (rest_timing && ((t_ms - rest_start_ms) >= S4_PUTDOWN_MS)) {
+            release = TRUE;                 /* it has been resting long enough */
+        }
+#endif
+        if (clear_req) {
+            if (resting) {
+                release = TRUE;             /* a clear is accepted while resting level */
+            } else {
+                S4_LOG("clear ignored: the car is not resting level\n");
+            }
         }
         if (release) {
-            collision_on = FALSE;
-            s4_fault_clear(S4_FAULT_COLLISION);
-            send_fault_msg();
+            lift_release();
         }
     }
 }
@@ -430,6 +618,7 @@ static void reset_filters(void)
     mag_prev_ok  = FALSE;
     turn_f       = 0.0f;
     hump_reset();
+    lift_reset();
 }
 
 /* Returns FALSE if the sensor could not be read. */
@@ -494,7 +683,6 @@ static BOOL process_sample(void)
         base_deg = pitch_f;                 /* assume we start on level ground */
         slow[0] = a.fwd;  slow[1] = a.left;  slow[2] = a.up;
         vibration_g = 0.0f;
-        last_impact_ms = t_ms - S4_IMPACT_HOLDOFF_MS - 1;
         first_sample = FALSE;
     } else {
         pitch_f += S4_PITCH_ALPHA * (pitch_raw - pitch_f);
@@ -522,7 +710,9 @@ static BOOL process_sample(void)
     }
 
     hump_update(pitch_rel, ds, t_ms);
-    collision_update(&a, t_ms);
+    filters_update(&a);
+    lift_update(&a, t_ms);
+    s4_lift = lift_state;
     turn_update(mf, ml, mag_dt,
                 (absf(pitch_f) < S4_TURN_MAX_TILT_DEG) &&
                 (absf(roll_f)  < S4_TURN_MAX_TILT_DEG));
@@ -535,7 +725,7 @@ static BOOL process_sample(void)
     s4_samples++;
 
 #if S4_PRINT_CSV
-    tm_printf((UB*)"%d,%d,%d,%d,%d,%d,%d,%d\n", (INT)t_ms,
+    APP_LOG((UB*)"%d,%d,%d,%d,%d,%d,%d,%d\n", (INT)t_ms,
               (INT)(a.fwd * 1000.0f), (INT)(a.left * 1000.0f),
               (INT)(a.up * 1000.0f), (INT)(pitch_f * 100.0f),
               (INT)(pitch_rel * 100.0f), (INT)(height_cm * 10.0f), (INT)hump);
@@ -551,6 +741,7 @@ static void send_status(void)
     m.time16           = now_ms() & 0xFFFFU;
     m.hump_state       = (UINT)hump & 0x3U;
     m.vibration        = (UB)s4_clip_u(s4_round(vibration_g * 1000.0f), 8);    /* mg   */
+    m.lift             = (UINT)lift_state & 0x3U;
     m.p.status.pitch   = (B)s4_clip_s(s4_round(pitch_f), 8);                  /* deg  */
     m.p.status.roll    = (B)s4_clip_s(s4_round(roll_f), 8);
     m.p.status.turn    = (B)s4_clip_s(s4_round(turn_f / (float)S4_TURN_STEP_DPS), 8);
@@ -566,12 +757,13 @@ void imu_task(INT stacd, void *exinf)
     BOOL ok = FALSE;        /* is the sensor working? */
     UINT fail = 0;          /* failed reads in a row  */
     UINT tick = 0;          /* samples since the last status message */
+    UINT cal_wait_ms = 0;   /* time since the last failed calibration */
 
     (void)stacd;
     (void)exinf;
 
 #if S4_PRINT_CSV
-    tm_printf((UB*)"t_ms,ax_mg,ay_mg,az_mg,pitch_cdeg,prel_cdeg,height_mm,hump\n");
+    APP_LOG((UB*)"t_ms,ax_mg,ay_mg,az_mg,pitch_cdeg,prel_cdeg,height_mm,hump\n");
 #endif
 
     for (;;) {
@@ -621,6 +813,23 @@ void imu_task(INT stacd, void *exinf)
             s4_fault_set(S4_FAULT_COMM);
             send_fault_msg();
             ok = FALSE;
+        }
+
+        /* Calibration failed (the car was moving during start-up): try it
+         * again every S4_CAL_AGAIN_MS until it works.  The Vehicle Controller
+         * keeps the car in INIT until it does (S4_FLG_CALIBRATED), so the
+         * car is standing still here and nothing is driving it. */
+        if (ok && !calibrated) {
+            cal_wait_ms += S4_SAMPLE_MS;
+            if (cal_wait_ms >= S4_CAL_AGAIN_MS) {
+                cal_wait_ms = 0;
+                S4_LOG("calibration: trying again\n");
+                calibrated = calibrate();       /* the car must be still */
+                if (calibrated) {
+                    (void)tk_set_flg(s4_flg, S4_FLG_CALIBRATED);
+                    reset_filters();
+                }
+            }
         }
         
         /* 3. Calculate time spent in microseconds, convert to milliseconds, and sleep the remainder */

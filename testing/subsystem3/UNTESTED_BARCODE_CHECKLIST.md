@@ -11,10 +11,10 @@ Add dated evidence and change a row's status only after performing that check.
 | BC-03 | Capture timeout, ring overflow and invalid-edge rejection on Pico | Saved traces showing valid and injected failure cases | UNTESTED |
 | BC-04 | 5 ms line sampling while barcode capture and USB output run | Full 60-second gap counters with at least 99% in 4–6 ms and none above 10 ms | UNTESTED |
 | BC-05 | Complete-code start/end, trailing white and clearance rules in both scan directions | Actual course samples scanned left-to-right and right-to-left at final sensor height and line-following speed | PARTIAL |
-| BC-06 | Hardcoded action letters and straight-through default | A=LEFT and Z=RIGHT are coded; user will edit the letters as needed. Other decoded letters should go straight, but junction handling is deferred. | PARTIAL |
+| BC-06 | Hardcoded action letters and straight-through default | A=LEFT and Z=RIGHT now arm integrated junction turns; other decoded letters keep ordinary following. Physical turn outcome remains untested. | PARTIAL |
 | BC-07 | Decoder tolerance and rejection of truncated, noisy and ambiguous scans | Separate tuning and validation traces, success/rejection counts by speed and direction | UNTESTED |
 | BC-08 | Duplicate suppression and rearm after strip clearance | Repeated passes and dwell over one strip with capture IDs | UNTESTED |
-| BC-09 | One-action turn transaction after decoded letter | GP6 black-to-white junction cue, Subsystem 2 request/acknowledgement, turn-completion and timeout traces; no distance rule is requested | UNTESTED |
+| BC-09 | One-action turn transaction after decoded letter | Integrated policy compiles and has host transition tests; still needs GP6 black-to-white cue, Subsystem 2 request/acknowledgement, turn-completion and timeout traces on car | PARTIAL |
 | BC-10 | Stop, fault and obstacle takeover during capture/navigation | Integrated traces showing cancellation and no stale command replay | UNTESTED |
 | BC-11 | GP6 junction cue and later decoded turn | Mounted GP6 white-black-white trigger, in-turn GP6 white-black-white and either GP7/GP2 white-black confirmation with a current black line reading, turn-position repeatability, timeout and false-positive trials once integrated navigation is enabled | UNTESTED |
 
@@ -155,3 +155,86 @@ motor override is not in the team image; decoded A/Z do not yet trigger
 junction turns. The new timing passed a host window test and the team ARM
 image built, but the normal image has not decoded a moving barcode on the
 car. Startup still depends on the team network/START path.
+
+Marker-driven update (4 November 2026): both the team and USB moving-test
+images now check the opening Code 39 `*` after its ten boundary edges and
+validate the closing `*LETTER*` frame once all 30 edges arrive. A progressing
+scan no longer has a fixed total-duration cutoff. A 2 s pause between edges
+clears an incomplete frame; a complete frame has a 21 s fallback while its
+trailing quiet is checked. The USB test's straight-motion override remains
+bounded to 8 s independently of capture. Host marker, slow-scan, replay,
+polling and ARM builds passed; physical moving reliability and jitter effects
+remain open.
+
+Moving Z trace follow-up (4 November 2026): a supplied moving pass captured
+all 30 `*Z*` edges without overflow, but the next GP6 black arrived 675 ms
+after the final white edge, before the old approximately 850 ms quiet rule
+could announce a decode. The integrated sensing task now publishes the
+letter immediately after validating the closing `*` on edge 30. The measured
+trace passes the host frame replay and the networked ARM UF2 compiled.
+Retest autonomous A and Z scans, the junction turn, and line reacquisition
+on the robot; the user's observed left motor indicator with no movement
+during a turn is still unresolved.
+
+Junction crossing follow-up (4 November 2026): a moving Z decoded and armed
+RIGHT, but GP6 remained black while both line sensors went white. The
+follower stopped and entered SEARCH before `JUNCTION_TURN`; telemetry had no
+fault because TURNING never started. The new junction policy requests 51/51
+while crossing confirmed GP6 black, with a three-second stuck-black stop and
+`FAULT_IR_NAV`. The subsequent user-requested power trial raises straight,
+junction-crossing, turn and search requests to 77/255, and directed
+correction to 51/255.
+A 100 ms straight hold during barcode capture suppresses brief both-white
+corrections. Retest physically; the supplied successful Z pass does not
+explain the other reported failed scans.
+
+30%-duty trace follow-up (4 November 2026): the supplied moving pass had 30
+GP6 edges, no overflow, and a forward `*Z*` width pattern, but it was
+rejected because one Z wide gap stretched to 275 ms during correction,
+exceeding the old 2× wide-spread bound. The decoder now permits up to 4×;
+a 500 ms synthetic outlier is still rejected. The user requested 25% duty:
+straight, junction crossing and turn/search are now 64/255; correction
+remains 51/255. Host replay passed; decode and turn at this setting still
+need a physical run.
+
+20%-base trial (7 November 2026): one networked car run at the previous
+25%-base setting decoded Z and completed a right turn, then briefly lost and
+reacquired the line before a longer loss. For the next trial, base travel
+and junction crossing are 51/255 (20%), junction turning and line search
+stay 64/255 (25%), and a both-white gap during active barcode capture may
+hold equal forward requests for up to 350 ms before ordinary correction.
+The networked UF2 compiled and the host line-snapshot test passed. Physical
+decode repeatability, loaded movement at 20%, GP6 widths around corrections,
+turn torque, and post-turn line retention are still untested at this setting.
+
+Gentle-steering trial (9 November 2026): a lone-black line reading now adds
+up to 8/255 to the outside wheel in 4/255 steps per consumer cycle. GP6
+capture suppresses that bias and keeps equal requests while a line sensor
+sees black. The host test and networked build passed. On the car, compare
+curve jitter, line loss, and A/Z decode success with the previous 20%-base
+build; save GP6 edges/windows and `IR_FOLLOW_MODE` around any failed scan.
+
+W/Z mapping follow-up (9 November 2026): the physical run correctly decoded
+W in reverse order as well as Z in forward order. W now maps to LEFT and Z
+to RIGHT; A no longer requests a turn. At the start of a junction turn,
+the consumed letter's Subsystem 1 telemetry field clears to zero so the next
+decode is visibly distinct. Host tests and the networked build passed;
+the W-left turn, zero telemetry on turn start, and subsequent Z-right turn
+in one on-car run remain untested.
+
+Curve tuning follow-up (9 November 2026): a sustained lone-black reading
+now raises the outside wheel to at most 64/255 while the inside stays at
+51/255; it still ramps in steps of 4 per consumer cycle. One both-white
+sample holds the previous tracking request instead of briefly requesting
+zero; two consecutive white samples still start the timed correction.
+Host line-snapshot tests passed. On-car curve retention, search frequency,
+motor load, and W/Z decode repeatability with this tuning remain untested.
+
+Stronger-bias on-car log (9 November 2026): one forward Z decoded and
+initiated a right turn. A W-shaped scan collected 28/30 edges, with an
+abnormally long 600 ms black interval near its end. A later complete
+Z-shaped scan was rejected because the data character's wide/narrow
+separation was only 1.12, below the 1.4 threshold. No overflow was logged.
+Repeated W/Z decoding and reliable line retention after junction turns
+remain unverified; retain the raw edge logs for comparison with the next
+physical run.

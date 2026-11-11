@@ -13,9 +13,9 @@
 #include <stdint.h>
 #include <tk/tkernel.h>
 #include "../app.h"
-#include "../subsystem1/subsystem1.h"
 #include "../subsystem2/subsystem2.h"
 #include "s5_config.h"
+#include "s5_log.h"
 #include "s5_guard.h"
 
 _Static_assert(S5_FULL_SPEED_CAP <= 255u, "speed cap needs > 8 bits");
@@ -123,15 +123,15 @@ void s5_guard_update (const uint16_t nearest_cm)
     {
         if (b_now_stopped)
         {
-            tm_printf((UB *)"S5 obstacle %u cm: STOP\n",
-                      (unsigned int)nearest_cm);
-            s1_csv_log_event("S5_OBSTACLE", "STOP");
+            S5_LOG((UB *)"S5 obstacle %u cm: STOP\n",
+                   (unsigned int)nearest_cm);
+            s5_log_event("S5_OBSTACLE", "STOP");
         }
         else
         {
-            tm_printf((UB *)"S5 obstacle clear (%u cm): resume\n",
-                      (unsigned int)nearest_cm);
-            s1_csv_log_event("S5_OBSTACLE", "CLEAR");
+            S5_LOG((UB *)"S5 obstacle clear (%u cm): resume\n",
+                   (unsigned int)nearest_cm);
+            s5_log_event("S5_OBSTACLE", "CLEAR");
         }
         g_guard.b_stopped = b_now_stopped ? 1u : 0u;
     }

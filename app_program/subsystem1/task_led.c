@@ -148,13 +148,22 @@ EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
         (event_type != NULL &&
          ((event_type[0] == 'C' && event_type[1] == 'M' &&
            event_type[2] == 'D') ||
-          knl_strcmp(event_type, "BARCODE_DECODED") == 0))) {
+          knl_strcmp(event_type, "BARCODE_DECODED") == 0 ||
+          (event_type[0] == 'J' && event_type[1] == 'U' &&
+           event_type[2] == 'N' && event_type[3] == 'C') ||
+#if defined(BUDDY3_BARCODE_DEBUG)
+          (event_type[0] == 'I' && event_type[1] == 'R' &&
+           event_type[2] == '_' &&
+           (event_type[3] == 'B' ||
+            knl_strcmp(event_type, "IR_FOLLOW_MODE") == 0)) ||
+#endif
+          0))) {
 
-        tm_printf((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
-                  (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
-                  (INT)snap.pitch_deg, (UW)snap.fault_mask,
-                  event_type != NULL ? event_type : "NONE",
-                  details != NULL ? details : "NONE");
+        APP_LOG((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
+                (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
+                (INT)snap.pitch_deg, (UW)snap.fault_mask,
+                event_type != NULL ? event_type : "NONE",
+                details != NULL ? details : "NONE");
     }
 }
 
@@ -202,9 +211,9 @@ EXPORT void led_task(INT stacd, void *exinf) {
                 case S1_CMD_START: tk_set_flg(flg_s1_cmd, S1_FLG_CMD_START); break;
                 case S1_CMD_STOP:  tk_set_flg(flg_s1_cmd, S1_FLG_CMD_STOP); break;
                 case S1_CMD_ESTOP: tk_set_flg(flg_s1_cmd, S1_FLG_CMD_ESTOP); break;
-                case S1_CMD_CLEAR: 
-                    tk_set_flg(flg_s1_cmd, S1_FLG_CMD_CLEAR); 
-                    s1_clear_fault(FAULT_CMD_REJECTED | FAULT_ESTOP);
+                case S1_CMD_CLEAR:
+                    s1_clear_fault(FAULT_CMD_REJECTED | FAULT_ESTOP | FAULT_IR_NAV);
+                    tk_set_flg(flg_s1_cmd, S1_FLG_CMD_CLEAR);
                     break;
                 case S1_CMD_PING:  tk_set_flg(flg_s1_cmd, S1_FLG_CMD_PING); break;
                 default: break;

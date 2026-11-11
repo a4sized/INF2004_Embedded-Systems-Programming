@@ -62,6 +62,10 @@
 #include "subsystem5/subsystem5.h"
 #include "systemFaults.h"
 #include "vehicle_controller.h"
+#if defined(BUDDY3_WIFI_ONLY_TEST)
+#include "cyw43_utk.h"
+extern UW tm_usb_state (void);
+#endif
 #if defined(BUDDY3_FORCE_MOTOR_TEST)
 #include "motor_force_test.h"
 #endif
@@ -106,17 +110,45 @@ EXPORT ID app_start_task(FP entry, PRI pri, UW prc, const char *name)
 
 EXPORT INT usermain(void)
 {
+#if defined(BUDDY3_WIFI_ONLY_TEST)
+    /* Wi-Fi service starts in the platform kernel. Initialize only the
+     * Gatekeeper objects needed by its link/fault callbacks; leave motors,
+     * sensors, MQTT telemetry and their serial output inactive.
+     */
+    CHECK(subsystem1_init(), "subsystem1_init");
+    for (;;)
+    {
+        /* The one-shot join/link messages may precede opening USB serial.
+         * Repeat the latest radio status so a late monitor still has data.
+         */
+        if (3u == tm_usb_state())
+        {
+            T_CYW43_UTK_STATUS status = {0};
+            cyw43_utk_get_status(&status);
+            tm_printf((UB *)"wifi test: init=%u err=%d link=%d"
+                      " ip=%u.%u.%u.%u polls=%u\n",
+                      (UW)status.init_complete, (INT)status.init_result,
+                      (INT)status.link_status,
+                      (UW)(status.ip_addr & 0xffu),
+                      (UW)((status.ip_addr >> 8u) & 0xffu),
+                      (UW)((status.ip_addr >> 16u) & 0xffu),
+                      (UW)((status.ip_addr >> 24u) & 0xffu),
+                      (UW)status.poll_count);
+        }
+        (void)tk_dly_tsk(1000);
+    }
+#else
 	T_RVER	ver;
 
 	/* tk_ref_ver: ask the kernel who it is */
 	tk_ref_ver(&ver);
-	tm_printf((UB*)"\n=== micro T-Kernel on Raspberry Pi Pico W"
+	APP_LOG((UB*)"\n=== micro T-Kernel on Raspberry Pi Pico W"
 		  " (spec 0x%04x, product 0x%04x) ===\n", ver.spver, ver.prver);
 #if TK_SUPPORT_SMP
-	tm_printf((UB*)"dual-core (SMP) build, usermain on core %d\n",
+	APP_LOG((UB*)"dual-core (SMP) build, usermain on core %d\n",
 		  tk_get_prc() - 1);	/* tk_get_prc() counts from 1 */
 #else
-	tm_printf((UB*)"single-core build\n");
+	APP_LOG((UB*)"single-core build\n");
 #endif
 
     T_CFLG cflg = {0};
@@ -126,7 +158,7 @@ EXPORT INT usermain(void)
     /* FIXED: Actually create the kernel object before checking for errors */
     fault_flag = tk_cre_flg(&cflg); 
     if (fault_flag < E_OK) {
-        tm_printf((UB*)"FATAL: Failed to create fault_flag\n");
+        APP_LOG((UB*)"FATAL: Failed to create fault_flag\n");
     }
 
 	/* Phase 1: every subsystem creates its kernel objects */
@@ -154,7 +186,7 @@ EXPORT INT usermain(void)
 	CHECK(vehicle_controller_start(), "vehicle_controller_start");
 #endif
 
-	tm_printf((UB*)"all subsystems started\n\n");
+	APP_LOG((UB*)"all subsystems started\n\n");
 
 #if APP_TEST
 	/* Test build (make TEST=1): run every subsystem's tests in turn,
@@ -172,4 +204,5 @@ EXPORT INT usermain(void)
 	/* Sleep forever.  Returning from usermain() would shut down. */
 	tk_slp_tsk(TMO_FEVR);
 	return 0;
+#endif
 }

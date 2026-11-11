@@ -32,14 +32,17 @@ typedef struct
     ir_search_side_t last_side;
     bool b_last_side_valid;
     uint8_t both_white_samples;
+    int8_t gentle_bias;
     uint32_t correction_started_ms;
     uint32_t stop_started_ms;
 } ir_follow_controller_t;
 
 #define IR_SEARCH_WHITE_SAMPLES 2u
 #define IR_CORRECT_MS 250u
-#define IR_CORRECT_SPEED 30u
+#define IR_CORRECT_SPEED 51u
 #define IR_SEARCH_STOP_MS 250u
+#define IR_GENTLE_BIAS_MAX 13
+#define IR_GENTLE_BIAS_STEP 4
 
 void ir_follow_controller_reset (ir_follow_controller_t * p_controller);
 
@@ -68,7 +71,7 @@ bool ir_motion_snapshot_is_new (
     uint32_t last_sequence,
     bool b_seen_sequence);
 
-/** Ordinary tracking drives straight while either line sensor sees black. */
+/** Return the basic equal-speed target before tracking bias is applied. */
 ir_motion_target_t ir_motion_target_for_snapshot (
     ir_line_snapshot_t const * p_snapshot,
     uint32_t now_ms,
