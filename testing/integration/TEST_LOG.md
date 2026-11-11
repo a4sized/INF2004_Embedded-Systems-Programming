@@ -38,3 +38,8 @@ Add a new row for every post-commit run (`git rev-parse --short HEAD`). Never ed
 
 | Date | Test ID | Commit | Tester | Result | Log / evidence | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-11 | INT-01 | `f4a367a` | Khoo Yi Rui (2501283) | N/A | `../subsystem1/logs/2026-11-11_s1_unit.txt` | Legacy starter S2->S3 mailbox inactive in `BUDDY3_TEAM_IR=1` team image |
+| 2026-11-11 | INT-02 | `f4a367a` | Khoo Yi Rui (2501283) | N/A | — | Dropped legacy template test; superseded by `INT-03`–`INT-11` |
+| 2026-11-11 | INT-03 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `../subsystem1/logs/2026-11-11_s1_serial.txt`, `../subsystem1/logs/2026-11-11_s1_u14_decoder.txt`, `../subsystem1/logs/2026-11-11_s1_unit.txt` | `S4-U19 PASS`; live `Pitch` (`+19°`), `RAMP_UP`/`RAMP_DOWN`, peak `33 mm` with `Obstacle = 511 cm` preserved (`S4-U07` only raced live `s5_sensor_task` in `TEST=1`) |
+| 2026-11-11 | INT-04 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `../subsystem1/logs/2026-11-11_s1_unit.txt`, `../subsystem1/logs/2026-11-11_s1_serial.txt`, `../subsystem1/logs/2026-11-11_s1_u14_decoder.txt` | `S4-U08` & `S4-U17 PASS`; live `COLLISION 1.0 g` + `IMU_FAULT` CSV and `[0x051] FAULT_ESTOP \| FAULT_IMU_SENS \| FAULT_CMD_REJECTED` bit isolation |
+| 2026-11-11 | INT-08 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_int08_vc_policy.txt` | `gcc -std=gnu11 -Wall -Wextra -Werror -fsanitize=address,undefined` exited 0 (`INT-08 PASS`) |

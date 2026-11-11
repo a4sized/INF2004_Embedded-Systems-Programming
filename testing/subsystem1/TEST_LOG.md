@@ -52,3 +52,16 @@ Add a new row for every post-commit run (`git rev-parse --short HEAD`). Never ed
 
 | Date | Test ID | Commit | Tester | Result | Log / evidence | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-11 | S1-U01 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U01 PASS`; cyclic handler, `led_task`, and S1 kernel objects active |
+| 2026-11-11 | S1-U02 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U02 PASS`; telemetry task blocks in `TTS_WAI` between cyclic ticks |
+| 2026-11-11 | S1-U03 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U03 PASS`; binary bit-field setters succeed, 8-byte payload |
+| 2026-11-11 | S1-U04 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U04 PASS`; `S1_CMD_PING` pushed, decoded, flag set (`CMD_ACCEPTED`) |
+| 2026-11-11 | S1-U05 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U05 PASS`; unknown binary command rejected, counted, fault raised (`CMD_REJECTED`) |
+| 2026-11-11 | S1-U06 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U06 PASS`; `s1_csv_log_event()` (`TEST_FAULT`, `BARCODE_DECODED`, `NONE`) safe |
+| 2026-11-11 | S1-U07 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U07 PASS`; extended setters, fault bit isolation, NULL safety |
+| 2026-11-11 | S1-U08 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U08 PASS`; `s1_parse_command()` decodes binary/ASCII and rejects invalid inputs |
+| 2026-11-11 | S1-U09 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U09 PASS`; ISR fault flag drained by `led_task` and cleared cleanly |
+| 2026-11-11 | S1-U10 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U10 PASS`; 1 Hz telemetry TX queued with `seq` increment and bounds enforced |
+| 2026-11-11 | S1-U11 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_u11_host.txt` | `Ran 6 tests in 0.428s ... OK` (GCC struct parity passed) |
+| 2026-11-11 | S1-U13 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt`, `logs/2026-11-11_s1_mqtt_decoder.txt` | Wi-Fi `10.33.147.203`, Mosquitto `10.33.147.245`, 1 Hz `[SEQ #002]`–`[#044]` |
+| 2026-11-11 | S1-U14 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_serial.txt`, `logs/2026-11-11_s1_u14_decoder.txt` | `START`/`STOP`/`CLEAR`/`ESTOP` (`0x001`)/`INVALID` (`0x041`) |

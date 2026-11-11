@@ -1,0 +1,339 @@
+=~=~=~=~=~=~=~=~=~=~=~= PuTTY log 2026.11.11 15:13:43 =~=~=~=~=~=~=~=~=~=~=~=
+
+
+microT-Kernel Version 3.00
+
+
+=== micro T-Kernel on Raspberry Pi Pico W (spec 0x6300, product 0x0003) ===
+dual-core (SMP) build, usermain on core 0
+S5 servo ready at 90 degrees
+all subsystems started
+
+S5 start-up scan: checking the path
+[TEST] === test run start ===
+[TEST] S1-U01 PASS  cyclic handler, led_task, and S1 kernel objects are active
+wifi: cyw43_utk_task starting (proc 1)
+wifi: cyw43_init() ...
+wifi: cyw43_init() returned, bringing interface up ...
+[S4] IMU found (LSM303D)
+VC state: INIT
+S5 ultrasonic fault: FAULT_US_SENS reported
+LOG_CSV,0,0,100,0,8,S5_FAULT,US_SENS
+S5 ultrasonic recovered: FAULT_US_SENS cleared
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+[TEST] S1-U02 PASS  telemetry task sleeps between cyclic ticks
+[TEST] S1-U03 PASS  binary bit-field setters succeed, payload is 8 bytes
+wifi: joining "Pixel_8483" ...
+S5 scan 60 deg: no obstacle
+wifi: link status -> joined AP, waiting for IP (1)
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+LOG_CSV,1,0,511,-3,32,CMD_ACCEPTED,BINARY
+[TEST] S1-U04 PASS  binary MQTT command PING pushed, decoded, and flag set
+LOG_CSV,1,0,511,-3,32,CMD_REJECTED,INVALID_BINARY
+[S4] calibration: the car is moving, keep it still and level
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+[TEST] S1-U05 PASS  unknown binary MQTT command rejected, counted, and fault raised
+LOG_CSV,1,0,511,-3,32,TEST_FAULT,Simulated hardware failure
+LOG_CSV,1,0,511,-3,32,BARCODE_DECODED,letter=A;order=F
+LOG_CSV,1,0,511,-3,32,NONE,NONE
+[TEST] S1-U06 PASS  CSV logger called safely
+[TEST] S1-U07 PASS  extended telemetry setters, fault bit isolation, and NULL safety
+[TEST] S1-U08 PASS  s1_parse_command decodes binary/ASCII and rejects invalid inputs
+S5 scan 120 deg: no obstacle
+[TEST] S1-U09 PASS  ISR fault flag drained by led_task and cleared cleanly
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 150 deg: no obstacle
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 start-up scan: path clear, car may move off
+[TEST] S1-U10 PASS  1 Hz telemetry queued with seq increment and TX bridge bounds enforced
+[TEST] subsystem1 SUMMARY 10 passed, 0 failed
+[TEST] S2-U01 PASS  Semaphore, MemPool, and Mutex successfully created
+[TEST] S2-U02 PASS  mtx_motor_intent is unlocked and ready for intents
+[TEST] S2-U03 PASS  Arbitrator handles out-of-bounds velocities gracefully without crashing
+[TEST] S2-U04 PASS  FSM boots securely into MOTOR_STOPPED state
+[TEST] S2-U05 PASS  Encoders initialized to 0 and getters function normally
+
+==========================================
+ S2-U06: ACTIVE DRIVE PI CONTROLLER TEST
+ Pausing for 5 seconds... Place robot on floor!
+==========================================
+Starting in 7...
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] calibrated, spread 43 mg
+wifi: link status -> joined AP, no IP yet (2)
+wifi: link up, ip=10.33.147.203
+VC state: READY
+mqtt: connected to 10.33.147.245
+mqtt: subscribed to robot/inf2004team15/cmd
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+Starting in 6...
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 02 00 FC 07 FD 00 00 02 )
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 03 00 FC 07 FD 00 00 00 )
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 04 00 FC 07 FD 00 00 00 )
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 05 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+Starting in 5...
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 06 00 FC 07 00 00 00 00 )
+Starting in 4...
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn -4 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 07 00 FC 07 00 00 00 00 )
+Starting in 3...
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn -2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 08 00 FC 07 00 00 00 00 )
+S5 scan 90 deg: no obstacle
+Starting in 2...
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 09 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+Starting in 1...
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 0A 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+GO!
+[T+0000 ms] L=0 | R=0
+[T+0100 ms] L=0 | R=0
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+[T+0200 ms] L=0 | R=0
+[T+0300 ms] L=0 | R=0
+S5 scan 90 deg: no obstacle
+[T+0400 ms] L=0 | R=0
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+[T+0500 ms] L=0 | R=0
+[T+0600 ms] L=0 | R=0
+[T+0700 ms] L=0 | R=0
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 0B 00 FC 07 00 00 00 00 )
+[T+0800 ms] L=0 | R=0
+[T+0900 ms] L=0 | R=0
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+
+--> FINAL RAW TICKS: L=0 | R=0
+--> CALCULATED DISTANCE: 0.000 mm
+
+[TEST] S2-U06 PASS  Active 2-second drive completed and distance calculated
+[TEST] subsystem2 SUMMARY 6 passed, 0 failed
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 0C 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 0D 00 FC 07 00 00 00 00 )
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[TEST] INT-01 FAIL  samples flow from subsystem 2 to subsystem 3   (../app_program/subsystem3/subsystem3_test.c:34)
+[TEST] S3-U01 FAIL  min <= max, both within 0..100   (../app_program/subsystem3/subsystem3_test.c:38)
+[TEST] subsystem3 SUMMARY 0 passed, 2 failed
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 0E 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn -2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 0F 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn -4 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 10 00 FC 07 00 00 00 00 )
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+[TEST] S4-U01 PASS  IMU answers on I2C1 (GP26 SDA, GP27 SCL)
+[TEST] S4-U02 PASS  accelerometer calibrated while still
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn -2 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 11 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[TEST] S4-U03 PASS  sensor read about 50 times a second
+[TEST] S4-U04 PASS  pitch and roll within +/-5 degrees when level
+[TEST] S4-U05 PASS  still robot is STATIONARY
+[TEST] S4-U06 PASS  no false hump and no false collision
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 12 00 FC 07 00 00 00 00 )
+S5 scan 90 deg: no obstacle
+[TEST] S4-U07 FAIL  pitch reaches subsystem 1; speed and obstacle left unchanged   (../app_program/subsystem4/subsystem4_test.c:65)
+[TEST] S4-U08 PASS  FAULT_IMU_SENS set/cleared through subsystem 1, other bits kept
+[TEST] S4-U17 PASS  one IMU bit stays set until both conditions are over
+[TEST] S4-U18 PASS  8-byte message; values are clipped at the limits, never wrapped
+[TEST] S4-U19 PASS  telemetry car_state/hump_state show STATIONARY and flat
+[TEST] subsystem4 SUMMARY 10 passed, 1 failed
+[TEST] S5-U01 PASS  running in a task context
+[TEST] S5-U02 PASS  healthy ultrasonic: FAULT_US_SENS not reported
+[TEST] S5-U03 PASS  no obstacle: no speed limit
+[TEST] S5-U04 PASS  obstacle within slow distance: car slows down
+[TEST] S5-U05 PASS  obstacle at the stop distance: car stops
+[TEST] S5-U06 PASS  stop starts S5_BRAKE_MARGIN_CM early
+[TEST] S5-U07 PASS  stopped: stays stopped inside the resume gap
+[TEST] S5-U08 PASS  stopped: resumes once the obstacle is beyond the resume gap
+[TEST] S5-U09 PASS  point straight ahead is 0 cm to the side
+[TEST] S5-U10 PASS  20 cm away, 30 deg off axis (low side): 10 cm to the side
+[TEST] S5-U11 PASS  20 cm away, 30 deg off axis (high side): 10 cm to the side
+[TEST] S5-U12 PASS  obstacle gone after the scan: continue
+[TEST] S5-U13 PASS  scan failed: stop
+[TEST] S5-U14 PASS  no room either side: reverse and scan again
+[TEST] S5-U15 PASS  no room either side, reverses used up: stop
+[TEST] S5-U16 PASS  room only on the left: go left
+[TEST] S5-U17 PASS  room both sides: shorter detour (right) wins
+[TEST] S5-U18 PASS  one wheel circumference is one encoder revolution
+[TEST] S5-U19 PASS  four 90 deg turns make one full turn (within rounding)
+[TEST] subsystem5 SUMMARY 19 passed, 0 failed
+[TEST] === test run end ===
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 13 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 14 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn -2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn -2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 15 00 FC 07 00 00 00 00 )
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 16 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 17 00 FC 07 00 00 00 00 )
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 18 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn -2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 19 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 1A 00 FC 07 00 00 00 00 )
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 1B 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 1C 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 1D 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn -2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 1E 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 1F 00 FC 07 00 00 00 00 )
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 20 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 21 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 22 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 23 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 24 00 FC 07 00 00 00 00 )
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 25 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 26 00 FC 07 00 00 00 00 )
+[S4] pitch 0 roll 0 turn 2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+mqtt: TX [robot/inf2004team15/telemetry] (8 bytes: 27 00 FC 07 00 00 00 00 )
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+[S4] pitch 0 roll 0 turn -2 dps  STATIONARY
+[S2] encoder ticks: left 0  right 0   (interrupts 0, pins L=11 R=10)
+S5 scan 90 deg: no obstacle
+m
