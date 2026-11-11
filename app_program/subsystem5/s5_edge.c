@@ -63,15 +63,21 @@ bool s5_edge_feed (const bool b_good, const uint16_t distance_cm,
                    const uint32_t moved_ticks)
 {
     const bool b_echo = (distance_cm < S5_OBSTACLE_NONE_CM);
+    /* While waiting, only a NEAR echo is the obstacle coming into view: a far
+     * one (the floor, a wall across the room) must not become the "face", or
+     * almost every later reading would count as the obstacle and it would
+     * never end. */
+    const bool b_near = (b_echo && (distance_cm <= S5_EDGE_NEAR_CM));
 
     if (!b_good)
     {
         /* Failed reading: says nothing, ignore it. */
     }
-    else if ((!g_b_have_face) && g_b_wait && (!b_echo))
+    else if ((!g_b_have_face) && g_b_wait && (!b_near))
     {
-        /* Still waiting for the obstacle to come into view beside the car;
-         * give up once it has not appeared within the limit. */
+        /* Still waiting for the obstacle to come into view beside the car
+         * (nothing, or only something far away, seen yet); give up once it
+         * has not appeared within the limit. */
         if ((!g_b_found) && (moved_ticks >= g_wait_limit))
         {
             g_b_found    = true;
@@ -132,4 +138,9 @@ uint32_t s5_edge_last_seen_ticks (void)
 bool s5_edge_was_seen (void)
 {
     return (0u != g_face_cm);
+}
+
+uint16_t s5_edge_face_cm (void)
+{
+    return g_face_cm;
 }

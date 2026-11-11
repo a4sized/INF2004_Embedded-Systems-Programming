@@ -31,7 +31,7 @@ void s5_drive_start (const s5_move_t move, const uint16_t amount);
 /* True once both wheels together have covered the move's distance. */
 bool s5_drive_is_done (void);
 
-/* DIAGNOSTIC (test only): print how the move ended and how far the wheels
+/* Diagnostic (S5_VERBOSE): print how the move ended and how far the wheels
  * really turned since s5_drive_start(). */
 void s5_drive_print_result (const s5_move_t move, const uint16_t amount,
                             const bool b_done, const uint32_t elapsed_ms);
@@ -41,10 +41,9 @@ void s5_drive_print_result (const s5_move_t move, const uint16_t amount,
 void s5_drive_nudge (const uint32_t elapsed_ms);
 
 /* For a move whose end is only known on the way (driving along an obstacle):
- * ticks gone so far, ticks for a distance, distance for ticks, and a new
- * target for the move that is running. */
+ * ticks gone so far (the mean of both wheels), distance for ticks, and a
+ * new target for the move that is running. */
 uint32_t s5_drive_progress_ticks (void);
-uint32_t s5_drive_ticks_for_distance (const uint16_t distance_mm);
 uint16_t s5_drive_mm_for_ticks (const uint32_t ticks);
 void     s5_drive_retarget (const uint32_t target_ticks);
 
@@ -56,7 +55,7 @@ void s5_drive_stop (void);
 void s5_drive_resume (void);
 
 /* Encoder ticks for one wheel to roll distance_mm. Pure function. */
-uint16_t s5_drive_ticks_for_mm (const uint16_t distance_mm);
+uint32_t s5_drive_ticks_for_mm (const uint16_t distance_mm);
 
 /* Distance (mm) each wheel rolls to turn the car angle_deg on the spot.
  * Pure function. */

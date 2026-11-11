@@ -24,14 +24,19 @@
 #define PI_DENOMINATOR      (113u)
 #define DEGREES_PER_TURN    (360u)
 
-/* Minimum-bit move state. The encoder start counts are the full 32-bit
- * counters from Subsystem 2. A move is at most a few metres, so its target
- * fits in 16 bits (65535 ticks = about 6.6 m). */
+_Static_assert((S5_TURN_SPEED > 0) && (S5_TURN_SPEED <= S5_TURN_SPEED_MAX) &&
+               (S5_TURN_SPEED_MAX <= 255) && (S5_DRIVE_SPEED > 0) &&
+               (S5_DRIVE_SPEED <= 255) && (S5_REVERSE_SPEED > 0) &&
+               (S5_REVERSE_SPEED <= 255),
+               "bypass speeds must be 1..255, turn speed at most its max");
+
+/* The move in progress. The encoder start counts are the full 32-bit
+ * counters from Subsystem 2. */
 typedef struct
 {
     int32_t   start_left;     /* left encoder count when the move began  */
     int32_t   start_right;    /* right encoder count when the move began */
-    uint16_t  target_ticks;   /* ticks per wheel for this move           */
+    uint32_t  target_ticks;   /* ticks per wheel for this move           */
     s5_move_t move;           /* the move in progress                    */
 } move_state_t;
 
@@ -52,19 +57,11 @@ static uint32_t s5_drive_ticks_between (const int32_t from, const int32_t to)
     return (uint32_t)difference;
 }
 
-/* Send wheel speeds to Subsystem 2 (positive = forward). */
-static void s5_drive_set_wheels (const int16_t left_speed,
-                                 const int16_t right_speed)
+uint32_t s5_drive_ticks_for_mm (const uint16_t distance_mm)
 {
-    s2_set_ir_velocity(left_speed, right_speed);
-}
-
-uint16_t s5_drive_ticks_for_mm (const uint16_t distance_mm)
-{
-    /* Widened to 32 bits: 65535 x 2050 fits. The cast back is safe for
-     * any real move (up to about 6.6 m). */
-    return (uint16_t)(((uint32_t)distance_mm * S5_ENCODER_TICKS_PER_REV) /
-                      S5_WHEEL_CIRCUM_MM);
+    /* Widened to 32 bits: 65535 x 2050 fits. */
+    return (((uint32_t)distance_mm * S5_ENCODER_TICKS_PER_REV) /
+            S5_WHEEL_CIRCUM_MM);
 }
 
 uint16_t s5_drive_turn_mm (const uint16_t angle_deg)
@@ -113,8 +110,7 @@ static uint32_t s5_drive_coast_ms (const s5_move_t move)
     return coast_ms;
 }
 
-/* How far the move has gone: the mean of both wheels, in ticks. */
-static uint32_t s5_drive_moved_ticks (void)
+uint32_t s5_drive_progress_ticks (void)
 {
     uint32_t left_ticks  = s5_drive_ticks_between(g_move.start_left,
                                                   get_left_encoder_ticks());
@@ -131,17 +127,17 @@ static void s5_drive_wheels_for_move (void)
     switch (g_move.move)
     {
         case S5_MOVE_BACK:
-            s5_drive_set_wheels(-S5_REVERSE_SPEED, -S5_REVERSE_SPEED);
+            s2_set_ir_velocity(-S5_REVERSE_SPEED, -S5_REVERSE_SPEED);
         break;
         case S5_MOVE_TURN_LEFT:
-            s5_drive_set_wheels((int16_t)(-g_turn_speed), g_turn_speed);
+            s2_set_ir_velocity((int16_t)(-g_turn_speed), g_turn_speed);
         break;
         case S5_MOVE_TURN_RIGHT:
-            s5_drive_set_wheels(g_turn_speed, (int16_t)(-g_turn_speed));
+            s2_set_ir_velocity(g_turn_speed, (int16_t)(-g_turn_speed));
         break;
+        case S5_MOVE_FORWARD:
         default:
-            /* S5_MOVE_FORWARD */
-            s5_drive_set_wheels(S5_DRIVE_SPEED, S5_DRIVE_SPEED);
+            s2_set_ir_velocity(S5_DRIVE_SPEED, S5_DRIVE_SPEED);
         break;
     }
 }
@@ -178,24 +174,19 @@ void s5_drive_start (const s5_move_t move, const uint16_t amount)
  */
 bool s5_drive_is_done (void)
 {
-    uint32_t moved = s5_drive_moved_ticks();
+    uint32_t moved = s5_drive_progress_ticks();
 
     if (!g_b_done)
     {
-        uint32_t coast_ticks = 0u;
+        uint32_t step_ticks = (moved >= g_last_moved) ?
+                              (moved - g_last_moved) : 0u;
 
-        {
-            uint32_t step_ticks = (moved >= g_last_moved) ?
-                                  (moved - g_last_moved) : 0u;
+        g_speed_x16   = (g_speed_x16 + (step_ticks * 16u)) / 2u;
+        g_last_moved  = moved;
+        g_coast_ticks = (g_speed_x16 * s5_drive_coast_ms(g_move.move)) /
+                        (S5_DRIVE_POLL_MS * 16u);
 
-            g_speed_x16   = (g_speed_x16 + (step_ticks * 16u)) / 2u;
-            g_last_moved  = moved;
-            coast_ticks   = (g_speed_x16 * s5_drive_coast_ms(g_move.move)) /
-                            (S5_DRIVE_POLL_MS * 16u);
-            g_coast_ticks = coast_ticks;
-        }
-
-        if ((moved + coast_ticks) >= g_move.target_ticks)
+        if ((moved + g_coast_ticks) >= g_move.target_ticks)
         {
             g_b_done = true;
         }
@@ -208,14 +199,14 @@ void s5_drive_nudge (const uint32_t elapsed_ms)
 {
     if (s5_drive_is_turn(g_move.move) && (!g_b_done) && (elapsed_ms > 0u) &&
         (0u == (elapsed_ms % S5_TURN_START_MS)) &&
-        (g_turn_speed < S5_DRIVE_SPEED) &&
-        (s5_drive_moved_ticks() <
+        (g_turn_speed < S5_TURN_SPEED_MAX) &&
+        (s5_drive_progress_ticks() <
          ((g_move.target_ticks * elapsed_ms) / S5_TURN_MAX_MS)))
     {
         g_turn_speed = (int16_t)(g_turn_speed + S5_TURN_SPEED_STEP);
-        if (g_turn_speed > S5_DRIVE_SPEED)
+        if (g_turn_speed > S5_TURN_SPEED_MAX)
         {
-            g_turn_speed = S5_DRIVE_SPEED;
+            g_turn_speed = S5_TURN_SPEED_MAX;
         }
         s5_drive_wheels_for_move();
         S5_LOG((UB *)"S5 turn: wheels not moving, speed raised to %d\n",
@@ -245,16 +236,6 @@ void s5_drive_print_result (const s5_move_t move, const uint16_t amount,
     }
 }
 
-uint32_t s5_drive_progress_ticks (void)
-{
-    return s5_drive_moved_ticks();
-}
-
-uint32_t s5_drive_ticks_for_distance (const uint16_t distance_mm)
-{
-    return (uint32_t)s5_drive_ticks_for_mm(distance_mm);
-}
-
 uint16_t s5_drive_mm_for_ticks (const uint32_t ticks)
 {
     return (uint16_t)((ticks * S5_WHEEL_CIRCUM_MM) / S5_ENCODER_TICKS_PER_REV);
@@ -262,20 +243,19 @@ uint16_t s5_drive_mm_for_ticks (const uint32_t ticks)
 
 void s5_drive_retarget (const uint32_t target_ticks)
 {
-    g_move.target_ticks = (target_ticks > 65535u) ?
-                          (uint16_t)65535u : (uint16_t)target_ticks;
+    g_move.target_ticks = target_ticks;
 }
 
 void s5_drive_stop (void)
 {
-    s5_drive_set_wheels(0, 0);
+    s2_set_ir_velocity(0, 0);
 }
 
 void s5_drive_resume (void)
 {
 #if (0u != S5_RESUME_AFTER_BYPASS)
-    s5_drive_set_wheels(S5_DRIVE_SPEED, S5_DRIVE_SPEED);
+    s2_set_ir_velocity(S5_DRIVE_SPEED, S5_DRIVE_SPEED);
 #else
-    s5_drive_set_wheels(0, 0);
+    s2_set_ir_velocity(0, 0);
 #endif
 }

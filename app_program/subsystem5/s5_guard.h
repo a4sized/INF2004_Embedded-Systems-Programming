@@ -11,9 +11,10 @@
  * Once stopped, the car stays stopped until the gap is wider than
  * S5_RESUME_GAP_CM, so it does not creep forward on noisy readings.
  *
- * Hold: while the sensor is not watching the path (start-up, fine
- * scan), the cap is forced to 0 so the car cannot move.
- * Drive: while Subsystem 5 drives a bypass itself (s5_drive.c), the cap is
+ * Hold: while the sensor is not watching the path (start-up, fine scan),
+ * or the car is waiting because it cannot get past (subsystem5.c), the cap
+ * is forced to 0 so the car cannot move.
+ * Drive: while Subsystem 5 drives a bypass itself (s5_bypass.c), the cap is
  * lifted to S5_FULL_SPEED_CAP so the car can turn and reverse next to the
  * obstacle; the bypass code watches the path ahead itself.
  */

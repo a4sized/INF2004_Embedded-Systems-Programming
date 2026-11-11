@@ -14,10 +14,8 @@
  *   does not answer, a stuck echo pin, or a failed servo move counts.
  *
  * Obstacle telemetry
- *   The latest distance (cm, 9 bits) at each scan position is kept, and the
- *   nearest one (in cm) is sent with s1_set_obstacle() after every reading,
- *   so telemetry always shows the closest thing the scanner currently sees.
- *   Only the straight-ahead position is used (there is no start-up sweep).
+ *   Every good straight-ahead reading is sent with s1_set_obstacle() (cm,
+ *   S5_OBSTACLE_NONE_CM = nothing in range).
  *
  * Casts in this file: (UB *) only retypes a string literal for the T-Kernel
  * tm_printf() API. The other casts are commented where they are made.
@@ -51,46 +49,7 @@ typedef struct
     uint8_t b_faulted   : 1;   /* 1 = FAULT_US_SENS reported */
 } us_health_t;
 
-/* Latest distance per scan position, in cm, 9 bits each (0..510 cm,
- * 511 = nothing seen, same scale as telemetry obstacle_cm).
- * 5 x 9 = 45 bits packed into one 64-bit word with masks and shifts.
- * Only the scanning task touches it, so no lock. */
-#define CM_FIELD_BITS           (9u)
-#define CM_FIELD_MASK           (0x1FFu)
-#define CM_ALL_NONE             ((1ull << (S5_SCAN_POSITIONS * \
-                                           CM_FIELD_BITS)) - 1ull)
-
-_Static_assert((S5_SCAN_POSITIONS * CM_FIELD_BITS) <= 64u,
-               "scan distances do not fit in 64 bits");
-_Static_assert(CM_FIELD_MASK == S5_OBSTACLE_NONE_CM,
-               "9-bit field must match the telemetry 'none' value");
-
-static volatile us_health_t g_health    = { 0u, 0u, 0u };
-static uint64_t             g_latest_cm = CM_ALL_NONE;
-
-/* Bit position of one scan position's 9-bit field. */
-static uint32_t s5_field_shift (const uint8_t position)
-{
-    return ((uint32_t)position * CM_FIELD_BITS);   /* widening: always fits */
-}
-
-/* Read one 9-bit distance field. The cast is safe: the mask leaves at most
- * 9 bits. */
-static uint16_t s5_latest_cm_get (const uint8_t position)
-{
-    return (uint16_t)((g_latest_cm >> s5_field_shift(position)) &
-                      CM_FIELD_MASK);
-}
-
-/* Write one 9-bit distance field, leaving the others untouched. The casts
- * only widen to 64 bits before shifting, so nothing is lost. */
-static void s5_latest_cm_set (const uint8_t position, const uint16_t cm)
-{
-    uint32_t shift = s5_field_shift(position);
-
-    g_latest_cm = (g_latest_cm & ~((uint64_t)CM_FIELD_MASK << shift)) |
-                  ((uint64_t)(cm & CM_FIELD_MASK) << shift);
-}
+static volatile us_health_t g_health = { 0u, 0u, 0u };
 
 void s5_report_sensor_ok (void)
 {
@@ -169,25 +128,8 @@ uint16_t s5_report_mm_to_cm (const uint16_t distance_mm)
     return distance_cm;
 }
 
-void s5_report_distance (const uint8_t position, const uint16_t distance_mm)
+void s5_report_distance (const uint16_t distance_mm)
 {
-    uint16_t cm_now     = s5_report_mm_to_cm(distance_mm);
-    uint16_t nearest_cm = S5_OBSTACLE_NONE_CM;
-
-    if (position < S5_SCAN_POSITIONS)
-    {
-        s5_latest_cm_set(position, cm_now);
-    }
-
-    for (uint8_t index = 0u; index < S5_SCAN_POSITIONS; index++)
-    {
-        uint16_t field_cm = s5_latest_cm_get(index);
-
-        if (field_cm < nearest_cm)
-        {
-            nearest_cm = field_cm;
-        }
-    }
-
-    s1_set_obstacle((INT)nearest_cm);   /* 0..511 always fits in INT */
+    /* 0..511 always fits in INT. */
+    s1_set_obstacle((INT)s5_report_mm_to_cm(distance_mm));
 }

@@ -12,7 +12,6 @@
 #include <tk/tkernel.h>
 #include <tm/tmonitor.h>
 #include <bsp/libbsp.h>
-#include <stdbool.h>
 #include "drv_servo.h"
 #include "s5_config.h"
 #include "s5_log.h"
@@ -175,7 +174,8 @@ ER drv_servo_set_angle(const uint16_t angle_degrees)
     result = pwm_set_cc(S5_PIN_SERVO, angle_to_pulse_width_us(new_angle));
     if (result == E_OK)
     {
-        g_servo.angle_degrees = new_angle;
+        /* Cast is safe: new_angle was clipped to 0..180 above. */
+        g_servo.angle_degrees = (uint8_t)new_angle;
     }
     return result;
 }
