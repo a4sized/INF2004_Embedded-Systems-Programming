@@ -289,6 +289,8 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
         }
         if (next != state)
         {
+            bool const b_was_avoiding = (VC_AVOIDING == state);
+
 #if defined(BUDDY3_IR_MOVING_TEST)
             if ((VC_FOLLOWING == state) && (VC_STOPPED == next))
             {
@@ -335,10 +337,28 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
             }
             if (VC_FOLLOWING == state)
             {
+                bool b_line_on_left = false;
+
                 if (E_OK != ir_motion_consumer_set_following(&permitted))
                 {
                     motion_trigger_safety_halt(FAULT_MOTOR);
                     state = VC_FAULT;
+                }
+                /* Back from a bypass: the line follower starts in its search
+                 * state, toward the side Subsystem 5 says the line is on
+                 * (it tracks at once if the IR sensors are already over
+                 * it), instead of waiting with both sensors off the line. */
+                else if (b_was_avoiding &&
+                         subsystem5_take_line_side(&b_line_on_left) &&
+                         (E_OK !=
+                          ir_motion_consumer_request_search(b_line_on_left)))
+                {
+                    motion_trigger_safety_halt(FAULT_MOTOR);
+                    state = VC_FAULT;
+                }
+                else
+                {
+                    /* Following. */
                 }
             }
             /* Entering AVOIDING: following is already revoked above. Stop
