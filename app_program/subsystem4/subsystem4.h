@@ -3,15 +3,16 @@
  *  Student ID: 2500787
  *
  *  What it does: reads the LSM303D accelerometer/magnetometer every 20 ms,
- *  works out tilt, turn rate, humps (and their peak height) and collisions,
- *  and tells the rest of the system.
+ *  works out tilt, turn rate and humps (and their peak height), notices when
+ *  the car is picked up or overturned and stops the motors, and tells the rest
+ *  of the system.
  *
  *  Two tasks (TEAM.md section 4), joined by one message buffer:
  *
  *    imu_task      (priority 11, every 20 ms)  the PRODUCER.  Owns the I2C bus.
  *                  Reads the sensor, does all the maths, and puts a message
  *                  in the buffer: a status every 100 ms, plus one message for
- *                  every hump, collision or fault change.
+ *                  every hump, lift or fault change.
  *    report_task   (priority 18)               the CONSUMER.  Waits for
  *                  messages, decides the motion state, and reports to
  *                  Subsystem 1.
@@ -19,7 +20,8 @@
  *  Who talks to whom (TEAM.md section 5):
  *    S4 -> S1  IF-01  s1_set_pitch(), s1_set_car_state():  tilt and state
  *    S4 -> S1  IF-07  s1_report_fault() / s1_clear_fault(): FAULT_IMU_SENS
- *    S4 -> S1  IF-08  s1_csv_log_event():  HUMP, COLLISION, IMU_FAULT, ...
+ *    S4 -> S1  IF-08  s1_csv_log_event():  HUMP, PICKED_UP, OVERTURNED, PUT_DOWN, ...
+ *    S4 -> S2  IF-10  motion_trigger_safety_halt():  stop the motors completely
  *    S2 -> S4  IF-06  get_left/right_encoder_ticks():  distance (when known)
  *
  *  ---- MINIMUM-BIT DATA (change requirement 1) ---------------------------
@@ -37,8 +39,9 @@
  *    accel change      -1.28..1.27 g, 10 mg            8      S4_MSG
  *    hump peak         0..127 mm, 1 mm                 7      S4_MSG
  *    hump length       0..510 mm, 2 mm                 8      S4_MSG
- *    impact size       0..25.5 g, 0.1 g                8      S4_MSG
- *    local faults      comm lost, collision            2      s4_faults
+ *    lift state        none / picked up / overturned   2      S4_MSG, s4_lift
+ *    tilt at an event  0..255 deg, 1 deg               8      S4_MSG
+ *    local faults      comm lost, lifted               2      s4_faults
  *
  *  Values that go OUT OF RANGE are clipped to the nearest limit, never
  *  wrapped (a 140 deg pitch must not turn into -116).
@@ -74,9 +77,9 @@
  * through Subsystem 1 while EITHER condition below is active, and cleared
  * when neither is.  The log tells the two apart. */
 #define S4_FAULT_COMM       (1U << 0)   /* the IMU does not answer           */
-#define S4_FAULT_COLLISION  (1U << 1)   /* a hit was detected                */
+#define S4_FAULT_LIFTED     (1U << 1)   /* picked up or overturned           */
 
-/* ---- Motion states (3 bits: Subsystem 1's car_state field) -------------- */
+/* ---- Motion states (3 bits: Subsystem 1's car_state field, 0..7) ---------- */
 typedef enum {
     S4_STATIONARY = 0,
     S4_MOVING,
@@ -84,8 +87,17 @@ typedef enum {
     S4_TURNING,
     S4_CLIMBING_HUMP,
     S4_DESCENDING_HUMP,
-    S4_IMPACT
+    S4_PICKED_UP,               /* lifted off the ground: the motors are stopped   */
+    S4_OVERTURNED               /* tipped over, on its side or upside down: the
+                                 * motors are stopped                              */
 } S4_MOTION;
+
+/* What the lift detector says (2 bits). */
+typedef enum {
+    S4_LIFT_NONE = 0,           /* on the ground, upright                      */
+    S4_LIFT_PICKED_UP,
+    S4_LIFT_OVERTURNED
+} S4_LIFT;
 
 IMPORT const char *s4_motion_name(S4_MOTION m);
 
@@ -97,9 +109,11 @@ IMPORT INT       s4_get_hump_count(void);       /* humps measured (max 255)   */
 IMPORT void      s4_get_attitude(INT *pitch_deg, INT *roll_deg);
 IMPORT INT       s4_get_turn_rate(void);        /* deg/s, left is positive    */
 IMPORT S4_MOTION s4_get_motion(void);
+IMPORT S4_LIFT   s4_get_lift(void);             /* picked up / overturned?    */
 IMPORT UW        s4_get_faults(void);           /* S4_FAULT_* bits            */
 IMPORT BOOL      s4_is_calibrated(void);
-IMPORT void      s4_clear_collision(void);      /* release a collision early  */
+IMPORT void      s4_clear_lifted(void);         /* release "lifted" (accepted
+                                                 * only while resting level)  */
 IMPORT void      s4_reset_run(void);            /* call when a mission starts */
 IMPORT void      s4_publish_summary(void);      /* call when it completes     */
 
@@ -111,7 +125,7 @@ IMPORT void      s4_publish_summary(void);      /* call when it completes     */
 typedef enum {
     S4_MSG_STATUS = 0,      /* every 100 ms: the latest readings           */
     S4_MSG_HUMP,            /* a hump was just measured                    */
-    S4_MSG_COLLISION,       /* an impact was just detected                 */
+    S4_MSG_LIFT,            /* picked up / overturned / put down just now  */
     S4_MSG_FAULT            /* the fault conditions changed                */
 } S4_MSG_TYPE;
 
@@ -120,7 +134,6 @@ typedef enum {
 #define S4_ACCEL_STEP_MG    10      /* acceleration change: 10 mg per count*/
 #define S4_PEAK_STEP_MM     1       /* hump peak: 1 mm per count           */
 #define S4_LENGTH_STEP_MM   2       /* hump length: 2 mm per count         */
-#define S4_IMPACT_STEP_DG   1       /* impact size: 0.1 g per count        */
 
 typedef struct {
     /* word 0: the same for every message */
@@ -128,13 +141,15 @@ typedef struct {
     unsigned int hump_state : 2;    /* STATUS: 0 flat, 1 going up, 2 down  */
     unsigned int time16     : 16;   /* low 16 bits of the ms clock         */
     unsigned int vibration  : 8;    /* STATUS: mg, clipped at 255          */
-    unsigned int spare0     : 4;
+    unsigned int lift       : 2;    /* STATUS: S4_LIFT, 0 none 1 up 2 over */
+    unsigned int spare0     : 2;
     /* word 1: depends on the type */
     union {
         struct { signed int pitch : 8; signed int roll : 8;
                  signed int turn  : 8; signed int accel : 8; } status;
         struct { unsigned int peak : 7; unsigned int length : 8; } hump;
-        struct { unsigned int impact : 8; } collision;
+        struct { unsigned int reason : 2;       /* LIFT: S4_LIFT, 0 = put down */
+                 unsigned int tilt   : 8; } lift;   /* degrees from upright    */
         struct { unsigned int faults : 2; } fault;
     } p;
 } S4_MSG;
@@ -188,6 +203,7 @@ IMPORT ID    s4_flg;                    /* the event flag (kernel)           */
 
 IMPORT volatile UW  s4_snap;            /* writer: imu_task                  */
 IMPORT volatile UB  s4_motion;          /* writer: report_task               */
+IMPORT volatile UB  s4_lift;            /* writer: imu_task (S4_LIFT)        */
 IMPORT volatile UB  s4_hump_count;      /* writer: imu_task (saturates 255)  */
 IMPORT volatile UB  s4_max_hump_mm;     /* writer: imu_task (saturates 255)  */
 IMPORT volatile UH  s4_samples;         /* writer: imu_task (wraps: use differences) */
@@ -195,6 +211,7 @@ IMPORT volatile UH  s4_samples;         /* writer: imu_task (wraps: use differen
 IMPORT void s4_fault_set(UW bits);      /* only imu_task changes faults      */
 IMPORT void s4_fault_clear(UW bits);
 IMPORT void s4_fault_assert(void);      /* repeat the report while faulted   */
+IMPORT void s4_stop_motors(void);       /* IF-10: halt the motors completely */
 IMPORT void s4_report_status(INT pitch_deg, UW motion, UW hump);   /* to S1  */
 IMPORT void s4_log_csv(const char *event, const char *details);    /* to S1  */
 

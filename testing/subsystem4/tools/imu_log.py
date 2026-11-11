@@ -77,7 +77,7 @@ def plot(path):
     for a in ax:
         a.grid(True, alpha=0.3)
         for et, text in events:
-            if text.startswith(("hump", "COLLISION")):
+            if text.startswith(("hump", "PICKED_UP", "OVERTURNED", "put down")):
                 a.axvline(et, color="k", alpha=0.25, lw=0.8)
     print(f"{len(rows)} samples over {t[-1] - t[0]:.1f} s; {len(events)} event lines:")
     for et, text in events:

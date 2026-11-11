@@ -5,7 +5,7 @@
  *    STATUS     work out the motion state, tell Subsystem 1 (pitch, motion
  *               state, hump state), print a status line
  *    HUMP       log the hump (Subsystem 1's CSV logger) and print it
- *    COLLISION  log it and print it
+ *    LIFT       picked up / overturned / put down: log it and print it
  *    FAULT      log the new fault conditions
  *
  *  All the slow things (printing, waiting for Subsystem 1's lock) happen here,
@@ -30,7 +30,7 @@ static INT abs_i(INT v)
  * "Standing still" has two limits: it takes less shaking to ENTER the
  * STATIONARY state than to LEAVE it (hysteresis), otherwise a car shaking
  * right at the limit would flicker between the two. */
-static S4_MOTION classify(const S4_MSG *m, BOOL impact_recent, S4_MOTION previous)
+static S4_MOTION classify(const S4_MSG *m, S4_MOTION previous)
 {
     INT turn_dps  = (INT)m->p.status.turn  * S4_TURN_STEP_DPS;
     INT accel_mg  = (INT)m->p.status.accel * S4_ACCEL_STEP_MG;
@@ -38,7 +38,8 @@ static S4_MOTION classify(const S4_MSG *m, BOOL impact_recent, S4_MOTION previou
     INT still_limit = (previous == S4_STATIONARY) ? ((S4_STILL_VIB_MG * 3) / 2)
                                                   : S4_STILL_VIB_MG;
 
-    if (impact_recent)                  return S4_IMPACT;
+    if (m->lift == (UINT)S4_LIFT_OVERTURNED) return S4_OVERTURNED;  /* tipped over: stopped */
+    if (m->lift != 0U)                  return S4_PICKED_UP;    /* lifted: stopped       */
     if (m->hump_state == 1U)            return S4_CLIMBING_HUMP;
     if (m->hump_state == 2U)            return S4_DESCENDING_HUMP;
     if (abs_i(turn_dps) > S4_TURN_DPS)  return S4_TURNING;
@@ -54,8 +55,6 @@ void report_task(INT stacd, void *exinf)
     S4_MOTION   candidate = S4_STATIONARY;  /* the state we are waiting to confirm */
     UINT        candidate_n = 0;
     UINT        lines = 0;                  /* status messages seen           */
-    UINT        impact_time16 = 0;          /* 16-bit ms clock of the last impact */
-    BOOL        had_impact = FALSE;
 
     (void)stacd;
     (void)exinf;
@@ -73,17 +72,11 @@ void report_task(INT stacd, void *exinf)
         case S4_MSG_STATUS: {
             S4_MOTION now;
 
-            /* The timestamps are only 16 bits (about 65 s), so the age of the
-             * last impact is a 16-bit subtraction.  Once the "show IMPACT"
-             * window is over, forget the impact, so that the clock wrapping
-             * round can never make an old impact look recent. */
-            if (had_impact && ((UH)(m.time16 - impact_time16) >= S4_IMPACT_SHOW_MS)) {
-                had_impact = FALSE;
-            }
-            now = classify(&m, had_impact, shown);
+            now = classify(&m, shown);
 
             /* Only announce a new state once it has been seen twice in a row
-             * (an impact is announced at once). */
+             * (PICKED_UP and OVERTURNED are announced at once: the car has
+             * already been stopped). */
             if (now == candidate) {
                 candidate_n++;
             } else {
@@ -91,7 +84,8 @@ void report_task(INT stacd, void *exinf)
                 candidate_n = 1;
             }
             if ((candidate != shown) &&
-                ((candidate_n >= S4_CLASS_PERSIST) || (candidate == S4_IMPACT))) {
+                ((candidate_n >= S4_CLASS_PERSIST) ||
+                 (candidate == S4_PICKED_UP) || (candidate == S4_OVERTURNED))) {
                 shown = candidate;
                 s4_motion = (UB)shown;
                 S4_LOG("motion: %s\n", s4_motion_name(shown));
@@ -125,22 +119,26 @@ void report_task(INT stacd, void *exinf)
                    (INT)m.p.hump.length * S4_LENGTH_STEP_MM);
             break;
 
-        case S4_MSG_COLLISION:
-            impact_time16 = m.time16;
-            had_impact = TRUE;
-            (void)tm_sprintf(text, (const UB*)"impact_x10g=%d",
-                             (INT)m.p.collision.impact * S4_IMPACT_STEP_DG);
-            s4_log_csv("COLLISION", (const char*)text);
-            S4_LOG("COLLISION %d.%d g\n",
-                   ((INT)m.p.collision.impact * S4_IMPACT_STEP_DG) / 10,
-                   ((INT)m.p.collision.impact * S4_IMPACT_STEP_DG) % 10);
+        case S4_MSG_LIFT: {
+            const char *name = (m.p.lift.reason == (UINT)S4_LIFT_PICKED_UP)  ? "PICKED_UP" :
+                               (m.p.lift.reason == (UINT)S4_LIFT_OVERTURNED) ? "OVERTURNED" :
+                                                                               "PUT_DOWN";
+
+            (void)tm_sprintf(text, (const UB*)"tilt_deg=%d", (INT)m.p.lift.tilt);
+            s4_log_csv(name, (const char*)text);
+            if (m.p.lift.reason == (UINT)S4_LIFT_NONE) {
+                S4_LOG("put down (tilt %d deg)\n", (INT)m.p.lift.tilt);
+            } else {
+                S4_LOG("%s (tilt %d deg): motors stopped\n", name, (INT)m.p.lift.tilt);
+            }
             break;
+        }
 
         case S4_MSG_FAULT:
-            (void)tm_sprintf(text, (const UB*)"imu_sens=%d,comm=%d,collision=%d",
+            (void)tm_sprintf(text, (const UB*)"imu_sens=%d,comm=%d,lifted=%d",
                              (m.p.fault.faults != 0U) ? 1 : 0,
                              (INT)(m.p.fault.faults & S4_FAULT_COMM),
-                             (INT)((m.p.fault.faults & S4_FAULT_COLLISION) >> 1));
+                             (INT)((m.p.fault.faults & S4_FAULT_LIFTED) >> 1));
             s4_log_csv("IMU_FAULT", (const char*)text);
             S4_LOG("faults now 0x%x\n", (INT)m.p.fault.faults);
             break;
