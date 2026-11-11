@@ -59,14 +59,15 @@ IMPORT void subsystem4_test(void);
 IMPORT void subsystem5_test(void);
 #endif
 
-/* Quiet console for the Subsystem 5 clearance test.
-   1: every application console line (APP_LOG below) is off; only
-      Subsystem 5's clearance and bypass decision lines are printed.
-      (The MQTT messages have their own MQTT_QUIET_CONSOLE in
-      lib/liblwip/sysdepend/pico_rp2040/mqtt_utk.c, and the boot banner is
-      USE_SYSTEM_MESSAGE in config/config.h.)
-   0: normal console output. */
-#define APP_QUIET_CONSOLE	(1)
+/* Quiet console.
+   1: every application console line (APP_LOG below) is off; only the
+      lines printed with tm_printf directly remain (the vehicle state
+      changes, and Subsystem 5's distance, fine scan and bypass decision).
+   0: normal console output (all of it).
+   (The MQTT messages in lib/liblwip/sysdepend/pico_rp2040/mqtt_utk.c are
+   always printed, and the boot banner is USE_SYSTEM_MESSAGE in
+   config/config.h.) */
+#define APP_QUIET_CONSOLE	(0)
 
 /* Ordinary console line, used exactly like tm_printf().  Printed only while
    APP_QUIET_CONSOLE is 0.  A macro because T-Monitor has

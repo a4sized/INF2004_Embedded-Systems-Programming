@@ -91,7 +91,7 @@
  * side's scan covered, the centring check (for SERVO_TRIM_DEGREES), the
  * width check (for S5_EDGE_TRIM_DEG), stops, holds, each move of a bypass
  * and why it ended.  Switch it on to tune. */
-#define S5_VERBOSE                  (0u)
+#define S5_VERBOSE                  (1u)
 
 /* ---------------- Reporting to Subsystem 1 (s5_report.c) ---------------- */
 /* FAULT_US_SENS is reported after this many failed readings in a row, and

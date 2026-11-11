@@ -186,7 +186,7 @@
 /* ------------------------------------------------------------------ *
  *  Debug output
  * ------------------------------------------------------------------ */
-#define S4_PRINT_STATUS     0       /* quiet for the S5 test */       /* a status line twice a second          */
+#define S4_PRINT_STATUS     1       /* a status line twice a second          */
 #define S4_PRINT_CSV        0       /* 1 = one CSV line per sample, for the  */
                                     /* plot tool (turn S4_PRINT_STATUS off)  */
 
