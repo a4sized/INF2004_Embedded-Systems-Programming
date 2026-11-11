@@ -67,23 +67,79 @@
 #define S4_HUMP_DOWN_DEG    (-3.0f) /* below this we are going down          */
 #define S4_HUMP_EXIT_DEG    2.0f    /* within +/- this of level = finished   */
 #define S4_HUMP_EXIT_N      5       /* ... for this many samples in a row    */
-#define S4_HUMP_MAX_MS      15000   /* longer than this is a slope, not a hump*/
+#define S4_HUMP_MAX_MS      4000    /* longer than this is a slope, not a hump*/
 #define S4_HUMP_MIN_CM      0.3f    /* smaller than this is just noise       */
 
 /* ------------------------------------------------------------------ *
- *  Collision (tune)
+ *  Picked up or overturned (tune)
+ *
+ *  Either one makes the car STOP COMPLETELY (see S4_STOP_MOTORS).  Three signs:
+ *
+ *   OVERTURNED  gravity is more than 60 deg away from the car's "up" for
+ *               S4_OVERTURN_N samples: on its side, or upside down.
+ *   PICKED UP   the total pull on the sensor is not 1 g: above 1 + S4_LIFT_G
+ *               or below 1 - S4_LIFT_G for S4_LIFT_N samples in a row.  Lifting
+ *               pushes it above 1 g; a lift or a fall that follows can take it
+ *               below.  A knock is far too short to count.
+ *   PICKED UP   gravity is more than 35 deg away from "up" for S4_CARRY_N
+ *               samples: carried tilted (no slope on the course is that steep).
+ *
+ *  The firmware has no maths library, so the angle limits are written as the
+ *  COSINE SQUARED of the angle (the code compares squares, so it needs no
+ *  square root and no cosine):
+ *
+ *      angle     20      35      45      60      75
+ *      cos^2   0.883   0.671   0.500   0.250   0.067
  * ------------------------------------------------------------------ */
-#define S4_IMPACT_G         1.0f    /* sudden change in acceleration (in g)  */
-#define S4_IMPACT_HOLDOFF_MS 500    /* ignore the rebound right after a hit  */
-/* How long the collision condition stays active (so FAULT_IMU_SENS stays
- * set).  0 = stay active until s4_clear_collision() is called.
- * NOTE: systemFaults.h puts FAULT_IMU_SENS in the TIER 1 (fatal) mask, which
- * says "requires manual clearance".  A timed release is NOT manual.  If the
- * team wants manual clearance, set this to 0 and have whoever handles the
- * CLEAR command call s4_clear_collision(). */
-#ifndef S4_COLLISION_HOLD_MS        /* (#ifndef: the PC tests change it) */
-#define S4_COLLISION_HOLD_MS 3000
+#ifndef S4_LIFT_G                   /* (#ifndef: the PC tests try other values) */
+#define S4_LIFT_G           0.15f   /* the pull is this far from 1 g (in g)  */
 #endif
+#ifndef S4_LIFT_N
+#define S4_LIFT_N           6       /* ... for 6 samples = 120 ms            */
+#endif
+#define S4_CARRY_COS2       0.671f  /* tilted more than 35 deg ...           */
+#define S4_CARRY_N          25      /* ... for 25 samples = 0.5 s            */
+#define S4_OVERTURN_COS2    0.250f  /* tilted more than 60 deg ...           */
+#define S4_OVERTURN_N       15      /* ... for 15 samples = 0.3 s            */
+#define S4_ARM_MS           500     /* start looking this long after the first
+                                     * reading, so the filters have settled  */
+
+/* While the car is stopped, the REASON follows its tilt.  Past 60 deg
+ * (S4_OVERTURN_*) it is OVERTURNED.  Once it is back within 45 deg of upright
+ * (cos^2 = 0.500) for S4_RIGHTED_N samples it is PICKED_UP again: a hand has
+ * turned it back up and it is not resting yet.  The motors stay stopped
+ * throughout; only the reported state changes. */
+#define S4_RIGHTED_COS2     0.500f
+#define S4_RIGHTED_N        15      /* 15 samples = 0.3 s                    */
+
+/* PUT DOWN: the car is resting when it is upright within 20 deg, the pull is
+ * within S4_PUTDOWN_G of 1 g, and it is not shaking (S4_STILL_VIB_MG), all for
+ * S4_PUTDOWN_MS in a row.  The motors are off by then, so any shaking is a hand
+ * (a carried car never rests). */
+#define S4_PUTDOWN_COS2     0.883f
+#define S4_PUTDOWN_G        0.08f
+#ifndef S4_PUTDOWN_MS               /* (#ifndef: the PC tests change it)     */
+#define S4_PUTDOWN_MS       2000
+#endif
+
+/* What happens once it has been put down:
+ *   0 = the condition is released by itself (FAULT_IMU_SENS is cleared and
+ *       Subsystem 2 may drive again when it allows it)
+ *   1 = it stays latched until s4_clear_lifted() is called.  That is manual
+ *       clearance, which is what systemFaults.h says for the TIER 1 mask that
+ *       FAULT_IMU_SENS belongs to.  A clear is only accepted while the car is
+ *       resting level, so a CLEAR sent while it is still in a hand is ignored.
+ *       Have whoever handles the CLEAR command call s4_clear_lifted(). */
+#ifndef S4_LIFT_LATCH               /* (#ifndef: the PC tests change it)     */
+#define S4_LIFT_LATCH       0
+#endif
+
+/* 1 = when the car is picked up or overturned, tell Subsystem 2 to stop the
+ *     motors completely, at once: motion_trigger_safety_halt(FAULT_IMU_SENS).
+ *     (Subsystem 2's automatic "fault means halt" override is commented out,
+ *     so the fault bit alone does not stop the wheels.)
+ * 0 = only report the fault bit (for testing without Subsystem 2). */
+#define S4_STOP_MOTORS      1
 
 /* ------------------------------------------------------------------ *
  *  Motion classification (tune)
@@ -93,13 +149,12 @@
 #define S4_TURN_DPS         30      /* turning faster than this (deg/s)      */
 #define S4_TURN_MAX_TILT_DEG 5.0f   /* the compass is only trusted when level*/
 #define S4_CLASS_PERSIST    2       /* same answer twice in a row to report  */
-#define S4_IMPACT_SHOW_MS   300     /* how long IMPACT is shown              */
 
 /* ------------------------------------------------------------------ *
  *  Working with the other subsystems
  * ------------------------------------------------------------------ */
 /* 1 = report the IMU faults to Subsystem 1: s1_report_fault(FAULT_IMU_SENS)
- * while the IMU is not answering OR a collision is active, and
+ * while the IMU is not answering OR the car is picked up or overturned, and
  * s1_clear_fault(FAULT_IMU_SENS) when neither is.  The team's tiers decide
  * what the rest of the car does with that bit (systemFaults.h: IMU is in the
  * fatal tier).  0 = keep the faults inside subsystem 4 (for testing without
@@ -114,7 +169,7 @@
  *   0 = no encoders: assume the robot drives at S4_FALLBACK_SPEED_CM_S.  Hump
  *       heights are then only rough. */
 #ifndef S4_USE_ENCODER_DISTANCE     /* (#ifndef: the PC tests change it) */
-#define S4_USE_ENCODER_DISTANCE 0
+#define S4_USE_ENCODER_DISTANCE 1
 #endif
 #define S4_FALLBACK_SPEED_CM_S 20.0f
 

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 typedef int32_t INT; typedef uint32_t UINT; typedef int32_t W; typedef uint32_t UW;
-typedef int16_t H; typedef uint16_t UH; typedef uint8_t UB; typedef int32_t BOOL;
+typedef int16_t H; typedef uint16_t UH; typedef uint8_t UB; typedef int8_t B; typedef int32_t BOOL;
 typedef int32_t ID; typedef int32_t ER; typedef int32_t PRI; typedef int32_t SZ;
 typedef uint32_t ATR; typedef int32_t TMO; typedef uint32_t RELTIM; typedef void (*FP)();
 typedef struct { W hi; UW lo; } SYSTIM;

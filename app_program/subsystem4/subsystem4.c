@@ -16,6 +16,7 @@ ID                  s4_mbf;
 ID                  s4_flg;
 volatile UW         s4_snap;
 volatile UB         s4_motion;
+volatile UB         s4_lift;
 volatile UB         s4_hump_count;
 volatile UB         s4_max_hump_mm;
 volatile UH         s4_samples;
@@ -34,6 +35,14 @@ static volatile UB  s4_faults;
 #define S4_RELEASE_WATCH_TICKS  ((2U * S1_TICK_MS) / (S4_SAMPLE_MS * S4_REPORT_EVERY) + 2U)
 static volatile UB  s4_release_watch;
 
+/* Subsystem 2's emergency override (IF-10): halts both wheels at once (PWM 0/0),
+ * reports the fault bit to Subsystem 1 itself, and keeps the halt for as long as
+ * a fault bit is set in Subsystem 1's mask.  Declared here, and not by including
+ * subsystem2.h, for the same reason as get_distance_traveled_mm() in
+ * task_imu.c: that header is Subsystem 2's own business and this one function
+ * is all we use.  The prototype is exactly the one in subsystem2.h. */
+extern void motion_trigger_safety_halt(UINT fault_bit);
+
 /* TEMPORARY, see subsystem4.h: 0 = no such object, so S3's example send fails quietly. */
 ID                  mbf_summary = 0;
 ID                  flg_events = 0;
@@ -49,6 +58,9 @@ ID                  flg_events = 0;
  *   - while a condition lasts: if the bit is MISSING (somebody cleared it
  *     while the problem is still here) report it again.  It reports ONLY when
  *     the bit is missing, never "just in case": see s4_release_watch above.
+ *     If the car is picked up or overturned, the motors are stopped again as
+ *     well: Subsystem 2 holds its halt only while a fault bit is set, so a
+ *     missing bit means the halt may have ended.
  *   - just after a release: make sure the bit stays cleared. */
 void s4_fault_assert(void)
 {
@@ -59,6 +71,9 @@ void s4_fault_assert(void)
         s1_get_telemetry(&snap);
         if ((snap.fault_mask & FAULT_IMU_SENS) == 0U) {
             s1_report_fault(FAULT_IMU_SENS);
+            if ((s4_faults & S4_FAULT_LIFTED) != 0U) {
+                s4_stop_motors();
+            }
         }
     } else if (s4_release_watch != 0U) {
         s4_release_watch--;
@@ -96,11 +111,26 @@ void s4_fault_clear(UW bits)
 #endif
 }
 
+/* ---- Stopping the motors (IF-10) -----------------------------------------
+ * Called by imu_task the moment the car is picked up or overturned.  Subsystem
+ * 2 stops the wheels immediately and stays halted while the IMU fault bit is
+ * set.  Its automatic "any fault means halt" override is commented out in
+ * subsystem2.c, so reporting the bit alone would not stop the wheels: this
+ * direct call is what does.  motion_trigger_safety_halt() takes Subsystem 2's
+ * motor lock, which Subsystem 2 holds only for one short step (every 20 ms),
+ * so the wait is short. */
+void s4_stop_motors(void)
+{
+#if S4_STOP_MOTORS
+    motion_trigger_safety_halt(FAULT_IMU_SENS);
+#endif
+}
+
 /* ---- Telemetry through Subsystem 1 (IF-01) ------------------------------
  * Each Subsystem 1 setter updates its field under Subsystem 1's lock, so
  * nobody else's field is overwritten.
  *   pitch     8 bits signed:  -128..127 degrees  (clip, never wrap)
- *   car_state 3 bits:         our motion state, S4_MOTION 0..6
+ *   car_state 3 bits:         our motion state, S4_MOTION 0..7
  *   hump      2 bits:         0 flat, 1 going up, 2 going down
  * s1_set_car_state() sets the last two together in ONE call, which is why we
  * send them together. */
@@ -120,6 +150,7 @@ void s4_log_csv(const char *event, const char *details)
 INT       s4_get_max_hump_mm(void)  { return (INT)s4_max_hump_mm; }
 INT       s4_get_hump_count(void)   { return (INT)s4_hump_count; }
 S4_MOTION s4_get_motion(void)       { return (S4_MOTION)s4_motion; }
+S4_LIFT   s4_get_lift(void)         { return (S4_LIFT)s4_lift; }
 UW        s4_get_faults(void)       { return (UW)s4_faults; }
 
 /* One 32-bit read gets pitch, roll and turn rate from the SAME moment. */
@@ -138,21 +169,18 @@ INT s4_get_turn_rate(void)
 
 BOOL s4_is_calibrated(void)
 {
-#if !S4_PROPAGATE_FAULTS
-    return TRUE;
-#else
     UINT bits = 0U;
 
     return (tk_wai_flg(s4_flg, S4_FLG_CALIBRATED, TWF_ORW, &bits, TMO_POL) == E_OK)
            ? TRUE : FALSE;
-#endif
 }
 
-/* imu_task owns the hump counters and the collision condition, so these two
- * only leave it a note (one bit of the event flag); it acts on the note at
- * its next sample.  The kernel sets the bit atomically. */
+/* imu_task owns the hump counters and the lift condition, so these two only
+ * leave it a note (one bit of the event flag); it acts on the note at its next
+ * sample.  The kernel sets the bit atomically.  A clear request is honoured
+ * only while the car is resting level, and is used up either way. */
 void s4_reset_run(void)         { (void)tk_set_flg(s4_flg, S4_FLG_RESET_REQ); }
-void s4_clear_collision(void)   { (void)tk_set_flg(s4_flg, S4_FLG_CLEAR_REQ); }
+void s4_clear_lifted(void)      { (void)tk_set_flg(s4_flg, S4_FLG_CLEAR_REQ); }
 
 void s4_publish_summary(void)
 {
@@ -172,7 +200,9 @@ const char *s4_motion_name(S4_MOTION m)
     case S4_TURNING:            return "TURNING";
     case S4_CLIMBING_HUMP:      return "CLIMBING_HUMP";
     case S4_DESCENDING_HUMP:    return "DESCENDING_HUMP";
-    default:                    return "IMPACT";
+    case S4_PICKED_UP:          return "PICKED_UP";
+    case S4_OVERTURNED:         return "OVERTURNED";
+    default:                    return "UNKNOWN";
     }
 }
 
