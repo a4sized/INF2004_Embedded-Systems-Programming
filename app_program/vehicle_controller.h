@@ -11,6 +11,7 @@ typedef enum
     VC_INIT = 0,
     VC_READY,
     VC_FOLLOWING,
+    VC_AVOIDING,     /* Subsystem 5 is getting round an obstacle */
     VC_STOPPED,
     VC_FAULT
 } vc_state_t;
@@ -25,6 +26,7 @@ typedef struct
     bool b_stop;
     bool b_estop;
     bool b_clear;
+    bool b_avoiding;     /* Subsystem 5 stopped for an obstacle */
     uint32_t fault_mask;
 } vc_inputs_t;
 

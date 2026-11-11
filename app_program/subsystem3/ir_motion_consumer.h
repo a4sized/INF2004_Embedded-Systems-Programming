@@ -26,5 +26,11 @@ ER ir_motion_consumer_init (void);
  */
 ER ir_motion_consumer_set_following (ir_motion_settings_t const * p_settings);
 
+/** Vehicle Controller handoff for obstacle avoidance. While paused the task
+ *  does not write to Buddy 2 at all, so Subsystem 5 can drive the bypass
+ *  without being overwritten. Task context only.
+ */
+ER ir_motion_consumer_set_paused (bool b_paused);
+
 void ir_motion_consumer_task (INT stacd, void * exinf);
 #endif
