@@ -17,6 +17,11 @@
 extern UW tm_usb_state (void);
 #endif
 
+/* A START that arrives while the car is still getting ready (INIT or READY)
+ * is kept for this long and used as soon as the car is READY.  After that
+ * it is dropped, so the car never drives off long after START was sent. */
+#define VC_START_HOLD_MS (10000u)
+
 static bool b_wifi_connected;
 
 /* Bits for "what the controller is still waiting for" (startup prints). */
@@ -85,6 +90,8 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
 {
     vc_state_t state = VC_INIT;
     UINT last_waiting = 0u;
+    bool b_start_pending = false;   /* START kept until the car is READY */
+    UINT start_wait_ms = 0u;        /* how long it has been kept         */
     UINT diag_ms = 0u;      /* DIAGNOSTIC (test only): see the VC print below */
     ir_motion_settings_t const permitted =
     {
@@ -195,9 +202,72 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
             b_ready_timer_started = false;
         }
 #endif
+
+        /* START is a one-shot command: keep it while the car is still
+         * getting ready instead of losing it, cancel it on STOP / E-STOP /
+         * CLEAR, and say why when it cannot be used. */
+        if (inputs.b_stop || inputs.b_estop || inputs.b_clear)
+        {
+            b_start_pending = false;
+        }
+        else if (inputs.b_start)
+        {
+            if ((VC_INIT == state) || (VC_READY == state))
+            {
+                b_start_pending = true;
+                start_wait_ms = 0u;
+                if (VC_INIT == state)
+                {
+                    APP_LOG((UB *)"VC: START received, waiting until ready "
+                            "(imu=%d us=%d ir=%d wifi=%d faults=0x%x)\n",
+                            (int)inputs.b_imu_ready,
+                            (int)inputs.b_ultrasonic_ready,
+                            (int)inputs.b_ir_ready,
+                            (int)inputs.b_wifi_connected,
+                            (unsigned int)inputs.fault_mask);
+                }
+            }
+            else
+            {
+                APP_LOG((UB *)"VC: START ignored in state %s%s\n",
+                        vehicle_controller_state_name(state),
+                        ((VC_STOPPED == state) || (VC_FAULT == state)) ?
+                        " (send CLEAR first)" : "");
+            }
+        }
+        else if (b_start_pending)
+        {
+            start_wait_ms += VC_PERIOD_MS;
+            if (start_wait_ms >= VC_START_HOLD_MS)
+            {
+                b_start_pending = false;
+                APP_LOG((UB *)"VC: START dropped, not ready within %u ms "
+                        "(imu=%d us=%d ir=%d wifi=%d faults=0x%x)\n",
+                        (unsigned int)VC_START_HOLD_MS,
+                        (int)inputs.b_imu_ready,
+                        (int)inputs.b_ultrasonic_ready,
+                        (int)inputs.b_ir_ready,
+                        (int)inputs.b_wifi_connected,
+                        (unsigned int)inputs.fault_mask);
+            }
+        }
+        else
+        {
+            /* No START waiting. */
+        }
+        inputs.b_start = b_start_pending;
+
         vehicle_controller_print_waiting(state, &inputs, &last_waiting);
 
         next = vehicle_controller_step(state, &inputs);
+
+        /* The kept START is used up once the car follows, and is void if
+         * the car stopped or faulted instead. */
+        if ((VC_FOLLOWING == next) || (VC_STOPPED == next) ||
+            (VC_FAULT == next))
+        {
+            b_start_pending = false;
+        }
 
         /* DIAGNOSTIC (test only): every 2 s say what the controller sees, so
          * it is obvious WHICH condition is stopping the car from following.
