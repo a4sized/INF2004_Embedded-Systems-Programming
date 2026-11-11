@@ -9,6 +9,8 @@
 #define IR_MOTION_PERIOD_MS 10u
 
 static ID settings_mutex;
+/* True while Subsystem 5 drives an obstacle bypass: no Buddy 2 writes. */
+static bool b_output_paused = false;
 /* Movement stays disabled until the Vehicle Controller explicitly enables it. */
 static ir_motion_settings_t settings =
 {
@@ -29,8 +31,20 @@ ER ir_motion_consumer_init (void)
         .turn_speed = IR_START_TURN_SPEED,
         .max_age_ms = IR_START_MAX_AGE_MS
     };
+    b_output_paused = false;
     settings_mutex = tk_cre_mtx(&config);
     return (settings_mutex < E_OK) ? settings_mutex : E_OK;
+}
+
+ER ir_motion_consumer_set_paused (bool b_paused)
+{
+    ER const status = tk_loc_mtx(settings_mutex, TMO_FEVR);
+    if (E_OK != status)
+    {
+        return status;
+    }
+    b_output_paused = b_paused;
+    return tk_unl_mtx(settings_mutex);
 }
 
 ER ir_motion_consumer_set_following (ir_motion_settings_t const * p_settings)
@@ -88,7 +102,10 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
                 &follow, p_snapshot, now.lo, settings.max_age_ms,
                 settings.b_follow_allowed, settings.base_speed,
                 settings.turn_speed);
-            s2_set_ir_velocity(target.left, target.right);
+            if (!b_output_paused)
+            {
+                s2_set_ir_velocity(target.left, target.right);
+            }
             (void)tk_unl_mtx(settings_mutex);
         }
         else

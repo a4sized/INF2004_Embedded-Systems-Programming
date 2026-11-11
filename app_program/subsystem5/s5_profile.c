@@ -4,8 +4,13 @@
  *
  * See s5_profile.h for what is measured. Geometry: a point seen d cm away
  * at servo angle a is |90 - a| degrees off the centre line, so it lies
- * d x sin(|90 - a|) cm to the side. sin() comes from a Q14 table (no
- * floating point; the RP2040 has no FPU).
+ * d x sin(|90 - a|) cm to the side and d x cos(|90 - a|) cm ahead.
+ * sin() comes from a Q14 table, and cos(x) = sin(90 - x) (no floating
+ * point; the RP2040 has no FPU).
+ *
+ * Clearance on one side = (sideways position of the nearest thing seen
+ * past that edge, no more than S5_BYPASS_DEPTH_CM beyond the obstacle's
+ * front) - (sideways position of the edge).
  *
  * Sides: angles below 90 are the "low" side, above 90 the "high" side.
  * S5_HIGH_ANGLE_IS_LEFT maps them to left and right.
@@ -40,7 +45,6 @@
 #define SIN_TABLE_SIZE      (19u)     /* 0, 5, ..., 90 degrees */
 #define Q14_SHIFT           (14u)
 #define Q14_HALF            (8192u)   /* 0.5 in Q14, for rounding */
-#define STEPS_PAST_MAX      (3u)      /* largest value a 2-bit field holds */
 
 _Static_assert(sizeof(s5_profile_t) == sizeof(uint64_t),
                "s5_profile_t must pack into one 64-bit word");
@@ -48,16 +52,14 @@ _Static_assert(0u == (S5_FINE_STEP_DEG % SIN_TABLE_STEP_DEG),
                "fine step must be a multiple of the sin table step");
 _Static_assert(0u == (S5_EDGE_TRIM_DEG % SIN_TABLE_STEP_DEG),
                "edge trim must be a multiple of the sin table step");
-_Static_assert(S5_CLEAR_STEPS <= STEPS_PAST_MAX,
-               "steps past the edge need > 2 bits");
 
-/* Minimum-bit working state for one side: 9 + 8 + 9 + 2 + 1 = 29 bits. */
+/* Minimum-bit working state for one side: 9 + 8 + 9 + 1 = 27 bits. */
 typedef struct
 {
     uint32_t last_on_cm   : 9;   /* last reading that was on the obstacle  */
     uint32_t edge_angle   : 8;   /* angle of that reading                  */
-    uint32_t clear_cm     : 9;   /* nearest reading past the edge          */
-    uint32_t steps_past   : 2;   /* readings taken past the edge           */
+    uint32_t beside_cm    : 9;   /* sideways position of the nearest thing
+                                  * past the edge (511 = none)            */
     uint32_t b_edge_found : 1;   /* 1 = a reading jumped off the obstacle  */
 } side_state_t;
 
@@ -90,12 +92,13 @@ static uint16_t s5_profile_clip_cm (const uint16_t distance_cm)
     return clipped_cm;
 }
 
-uint16_t s5_profile_lateral_cm (const uint16_t distance_cm,
-                                const uint16_t angle_deg)
+/* Degrees between servo angle angle_deg and straight ahead (0..90 for
+ * angles 0..180). Casts are safe: each subtraction is guarded to be
+ * positive. */
+static uint16_t s5_profile_off_axis_deg (const uint16_t angle_deg)
 {
     uint16_t off_axis_deg = 0u;
 
-    /* Casts are safe: each subtraction is guarded to be positive. */
     if (angle_deg < S5_FORWARD_DEG)
     {
         off_axis_deg = (uint16_t)(S5_FORWARD_DEG - angle_deg);
@@ -105,7 +108,34 @@ uint16_t s5_profile_lateral_cm (const uint16_t distance_cm,
         off_axis_deg = (uint16_t)(angle_deg - S5_FORWARD_DEG);
     }
 
-    /* Move the edge inward to undo the sensor's beam spread (tuned). */
+    return off_axis_deg;
+}
+
+/* distance_cm x sin(angle_deg), rounded. angle_deg above 90 counts as 90. */
+static uint16_t s5_profile_sin_scale (const uint16_t distance_cm,
+                                      const uint16_t angle_deg)
+{
+    uint16_t index = (uint16_t)(angle_deg / SIN_TABLE_STEP_DEG);
+
+    if (index >= SIN_TABLE_SIZE)
+    {
+        index = (uint16_t)(SIN_TABLE_SIZE - 1u);   /* 90 degrees */
+    }
+
+    /* Widened to 32 bits: 511 x 16384 + 8192 fits. After the rounding
+     * shift the result is at most distance_cm, so the cast back to 16 bits
+     * is safe. */
+    return (uint16_t)((((uint32_t)distance_cm * g_sin_q14[index]) +
+                       Q14_HALF) >> Q14_SHIFT);
+}
+
+uint16_t s5_profile_lateral_cm (const uint16_t distance_cm,
+                                const uint16_t angle_deg)
+{
+    uint16_t off_axis_deg = s5_profile_off_axis_deg(angle_deg);
+
+    /* Move the point inward to undo the sensor's beam spread (tuned). The
+     * cast is safe: the subtraction is guarded to be positive. */
     if (off_axis_deg > S5_EDGE_TRIM_DEG)
     {
         off_axis_deg = (uint16_t)(off_axis_deg - S5_EDGE_TRIM_DEG);
@@ -115,18 +145,19 @@ uint16_t s5_profile_lateral_cm (const uint16_t distance_cm,
         off_axis_deg = 0u;
     }
 
-    uint16_t index = (uint16_t)(off_axis_deg / SIN_TABLE_STEP_DEG);
+    return s5_profile_sin_scale(distance_cm, off_axis_deg);
+}
 
-    if (index >= SIN_TABLE_SIZE)
-    {
-        index = (uint16_t)(SIN_TABLE_SIZE - 1u);   /* 90 deg off the axis */
-    }
+/* Distance (cm) straight ahead of the car to a point seen distance_cm away
+ * at servo angle angle_deg: d x cos(off axis) = d x sin(90 - off axis).
+ * The cast is safe: the off-axis angle is at most 90. */
+static uint16_t s5_profile_ahead_cm (const uint16_t distance_cm,
+                                     const uint16_t angle_deg)
+{
+    uint16_t off_axis_deg = s5_profile_off_axis_deg(angle_deg);
 
-    /* Widened to 32 bits: 511 x 16384 + 8192 fits. After the rounding
-     * shift the result is at most distance_cm, so the cast back to 16 bits
-     * is safe. */
-    return (uint16_t)((((uint32_t)distance_cm * g_sin_q14[index]) +
-                       Q14_HALF) >> Q14_SHIFT);
+    return s5_profile_sin_scale(distance_cm,
+                                (uint16_t)(S5_FORWARD_DEG - off_axis_deg));
 }
 
 void s5_profile_start (const uint16_t center_cm)
@@ -141,8 +172,7 @@ void s5_profile_start (const uint16_t center_cm)
     {
         g_side[side].last_on_cm   = start_cm;
         g_side[side].edge_angle   = S5_FORWARD_DEG;
-        g_side[side].clear_cm     = S5_OBSTACLE_NONE_CM;
-        g_side[side].steps_past   = 0u;
+        g_side[side].beside_cm    = S5_OBSTACLE_NONE_CM;
         g_side[side].b_edge_found = 0u;
     }
 }
@@ -163,20 +193,24 @@ static void s5_profile_on_obstacle (const uint8_t side,
     }
 }
 
-/* A reading past the edge: count it and keep the nearest one. */
+/* A reading past the edge: if something was seen beside the obstacle (not
+ * far beyond it), keep the one nearest sideways. */
 static void s5_profile_past_edge (const uint8_t side,
+                                  const uint16_t angle_deg,
                                   const uint16_t distance_cm)
 {
     g_side[side].b_edge_found = 1u;
 
-    if (g_side[side].steps_past < STEPS_PAST_MAX)
+    if ((S5_OBSTACLE_NONE_CM != distance_cm) &&
+        (s5_profile_ahead_cm(distance_cm, angle_deg) <=
+         (g_work.closest_cm + S5_BYPASS_DEPTH_CM)))
     {
-        g_side[side].steps_past++;
-    }
+        uint16_t beside_cm = s5_profile_lateral_cm(distance_cm, angle_deg);
 
-    if (distance_cm < g_side[side].clear_cm)
-    {
-        g_side[side].clear_cm = distance_cm;
+        if (beside_cm < g_side[side].beside_cm)
+        {
+            g_side[side].beside_cm = beside_cm;
+        }
     }
 }
 
@@ -188,20 +222,12 @@ void s5_profile_add (const uint16_t angle_deg, const uint16_t distance_cm)
     if ((0u != g_side[side].b_edge_found) ||
         (clip_cm > (g_side[side].last_on_cm + S5_EDGE_JUMP_CM)))
     {
-        s5_profile_past_edge(side, clip_cm);   /* at or past the edge */
+        s5_profile_past_edge(side, angle_deg, clip_cm);   /* at/past edge */
     }
     else
     {
         s5_profile_on_obstacle(side, angle_deg, clip_cm);
     }
-}
-
-bool s5_profile_wants_more (const bool b_high_side)
-{
-    uint8_t side = b_high_side ? SIDE_HIGH : SIDE_LOW;
-
-    return ((0u == g_side[side].b_edge_found) ||
-            (g_side[side].steps_past < S5_CLEAR_STEPS));
 }
 
 /* Sideways distance from the centre line to one side's edge. The real
@@ -229,15 +255,31 @@ static uint16_t s5_profile_extent (const uint8_t side)
     return extent;
 }
 
-/* Clearance past one side's edge: 0 if no edge was found before the scan
- * limit (the obstacle may carry on), otherwise the nearest reading. */
-static uint16_t s5_profile_clearance (const uint8_t side)
+/* Free sideways gap past one side's edge (extent_cm = that edge's
+ * sideways position). 0 if no edge was found before the scan limit (the
+ * obstacle may carry on), S5_OBSTACLE_NONE_CM if nothing was seen beside
+ * it. The cast is safe: the subtraction is guarded to be positive. */
+static uint16_t s5_profile_clearance (const uint8_t side,
+                                      const uint16_t extent_cm)
 {
-    uint16_t clear_cm = 0u;
+    uint16_t beside_cm = g_side[side].beside_cm;
+    uint16_t clear_cm  = 0u;
 
-    if (0u != g_side[side].b_edge_found)
+    if (0u == g_side[side].b_edge_found)
     {
-        clear_cm = g_side[side].clear_cm;
+        /* Blocked as far as the scan could see. */
+    }
+    else if (S5_OBSTACLE_NONE_CM == beside_cm)
+    {
+        clear_cm = S5_OBSTACLE_NONE_CM;   /* open */
+    }
+    else if (beside_cm > extent_cm)
+    {
+        clear_cm = (uint16_t)(beside_cm - extent_cm);
+    }
+    else
+    {
+        /* Something right next to the edge: no gap. */
     }
 
     return clear_cm;
@@ -259,7 +301,7 @@ static void s5_profile_print (const s5_profile_t * const p_profile)
                   (unsigned int)p_profile->width_cm,
                   (unsigned int)p_profile->left_extent_cm,
                   (unsigned int)p_profile->right_extent_cm);
-        tm_printf((UB *)"S5 profile: clearance left %u cm, right %u cm "
+        tm_printf((UB *)"S5 profile: gap beside it left %u cm, right %u cm "
                   "(0 = blocked, %u = open)\n",
                   (unsigned int)p_profile->left_clear_cm,
                   (unsigned int)p_profile->right_clear_cm,
@@ -287,8 +329,8 @@ void s5_profile_finish (const bool b_scan_ok)
         g_work.width_cm        = width_cm;
         g_work.left_extent_cm  = left_cm;
         g_work.right_extent_cm = right_cm;
-        g_work.left_clear_cm   = s5_profile_clearance(SIDE_LEFT);
-        g_work.right_clear_cm  = s5_profile_clearance(SIDE_RIGHT);
+        g_work.left_clear_cm   = s5_profile_clearance(SIDE_LEFT, left_cm);
+        g_work.right_clear_cm  = s5_profile_clearance(SIDE_RIGHT, right_cm);
     }
 
     DI(interrupt_status);
