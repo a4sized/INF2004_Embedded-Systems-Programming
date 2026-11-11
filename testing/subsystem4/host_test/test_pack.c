@@ -75,7 +75,7 @@ int main(void)
     f.type = S4_MSG_FAULT; f.p.fault.faults = 3;
     memcpy(&f2, &f, sizeof f);
     CHK(f2.type == S4_MSG_FAULT && f2.p.fault.faults == 3, "FAULT: both condition bits survive");
-    CHK((unsigned)S4_MSG_FAULT <= 3U && (unsigned)S4_LIFT_OVERTURNED <= 3U && (unsigned)S4_LIFTED <= 7U, "type fits 2 bits, lift state fits 2 bits, motion state fits 3 bits");
+    CHK((unsigned)S4_MSG_FAULT <= 3U && (unsigned)S4_LIFT_OVERTURNED <= 3U && (unsigned)S4_OVERTURNED <= 7U && S4_PICKED_UP != S4_OVERTURNED, "type fits 2 bits, lift state fits 2 bits, motion state (all 8, PICKED_UP and OVERTURNED different) fits 3 bits");
 
     /* ---- the 16-bit time stamp ---- */
     UH t1 = 65530, t2 = 10;

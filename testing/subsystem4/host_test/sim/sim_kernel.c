@@ -119,7 +119,7 @@ ER dev_init_i2c(UW unit) { return unit == 1 ? E_OK : E_NOSPT; }
 static double frand(void) { return ((double)rand() / RAND_MAX) * 2.0 - 1.0; }
 static int    g_stall = 0, g_plugin = 0, g_sensor_present = 1, g_quiet = 0;   /* g_quiet: the car stays still (no shaking) */
 /* Which scripted scene the fake car plays.  SCN_DRIVE is the full drive; the others are handled by hand or on rough ground. */
-enum { SCN_DRIVE = 0, SCN_LIFT, SCN_OVERTURN, SCN_FLIP, SCN_ROUGH, SCN_RAMP };
+enum { SCN_DRIVE = 0, SCN_LIFT, SCN_OVERTURN, SCN_FLIP, SCN_ROUGH, SCN_RAMP, SCN_LIFTFLIP };
 static int    g_scn = SCN_DRIVE;
 static double g_lift_g = 0.30, g_lift_s = 0.30, g_rough_g = 0.12, g_ramp_deg = 30.0, g_carry_deg = 12.0;   /* the probe mode changes these */
 /* How the fake board is mounted: raw sensor axis = sign * car axis.  The default is the real car
@@ -157,7 +157,9 @@ static void mount(double a[3]) { a[0] *= g_sx; a[1] *= g_sy; a[2] *= g_sz; }    
  *   FLIP      turns upside down 2.0-2.6 and stays there
  *   ROUGH     driving over rough ground 2.0-7.0 s (0.12 g shaking), with a 1.8 g knock at 3.0, a 0.9 g vertical bump at
  *             4.0 and a 0.8 g sideways shove at 5.0: nothing here may stop the car
- *   RAMP      climbs a 30 degree slope 2.0-3.0, stays on it until 6.0, comes down by 7.0: not "picked up" */
+ *   RAMP      climbs a 30 degree slope 2.0-3.0, stays on it until 6.0, comes down by 7.0: not "picked up"
+ *   LIFTFLIP  lifted 2.0-2.3 (+0.30 g), carried 2.3-3.2, TURNED OVER IN THE HAND 3.2-3.7, held upside down until 5.0, turned
+ *             back up 5.0-5.5, carried upright until 6.0, lowered 6.0-6.35, resting from 6.35 s */
 static void scene_accel(double t, double a[3])
 {
     double pitch = 0.0, phi = 0.0, up_extra = 0.0, left_extra = 0.0, fwd_extra = 0.0, noise = 0.004;
@@ -185,6 +187,16 @@ static void scene_accel(double t, double a[3])
         if (fabs(t - 3.0) < 0.012) fwd_extra = -1.8;
         if (fabs(t - 4.0) < 0.015) up_extra = 0.9;
         if (fabs(t - 5.0) < 0.020) left_extra = 0.8;
+        break;
+    case SCN_LIFTFLIP:
+        if      (t >= 2.0 && t < 2.3)  { up_extra = 0.30; noise = 0.04; }
+        else if (t >= 2.3 && t < 3.2)  { pitch = 12.0 * D2R; noise = 0.04; }
+        else if (t >= 3.2 && t < 3.7)  { phi = 180.0 * (t - 3.2) / 0.5; noise = 0.05; }
+        else if (t >= 3.7 && t < 5.0)  { phi = 180.0; noise = 0.04; }
+        else if (t >= 5.0 && t < 5.5)  { phi = 180.0 * (1.0 - (t - 5.0) / 0.5); noise = 0.05; }
+        else if (t >= 5.5 && t < 6.0)  { pitch = 8.0 * D2R; noise = 0.04; }
+        else if (t >= 6.0 && t < 6.2)  { up_extra = -0.20; noise = 0.04; }
+        else if (t >= 6.2 && t < 6.35) { up_extra = 0.35; noise = 0.04; }
         break;
     case SCN_RAMP:
         if      (t >= 2.0 && t < 3.0)  pitch = g_ramp_deg * D2R * (t - 2.0);
@@ -378,6 +390,7 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "flip"))     g_scn = SCN_FLIP;
     else if (!strcmp(mode, "rough"))    g_scn = SCN_ROUGH;
     else if (!strcmp(mode, "ramp"))     g_scn = SCN_RAMP;
+    else if (!strcmp(mode, "liftflip")) g_scn = SCN_LIFTFLIP;
     clock_gettime(CLOCK_MONOTONIC, &t0); srand(7);
 
     /* what the other subsystems have already put in Subsystem 1's packet: it must all survive */
@@ -413,7 +426,7 @@ int main(int argc, char **argv)
         WAIT_UNTIL(2.5);
         int picked = (s4_get_lift() == S4_LIFT_PICKED_UP), halted_in_time = (halt_first_t >= 2.0 && halt_first_t < 2.45), bit_up = imu_bit();
         WAIT_UNTIL(2.7);
-        int shown_lifted = (s4_get_motion() == S4_LIFTED);
+        int shown_picked = (s4_get_motion() == S4_PICKED_UP);
         s1_clear_fault(FAULT_IMU_SENS);                        /* somebody else clears our bit while the car is still in the air */
         WAIT_UNTIL(3.0);
         int stopped_again = imu_bit() && halt_calls >= 2;
@@ -440,7 +453,7 @@ int main(int argc, char **argv)
         CHECK_SIM(picked, "picked up: the detector says PICKED_UP");
         CHECK_SIM(halted_in_time, "the motors were halted within 0.45 s of the lift (motion_trigger_safety_halt called)");
         CHECK_SIM(bit_up, "FAULT_IMU_SENS is set through subsystem 1");
-        CHECK_SIM(shown_lifted, "the motion state shown is LIFTED");
+        CHECK_SIM(shown_picked, "the motion state shown is PICKED_UP (6), not OVERTURNED");
         CHECK_SIM(stopped_again, "a clear by someone else while it is still lifted is undone, and the motors are halted again");
         CHECK_SIM(clear_ignored, "a CLEAR sent while the car is still being carried is ignored");
         if (S4_PUTDOWN_MS >= 1500) CHECK_SIM(not_early, "still stopped 1 s after being put down: it has to rest for S4_PUTDOWN_MS first");
@@ -452,7 +465,7 @@ int main(int argc, char **argv)
 #endif
         CHECK_SIM(no_ghost, "FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)");
         CHECK_SIM(csv_picked == 1 && csv_put_down == 1 && csv_over == 0, "logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)");
-        CHECK_SIM(((s1_car_states_seen >> S4_LIFTED) & 1u) != 0, "car_state 6 (LIFTED) reached subsystem 1's telemetry");
+        CHECK_SIM(((s1_car_states_seen >> S4_PICKED_UP) & 1u) != 0 && ((s1_car_states_seen >> S4_OVERTURNED) & 1u) == 0, "telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)");
         CHECK_SIM(wifi_bit(), "another subsystem's fault bit untouched");
         CHECK_SIM(!(s4_get_faults() & S4_FAULT_COMM), "no sensor fault");
         return finish();
@@ -464,28 +477,58 @@ int main(int argc, char **argv)
         int quiet_before = (s4_get_lift() == S4_LIFT_NONE) && !imu_bit() && halt_calls == 0;
         WAIT_UNTIL(flip ? 3.4 : 3.6);
         int over = (s4_get_lift() == S4_LIFT_OVERTURNED), halted = (halt_first_t >= 2.0 && halt_first_t < 3.3), bit_up = imu_bit();
-        int shown = (s4_get_motion() == S4_LIFTED), logged = (csv_over == 1 && csv_picked == 0);
-        int held = 1, not_early = 1, released = 1;
+        int shown = (s4_get_motion() == S4_OVERTURNED), logged = (csv_over == 1 && csv_picked == 0);
+        int held = 1, not_early = 1, released = 1, righted = 1, tele_ok = 1;
         if (!flip) {
             WAIT_UNTIL(4.4);  held = (s4_get_lift() == S4_LIFT_OVERTURNED) && imu_bit();      /* lying on its side, quiet and still for 1.5 s */
+            WAIT_UNTIL(6.5);  righted = (s4_get_lift() == S4_LIFT_PICKED_UP) && s4_get_motion() == S4_PICKED_UP && csv_picked == 1 && csv_over == 1 && imu_bit();   /* set upright by hand at 5 s: the reason follows the tilt, the stop stays */
             WAIT_UNTIL(7.0);  not_early = (s4_get_lift() != S4_LIFT_NONE) && imu_bit();       /* upright from 5 s, but "resting" only from about 6 s: the shaking figure needs about a second to settle after the swing */
             WAIT_UNTIL(9.0);  released = (s4_get_lift() == S4_LIFT_NONE) && !imu_bit();       /* resting from about 6 s + S4_PUTDOWN_MS = about 8 s */
+            tele_ok = (((s1_car_states_seen >> S4_OVERTURNED) & 1u) != 0) && (((s1_car_states_seen >> S4_PICKED_UP) & 1u) != 0);
         } else {
             WAIT_UNTIL(5.0);  held = (s4_get_lift() == S4_LIFT_OVERTURNED) && imu_bit();
+            tele_ok = (((s1_car_states_seen >> S4_OVERTURNED) & 1u) != 0) && (((s1_car_states_seen >> S4_PICKED_UP) & 1u) == 0);
         }
         printf("\n--- %s ---\n", flip ? "turned upside down at 2.0 s and left there" : "tipped onto its side at 2.0 s, set upright at 4.5 s");
         CHECK_SIM(quiet_before, "nothing fires while the car sits on the floor, and no halt was sent");
         CHECK_SIM(over, "the detector says OVERTURNED (not just PICKED_UP)");
         CHECK_SIM(halted, "the motors were halted soon after it tipped (motion_trigger_safety_halt called)");
         CHECK_SIM(bit_up, "FAULT_IMU_SENS is set through subsystem 1");
-        CHECK_SIM(shown, "the motion state shown is LIFTED");
-        CHECK_SIM(logged, "logged once as OVERTURNED");
+        CHECK_SIM(shown, "the motion state shown is OVERTURNED (7), not PICKED_UP");
+        CHECK_SIM(logged, "logged once as OVERTURNED, and not as PICKED_UP");
         CHECK_SIM(held, flip ? "still stopped while it lies upside down" : "still stopped while it lies on its side, though quiet and still: it is not upright");
+        CHECK_SIM(tele_ok, flip ? "telemetry car_state showed 7 (OVERTURNED) and never 6" : "telemetry car_state showed 7 (OVERTURNED) while it lay there, then 6 (PICKED_UP) once it was righted");
         if (!flip) {
+            CHECK_SIM(righted, "set upright by hand at 5 s: the reason changed to PICKED_UP (logged once), the motors stay stopped");
             CHECK_SIM(not_early, "still stopped 2 s after it was set upright: it has to REST for S4_PUTDOWN_MS first, and the shaking figure needs about a second to settle");
             CHECK_SIM(released, "released after it was upright and resting for S4_PUTDOWN_MS");
             CHECK_SIM(csv_put_down == 1, "PUT_DOWN logged once");
         }
+        CHECK_SIM(wifi_bit(), "another subsystem's fault bit untouched");
+        return finish();
+    }
+    if (!strcmp(mode, "liftflip")) {
+        /* Lifted at 2.0 s, turned over in the hand 3.2-3.7 s, held upside down until 5.0, turned back up by 5.5, set down at 6.35. */
+        WAIT_UNTIL(1.9);
+        int quiet_before = (s4_get_lift() == S4_LIFT_NONE) && !imu_bit() && halt_calls == 0;
+        WAIT_UNTIL(2.7);
+        int picked = (s4_get_lift() == S4_LIFT_PICKED_UP) && s4_get_motion() == S4_PICKED_UP && csv_picked == 1 && csv_over == 0 && halt_first_t >= 2.0 && halt_first_t < 2.45;
+        WAIT_UNTIL(4.6);
+        int flipped = (s4_get_lift() == S4_LIFT_OVERTURNED) && s4_get_motion() == S4_OVERTURNED && csv_over == 1 && imu_bit();
+        int no_restop = (halt_calls == 1);
+        WAIT_UNTIL(6.3);
+        int righted = (s4_get_lift() == S4_LIFT_PICKED_UP) && s4_get_motion() == S4_PICKED_UP && csv_picked == 2 && imu_bit();
+        WAIT_UNTIL(10.3);
+        int released = (s4_get_lift() == S4_LIFT_NONE) && !imu_bit();
+        printf("\n--- lifted, turned over IN THE HAND, turned back up, then put down ---\n");
+        CHECK_SIM(quiet_before, "nothing fires while the car sits on the floor, and no halt was sent");
+        CHECK_SIM(picked, "lifted: PICKED_UP (state 6), halted within 0.45 s, logged once");
+        CHECK_SIM(flipped, "turned over in the hand: the reason changes to OVERTURNED (state 7), logged once, the bit stays set");
+        CHECK_SIM(no_restop, "the change of reason did not send a second halt: the motors were already stopped");
+        CHECK_SIM(righted, "turned back up in the hand: the reason changes back to PICKED_UP (state 6), logged again, the bit stays set");
+        CHECK_SIM(released, "put down: released after resting level, and the bit clears");
+        CHECK_SIM(csv_picked == 2 && csv_over == 1 && csv_put_down == 1, "events logged: PICKED_UP twice, OVERTURNED once, PUT_DOWN once");
+        CHECK_SIM((s1_car_states_seen & 0xC0u) == 0xC0u, "telemetry car_state showed both 6 and 7");
         CHECK_SIM(wifi_bit(), "another subsystem's fault bit untouched");
         return finish();
     }
@@ -494,12 +537,12 @@ int main(int argc, char **argv)
         int ramp = !strcmp(mode, "ramp"), bad = 0;
         double t;
         while ((t = now_s()) < 7.8) {
-            if (imu_bit() || s4_get_lift() != S4_LIFT_NONE || halt_calls || s4_get_motion() == S4_LIFTED) bad = 1;
+            if (imu_bit() || s4_get_lift() != S4_LIFT_NONE || halt_calls || s4_get_motion() == S4_PICKED_UP || s4_get_motion() == S4_OVERTURNED) bad = 1;
             usleep(5000);
         }
         printf("\n--- %s ---\n", ramp ? "a 30 degree slope, climbed in 1 s and held for 3 s" : "rough ground (0.12 g shaking) with a 1.8 g knock, a 0.9 g vertical bump and a 0.8 g sideways shove");
         CHECK_SIM(s4_is_calibrated() && s4_samples > 300, "calibrated and sampling");
-        CHECK_SIM(!bad, ramp ? "the slope never stops the car: no fault, no LIFTED state" : "none of it stops the car: no fault, no LIFTED state");
+        CHECK_SIM(!bad, ramp ? "the slope never stops the car: no fault, no PICKED_UP / OVERTURNED state" : "none of it stops the car: no fault, no PICKED_UP / OVERTURNED state");
         CHECK_SIM(halt_calls == 0, "the motors were never halted");
         CHECK_SIM(csv_picked == 0 && csv_over == 0 && csv_put_down == 0, "no PICKED_UP / OVERTURNED / PUT_DOWN logged");
         if (ramp) CHECK_SIM(s1_pitch_max >= 25, "the pitch really did reach about 30 degrees");
@@ -537,7 +580,7 @@ int main(int argc, char **argv)
         if (t > 1.5 && t < 2.0 && m == S4_STATIONARY) seen_stationary = 1;
         if (t > 4.0 && t < 4.9 && m == S4_MOVING) seen_moving = 1;
         if (t > 10.2 && t < 11.3) { if (m == S4_TURNING) seen_turning = 1; if (s4_get_turn_rate() > peak_turn) peak_turn = s4_get_turn_rate(); }
-        if (t > 4.9 && (imu_bit() || s4_get_lift() != S4_LIFT_NONE || halt_calls || m == S4_LIFTED)) knock_fired = 1;   /* anything fired after the knock */
+        if (t > 4.9 && (imu_bit() || s4_get_lift() != S4_LIFT_NONE || halt_calls || m == S4_PICKED_UP || m == S4_OVERTURNED)) knock_fired = 1;   /* anything fired after the knock */
         usleep(5000);
         if (t > 12.9) {            /* report */
             S1_TELEMETRY_PKT tl; s1_get_telemetry(&tl);
@@ -560,10 +603,10 @@ int main(int argc, char **argv)
             CHECK_SIM((s1_car_states_seen & ((1u<<S4_STATIONARY)|(1u<<S4_MOVING)|(1u<<S4_TURNING)|(1u<<S4_CLIMBING_HUMP)|(1u<<S4_DESCENDING_HUMP))) ==
                       ((1u<<S4_STATIONARY)|(1u<<S4_MOVING)|(1u<<S4_TURNING)|(1u<<S4_CLIMBING_HUMP)|(1u<<S4_DESCENDING_HUMP)), "car_state reported every motion state we went through (3-bit values)");
             printf("  -- the 1.8 g knock at 5.0 s: collision detection is GONE, so it must stop nothing --\n");
-            CHECK_SIM(!knock_fired, "after the knock: no fault, no lift state, no LIFTED motion state, no halt");
+            CHECK_SIM(!knock_fired, "after the knock: no fault, no lift state, no PICKED_UP / OVERTURNED motion state, no halt");
             CHECK_SIM(halt_calls == 0, "the motors were never halted during the whole drive");
             CHECK_SIM(csv_picked == 0 && csv_over == 0 && csv_put_down == 0 && csv_fault == 0, "no PICKED_UP / OVERTURNED / PUT_DOWN / IMU_FAULT event was logged");
-            CHECK_SIM(!((s1_car_states_seen >> S4_LIFTED) & 1u), "car_state never showed LIFTED");
+            CHECK_SIM(!(s1_car_states_seen & ((1u << S4_PICKED_UP) | (1u << S4_OVERTURNED))), "car_state never showed 6 (PICKED_UP) or 7 (OVERTURNED)");
             CHECK_SIM(!imu_bit() && wifi_bit(), "FAULT_IMU_SENS stayed clear all run; another subsystem's fault bit (WIFI) never disturbed");
             printf("  -- turning --\n");
             CHECK_SIM(seen_turning && peak_turn > 40 && peak_turn < 80, "TURNING seen; turn rate about +60 dps (left is positive)");

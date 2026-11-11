@@ -46,6 +46,9 @@ echo
 echo "=== scenario 3d: turned upside down"
 /tmp/s4_sim flip
 echo
+echo "=== scenario 3g: lifted (state 6), turned over IN THE HAND (state 7), turned back up (state 6), put down: the reason follows the tilt"
+/tmp/s4_sim liftflip
+echo
 echo "=== scenario 3e: FALSE ALARM test: rough ground (0.12 g shaking) with a knock, a vertical bump and a sideways shove"
 /tmp/s4_sim rough
 echo

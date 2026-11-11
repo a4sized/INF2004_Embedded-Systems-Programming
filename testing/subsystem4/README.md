@@ -57,9 +57,32 @@ wrong-mounting scenario) and 0.5 s after the first reading.
    This direct call is needed: Subsystem 2's automatic "any fault means halt" override is commented out in
    `subsystem2.c`, so raising the fault bit alone does not stop the wheels.
 2. `FAULT_IMU_SENS` is raised through Subsystem 1 (the same single team bit as the lost-sensor fault).
-3. The motion state becomes `LIFTED` (`car_state` 6) and a `PICKED_UP` or `OVERTURNED` line goes to the CSV log, with the tilt.
+3. The motion state becomes `PICKED_UP` (`car_state` 6) or `OVERTURNED` (`car_state` 7), and a `PICKED_UP` or `OVERTURNED` line goes to the CSV log, with the tilt.
 
 If somebody clears the bit while the car is still lifted, the next status tick (100 ms) reports it and halts the motors again.
+
+**Picked up versus overturned.** The two are reported separately everywhere:
+
+| | picked up | overturned |
+|---|---|---|
+| motion state, and the telemetry `car_state` | `PICKED_UP` = **6** | `OVERTURNED` = **7** |
+| CSV event and console line | `PICKED_UP` | `OVERTURNED` |
+| `s4_get_lift()` | `S4_LIFT_PICKED_UP` | `S4_LIFT_OVERTURNED` |
+| motors | stopped at once | stopped at once |
+| `FAULT_IMU_SENS` | set | set (the same single bit) |
+
+While the car is stopped the reason **follows its tilt**: past 60 deg it is overturned, and back within 45 deg of upright
+(`S4_RIGHTED_COS2`, for 0.3 s) it is picked up again.
+
+| What happens | What is reported |
+|---|---|
+| lifted and carried level | `PICKED_UP` until it is put down |
+| tipped over on the ground | `OVERTURNED`; `PICKED_UP` once a hand turns it back up; `PUT_DOWN` after it has rested |
+| lifted, then turned over in the hand | `PICKED_UP`, then `OVERTURNED`, then `PICKED_UP` again once it is turned back up |
+| upside down and left there | `OVERTURNED` until it is righted and put down |
+
+The motors are stopped once and stay stopped through every change of reason (a change sends no second halt). One limit: the
+sensor only sees tilt, so a car that is **held** sideways in a hand also reads `OVERTURNED`.
 
 **Release.** The car counts as *put down* when it is resting: upright within 20 deg, the pull within 0.08 g of 1 g, and not
 shaking (`S4_STILL_VIB_MG`), all for `S4_PUTDOWN_MS` (2 s) in a row. The motors are off by then, so any shaking is a hand: a
@@ -101,7 +124,7 @@ Packed, at the boundaries (what crosses a task boundary):
 | lift state | none / picked up / overturned | 2 | message (status), `s4_lift` |
 | tilt at a lift event | 0..255 deg, 1 deg (180 = upside down) | 8 | message |
 | fault conditions | comm lost, lifted | 2 | `s4_faults` |
-| motion state | 7 states | 3 (a byte in RAM) | `s4_motion` |
+| motion state | 8 states (0 to 5 driving, 6 picked up, 7 overturned) | 3 (a byte in RAM) | `s4_motion` |
 
 Values outside a range are clipped to the limit, never wrapped.
 The ranges for hump peak and length are placeholders until the real track is known.
@@ -139,7 +162,7 @@ time `process_sample()` with the 1 MHz timer before quoting a number.
   command call `s4_clear_lifted()`. After a release Subsystem 2 leaves its halt only when the fault mask is clear **and** its
   commanded speeds are zero (`handle_motor_safety_halt`), so the follower has to stop commanding movement before the wheels
   can turn again.
-- **`car_state` is assumed to be subsystem 4's motion state** (7 states = 3 bits). Test S4-U19 checks it; confirm with Subsystem 1.
+- **`car_state` is assumed to be subsystem 4's motion state** (8 states = 3 bits). Test S4-U19 checks it; confirm with Subsystem 1. Subsystem 4 is the only writer of `car_state`, but `scripts/telemetry_decoder.py` still names the values after Subsystem 2's motor states (see `telemetry_decoder.patch`).
 - **Hump height is not in the 8-byte packet**, only in the CSV log. Ask Subsystem 1 for a field.
 - **The CSV log is text.** Ask the professor whether it counts as application data.
 - **Ghost fault (found by the simulation, fixed in subsystem 4, root cause is in Subsystem 1).** `s1_report_fault()`
