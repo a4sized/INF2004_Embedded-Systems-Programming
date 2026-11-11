@@ -288,7 +288,7 @@ LOCAL void motor_init(void) {
     {
         ER enc_err = encoder_init();
         if (enc_err != E_OK) {
-            tm_printf((UB*)"[S2] encoder_init failed: %d\n", (int)enc_err);
+            APP_LOG((UB*)"[S2] encoder_init failed: %d\n", (int)enc_err);
         }
     }
 
@@ -567,11 +567,11 @@ LOCAL void s2_motor_task(INT stacd, void *exinf) {
          * "pins L=ab R=cd" are the live levels of the four channels. */
         if (++print_n >= (UINT)(ENC_PRINT_MS / S2_PERIOD_MS)) {
             print_n = 0;
-            tm_printf((UB*)"[S2] encoder ticks: left %d  right %d   (interrupts %d, pins L=%d%d R=%d%d)\n",
-                      (int)get_left_encoder_ticks(), (int)get_right_encoder_ticks(),
-                      (int)encoder_irq_count(),
-                      (int)gpio_get_val(LEFT_ENC_A),  (int)gpio_get_val(LEFT_ENC_B),
-                      (int)gpio_get_val(RIGHT_ENC_A), (int)gpio_get_val(RIGHT_ENC_B));
+            APP_LOG((UB*)"[S2] encoder ticks: left %d  right %d   (interrupts %d, pins L=%d%d R=%d%d)\n",
+                    (int)get_left_encoder_ticks(), (int)get_right_encoder_ticks(),
+                    (int)encoder_irq_count(),
+                    (int)gpio_get_val(LEFT_ENC_A),  (int)gpio_get_val(LEFT_ENC_B),
+                    (int)gpio_get_val(RIGHT_ENC_A), (int)gpio_get_val(RIGHT_ENC_B));
         }
 #endif
 

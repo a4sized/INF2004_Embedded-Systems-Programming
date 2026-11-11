@@ -49,13 +49,15 @@ static void vehicle_controller_print_waiting (vc_state_t state,
         *p_last = waiting;
         if (0u != waiting)
         {
-            tm_printf((UB *)"VC waiting for:%s%s%s%s%s\n",
-                      (0u != (waiting & VC_WAIT_IMU)) ? " IMU" : "",
-                      (0u != (waiting & VC_WAIT_US)) ? " ULTRASONIC" : "",
-                      (0u != (waiting & VC_WAIT_IR)) ? " IR" : "",
-                      (0u != (waiting & VC_WAIT_WIFI)) ? " WIFI" : "",
-                      (0u != (waiting & VC_WAIT_START)) ?
-                      " MQTT_START" : "");
+            /* Off with APP_QUIET_CONSOLE: only the state changes are
+             * always printed. */
+            APP_LOG((UB *)"VC waiting for:%s%s%s%s%s\n",
+                    (0u != (waiting & VC_WAIT_IMU)) ? " IMU" : "",
+                    (0u != (waiting & VC_WAIT_US)) ? " ULTRASONIC" : "",
+                    (0u != (waiting & VC_WAIT_IR)) ? " IR" : "",
+                    (0u != (waiting & VC_WAIT_WIFI)) ? " WIFI" : "",
+                    (0u != (waiting & VC_WAIT_START)) ?
+                    " MQTT_START" : "");
         }
     }
 }
@@ -107,7 +109,7 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
         state = VC_FAULT;
     }
     s1_csv_log_event("VC_STATE", vehicle_controller_state_name(state));
-    tm_printf((UB *)"VC state: %s\n", vehicle_controller_state_name(state));
+    APP_LOG((UB *)"VC state: %s\n", vehicle_controller_state_name(state));
 
     for (;;)
     {
@@ -204,12 +206,16 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
         if (diag_ms >= 2000u)
         {
             diag_ms = 0u;
-            tm_printf((UB *)"VC: %s%s | imu=%d us=%d ir=%d wifi=%d faults=0x%x\n",
-                      vehicle_controller_state_name(state),
-                      (VC_READY == state) ? " (waiting for START)" : "",
-                      (int)inputs.b_imu_ready, (int)inputs.b_ultrasonic_ready,
-                      (int)inputs.b_ir_ready, (int)inputs.b_wifi_connected,
-                      (unsigned int)inputs.fault_mask);
+            /* Off with APP_QUIET_CONSOLE: only the state changes below are
+             * always printed. */
+            APP_LOG((UB *)"VC: %s%s | imu=%d us=%d ir=%d wifi=%d "
+                    "faults=0x%x\n",
+                    vehicle_controller_state_name(state),
+                    (VC_READY == state) ? " (waiting for START)" : "",
+                    (int)inputs.b_imu_ready,
+                    (int)inputs.b_ultrasonic_ready,
+                    (int)inputs.b_ir_ready, (int)inputs.b_wifi_connected,
+                    (unsigned int)inputs.fault_mask);
         }
         if (next != state)
         {
@@ -282,10 +288,15 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
             }
             s1_csv_log_event("VC_STATE",
                              vehicle_controller_state_name(state));
-            /* Always on the serial monitor (the CSV log above is only
-             * printed while a fault is active). */
-            tm_printf((UB *)"VC state: %s\n",
-                      vehicle_controller_state_name(state));
+            /* Always on the serial monitor, even with APP_QUIET_CONSOLE
+             * (the CSV log above is only printed while a fault is active):
+             * the new state, the fault bits (systemFaults.h) and any
+             * STOP / E-STOP command, so it is clear WHY it changed. */
+            tm_printf((UB *)"VC state: %s (faults=0x%x%s%s)\n",
+                      vehicle_controller_state_name(state),
+                      (unsigned int)inputs.fault_mask,
+                      inputs.b_stop ? ", STOP command" : "",
+                      inputs.b_estop ? ", E-STOP command" : "");
         }
         (void)tk_dly_tsk(VC_PERIOD_MS);
     }

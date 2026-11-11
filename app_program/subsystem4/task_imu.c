@@ -725,7 +725,7 @@ static BOOL process_sample(void)
     s4_samples++;
 
 #if S4_PRINT_CSV
-    tm_printf((UB*)"%d,%d,%d,%d,%d,%d,%d,%d\n", (INT)t_ms,
+    APP_LOG((UB*)"%d,%d,%d,%d,%d,%d,%d,%d\n", (INT)t_ms,
               (INT)(a.fwd * 1000.0f), (INT)(a.left * 1000.0f),
               (INT)(a.up * 1000.0f), (INT)(pitch_f * 100.0f),
               (INT)(pitch_rel * 100.0f), (INT)(height_cm * 10.0f), (INT)hump);
@@ -762,7 +762,7 @@ void imu_task(INT stacd, void *exinf)
     (void)exinf;
 
 #if S4_PRINT_CSV
-    tm_printf((UB*)"t_ms,ax_mg,ay_mg,az_mg,pitch_cdeg,prel_cdeg,height_mm,hump\n");
+    APP_LOG((UB*)"t_ms,ax_mg,ay_mg,az_mg,pitch_cdeg,prel_cdeg,height_mm,hump\n");
 #endif
 
     for (;;) {

@@ -231,6 +231,6 @@ IMPORT ID mbf_summary;
 IMPORT ID flg_events;
 
 /* Console output through the kernel's tm_printf (no %f: it has no floats). */
-#define S4_LOG(...)     tm_printf((UB*)"[S4] " __VA_ARGS__)
+#define S4_LOG(...)     APP_LOG((UB*)"[S4] " __VA_ARGS__)   /* off while APP_QUIET_CONSOLE */
 
 #endif /* SUBSYSTEM4_H */
