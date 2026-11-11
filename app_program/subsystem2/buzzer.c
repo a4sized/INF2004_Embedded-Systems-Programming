@@ -42,6 +42,15 @@ EXPORT void buzzer_init(void) {
 }
 
 EXPORT void buzzer_play_tone(uint32_t frequency_hz, uint32_t duration_ms) {
+    if (0u != BUZZER_MUTED)
+    {
+        /* Muted: keep the buzzer off but take the same time as the tone. */
+        gpio_set_pin(BUZZER_PIN, GPIO_MODE_OUT);
+        gpio_set_val(BUZZER_PIN, 0);
+        tk_dly_tsk(duration_ms);
+        return;
+    }
+
     if (frequency_hz == 0) {
         tk_dly_tsk(duration_ms);
         return;
