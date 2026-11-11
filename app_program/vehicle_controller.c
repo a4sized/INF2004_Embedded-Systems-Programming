@@ -17,6 +17,11 @@
 extern UW tm_usb_state (void);
 #endif
 
+/* A START that arrives while the car is still getting ready (INIT or READY)
+ * is kept for this long and used as soon as the car is READY.  After that
+ * it is dropped, so the car never drives off long after START was sent. */
+#define VC_START_HOLD_MS (10000u)
+
 static bool b_wifi_connected;
 
 /* Bits for "what the controller is still waiting for" (startup prints). */
@@ -49,13 +54,15 @@ static void vehicle_controller_print_waiting (vc_state_t state,
         *p_last = waiting;
         if (0u != waiting)
         {
-            tm_printf((UB *)"VC waiting for:%s%s%s%s%s\n",
-                      (0u != (waiting & VC_WAIT_IMU)) ? " IMU" : "",
-                      (0u != (waiting & VC_WAIT_US)) ? " ULTRASONIC" : "",
-                      (0u != (waiting & VC_WAIT_IR)) ? " IR" : "",
-                      (0u != (waiting & VC_WAIT_WIFI)) ? " WIFI" : "",
-                      (0u != (waiting & VC_WAIT_START)) ?
-                      " MQTT_START" : "");
+            /* Off with APP_QUIET_CONSOLE: only the state changes are
+             * always printed. */
+            APP_LOG((UB *)"VC waiting for:%s%s%s%s%s\n",
+                    (0u != (waiting & VC_WAIT_IMU)) ? " IMU" : "",
+                    (0u != (waiting & VC_WAIT_US)) ? " ULTRASONIC" : "",
+                    (0u != (waiting & VC_WAIT_IR)) ? " IR" : "",
+                    (0u != (waiting & VC_WAIT_WIFI)) ? " WIFI" : "",
+                    (0u != (waiting & VC_WAIT_START)) ?
+                    " MQTT_START" : "");
         }
     }
 }
@@ -83,6 +90,9 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
 {
     vc_state_t state = VC_INIT;
     UINT last_waiting = 0u;
+    bool b_start_pending = false;   /* START kept until the car is READY */
+    UINT start_wait_ms = 0u;        /* how long it has been kept         */
+    UINT diag_ms = 0u;      /* DIAGNOSTIC (test only): see the VC print below */
     ir_motion_settings_t const permitted =
     {
         true, IR_START_BASE_SPEED, IR_START_TURN_SPEED, IR_START_MAX_AGE_MS
@@ -106,7 +116,7 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
         state = VC_FAULT;
     }
     s1_csv_log_event("VC_STATE", vehicle_controller_state_name(state));
-    tm_printf((UB *)"VC state: %s\n", vehicle_controller_state_name(state));
+    APP_LOG((UB *)"VC state: %s\n", vehicle_controller_state_name(state));
 
     for (;;)
     {
@@ -192,11 +202,95 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
             b_ready_timer_started = false;
         }
 #endif
+
+        /* START is a one-shot command: keep it while the car is still
+         * getting ready instead of losing it, cancel it on STOP / E-STOP /
+         * CLEAR, and say why when it cannot be used. */
+        if (inputs.b_stop || inputs.b_estop || inputs.b_clear)
+        {
+            b_start_pending = false;
+        }
+        else if (inputs.b_start)
+        {
+            if ((VC_INIT == state) || (VC_READY == state))
+            {
+                b_start_pending = true;
+                start_wait_ms = 0u;
+                if (VC_INIT == state)
+                {
+                    APP_LOG((UB *)"VC: START received, waiting until ready "
+                            "(imu=%d us=%d ir=%d wifi=%d faults=0x%x)\n",
+                            (int)inputs.b_imu_ready,
+                            (int)inputs.b_ultrasonic_ready,
+                            (int)inputs.b_ir_ready,
+                            (int)inputs.b_wifi_connected,
+                            (unsigned int)inputs.fault_mask);
+                }
+            }
+            else
+            {
+                APP_LOG((UB *)"VC: START ignored in state %s%s\n",
+                        vehicle_controller_state_name(state),
+                        ((VC_STOPPED == state) || (VC_FAULT == state)) ?
+                        " (send CLEAR first)" : "");
+            }
+        }
+        else if (b_start_pending)
+        {
+            start_wait_ms += VC_PERIOD_MS;
+            if (start_wait_ms >= VC_START_HOLD_MS)
+            {
+                b_start_pending = false;
+                APP_LOG((UB *)"VC: START dropped, not ready within %u ms "
+                        "(imu=%d us=%d ir=%d wifi=%d faults=0x%x)\n",
+                        (unsigned int)VC_START_HOLD_MS,
+                        (int)inputs.b_imu_ready,
+                        (int)inputs.b_ultrasonic_ready,
+                        (int)inputs.b_ir_ready,
+                        (int)inputs.b_wifi_connected,
+                        (unsigned int)inputs.fault_mask);
+            }
+        }
+        else
+        {
+            /* No START waiting. */
+        }
+        inputs.b_start = b_start_pending;
+
         vehicle_controller_print_waiting(state, &inputs, &last_waiting);
 
         next = vehicle_controller_step(state, &inputs);
+
+        /* The kept START is used up once the car follows, and is void if
+         * the car stopped or faulted instead. */
+        if ((VC_FOLLOWING == next) || (VC_STOPPED == next) ||
+            (VC_FAULT == next))
+        {
+            b_start_pending = false;
+        }
+
+        /* DIAGNOSTIC (test only): every 2 s say what the controller sees, so
+         * it is obvious WHICH condition is stopping the car from following.
+         * Remove this block when the car follows normally. */
+        diag_ms += VC_PERIOD_MS;
+        if (diag_ms >= 2000u)
+        {
+            diag_ms = 0u;
+            /* Off with APP_QUIET_CONSOLE: only the state changes below are
+             * always printed. */
+            APP_LOG((UB *)"VC: %s%s | imu=%d us=%d ir=%d wifi=%d "
+                    "faults=0x%x\n",
+                    vehicle_controller_state_name(state),
+                    (VC_READY == state) ? " (waiting for START)" : "",
+                    (int)inputs.b_imu_ready,
+                    (int)inputs.b_ultrasonic_ready,
+                    (int)inputs.b_ir_ready, (int)inputs.b_wifi_connected,
+                    (unsigned int)inputs.fault_mask);
+        }
         if (next != state)
         {
+            bool const b_was_avoiding = (VC_AVOIDING == state);
+
 #if defined(BUDDY3_IR_MOVING_TEST)
             if ((VC_FOLLOWING == state) && (VC_STOPPED == next))
             {
@@ -243,10 +337,28 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
             }
             if (VC_FOLLOWING == state)
             {
+                bool b_line_on_left = false;
+
                 if (E_OK != ir_motion_consumer_set_following(&permitted))
                 {
                     motion_trigger_safety_halt(FAULT_MOTOR);
                     state = VC_FAULT;
+                }
+                /* Back from a bypass: the line follower starts in its search
+                 * state, toward the side Subsystem 5 says the line is on
+                 * (it tracks at once if the IR sensors are already over
+                 * it), instead of waiting with both sensors off the line. */
+                else if (b_was_avoiding &&
+                         subsystem5_take_line_side(&b_line_on_left) &&
+                         (E_OK !=
+                          ir_motion_consumer_request_search(b_line_on_left)))
+                {
+                    motion_trigger_safety_halt(FAULT_MOTOR);
+                    state = VC_FAULT;
+                }
+                else
+                {
+                    /* Following. */
                 }
             }
             /* Entering AVOIDING: following is already revoked above. Stop
@@ -266,10 +378,15 @@ static void vehicle_controller_task (INT start_code, void * p_extra)
             }
             s1_csv_log_event("VC_STATE",
                              vehicle_controller_state_name(state));
-            /* Always on the serial monitor (the CSV log above is only
-             * printed while a fault is active). */
-            tm_printf((UB *)"VC state: %s\n",
-                      vehicle_controller_state_name(state));
+            /* Always on the serial monitor, even with APP_QUIET_CONSOLE
+             * (the CSV log above is only printed while a fault is active):
+             * the new state, the fault bits (systemFaults.h) and any
+             * STOP / E-STOP command, so it is clear WHY it changed. */
+            tm_printf((UB *)"VC state: %s (faults=0x%x%s%s)\n",
+                      vehicle_controller_state_name(state),
+                      (unsigned int)inputs.fault_mask,
+                      inputs.b_stop ? ", STOP command" : "",
+                      inputs.b_estop ? ", E-STOP command" : "");
         }
         (void)tk_dly_tsk(VC_PERIOD_MS);
     }

@@ -142,13 +142,13 @@ EXPORT INT usermain(void)
 
 	/* tk_ref_ver: ask the kernel who it is */
 	tk_ref_ver(&ver);
-	tm_printf((UB*)"\n=== micro T-Kernel on Raspberry Pi Pico W"
+	APP_LOG((UB*)"\n=== micro T-Kernel on Raspberry Pi Pico W"
 		  " (spec 0x%04x, product 0x%04x) ===\n", ver.spver, ver.prver);
 #if TK_SUPPORT_SMP
-	tm_printf((UB*)"dual-core (SMP) build, usermain on core %d\n",
+	APP_LOG((UB*)"dual-core (SMP) build, usermain on core %d\n",
 		  tk_get_prc() - 1);	/* tk_get_prc() counts from 1 */
 #else
-	tm_printf((UB*)"single-core build\n");
+	APP_LOG((UB*)"single-core build\n");
 #endif
 
     T_CFLG cflg = {0};
@@ -158,7 +158,7 @@ EXPORT INT usermain(void)
     /* FIXED: Actually create the kernel object before checking for errors */
     fault_flag = tk_cre_flg(&cflg); 
     if (fault_flag < E_OK) {
-        tm_printf((UB*)"FATAL: Failed to create fault_flag\n");
+        APP_LOG((UB*)"FATAL: Failed to create fault_flag\n");
     }
 
 	/* Phase 1: every subsystem creates its kernel objects */
@@ -186,7 +186,7 @@ EXPORT INT usermain(void)
 	CHECK(vehicle_controller_start(), "vehicle_controller_start");
 #endif
 
-	tm_printf((UB*)"all subsystems started\n\n");
+	APP_LOG((UB*)"all subsystems started\n\n");
 
 #if APP_TEST
 	/* Test build (make TEST=1): run every subsystem's tests in turn,

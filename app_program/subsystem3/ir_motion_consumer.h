@@ -32,5 +32,14 @@ ER ir_motion_consumer_set_following (ir_motion_settings_t const * p_settings);
  */
 ER ir_motion_consumer_set_paused (bool b_paused);
 
+/** Vehicle Controller handoff after an obstacle bypass: the next cycle that
+ *  follows the line starts in the SEARCH state, turning toward the line
+ *  (b_line_on_left, else right), instead of waiting; if either sensor
+ *  already sees the line it tracks as usual, and still remembers that side
+ *  for its next correction. Call after following is permitted again; a
+ *  revocation cancels it. Task context only.
+ */
+ER ir_motion_consumer_request_search (bool b_line_on_left);
+
 void ir_motion_consumer_task (INT stacd, void * exinf);
 #endif

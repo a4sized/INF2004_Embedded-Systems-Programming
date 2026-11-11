@@ -159,11 +159,11 @@ EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
 #endif
           0))) {
 
-        tm_printf((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
-                  (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
-                  (INT)snap.pitch_deg, (UW)snap.fault_mask,
-                  event_type != NULL ? event_type : "NONE",
-                  details != NULL ? details : "NONE");
+        APP_LOG((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
+                (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
+                (INT)snap.pitch_deg, (UW)snap.fault_mask,
+                event_type != NULL ? event_type : "NONE",
+                details != NULL ? details : "NONE");
     }
 }
 

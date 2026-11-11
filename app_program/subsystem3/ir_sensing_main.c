@@ -363,12 +363,12 @@ static void sensing_task (INT start_code, void * p_extra)
                 char const * p_action =
                     (IR_BARCODE_TURN_LEFT == action) ? "LEFT" :
                     (IR_BARCODE_TURN_RIGHT == action) ? "RIGHT" : "UNMAPPED";
-                tm_printf((UB const *)
-                          "Code 39 decoded: %c pattern_order=%s action=%s\n",
-                          decoded_letter,
-                          (IR_CODE39_FORWARD == scan_direction) ?
-                              "FORWARD" : "REVERSE",
-                          p_action);
+                APP_LOG((UB const *)
+                        "Code 39 decoded: %c pattern_order=%s action=%s\n",
+                        decoded_letter,
+                        (IR_CODE39_FORWARD == scan_direction) ?
+                            "FORWARD" : "REVERSE",
+                        p_action);
                 print_capture(&window);
             }
 #endif
@@ -451,43 +451,43 @@ static void sensing_task (INT start_code, void * p_extra)
 
         if (b_console_ready && !b_console_was_ready)
         {
-            tm_printf((UB const *)"Buddy 3 IR sensing: GP7 left, GP2 right,"
-                      " GP6 barcode.\n"
-                      "Black=1, white=0 for all three sensors."
-                      " Check raw levels if lighting or height changes.\n"
-                      "L/R show raw>stable; B remains raw."
-                      " Timing range is 4000..6000 us.\n"
-                      "Line decisions are diagnostic; no motion request"
-                      " is sent. GP6 edge windows last 2 s.\n");
+            APP_LOG((UB const *)"Buddy 3 IR sensing: GP7 left, GP2 right,"
+                    " GP6 barcode.\n"
+                    "Black=1, white=0 for all three sensors."
+                    " Check raw levels if lighting or height changes.\n"
+                    "L/R show raw>stable; B remains raw."
+                    " Timing range is 4000..6000 us.\n"
+                    "Line decisions are diagnostic; no motion request"
+                    " is sent. GP6 edge windows last 2 s.\n");
         }
 
         if (b_console_ready &&
             ((0u == (samples % IR_PRINT_EVERY)) || !b_console_was_ready))
         {
-            tm_printf((UB const *)
-                      "t=%u ms L=%u>%u/%s R=%u>%u/%s B=%u/%s"
-                      " pos=%s steer=%s lost=%u"
-                      " gap=%u..%u us ok=%u/%u over10ms=%u"
-                      " ir_init_fault=%u late_total=%u\n",
-                      now.lo,
-                      (UW)raw.b_left_high,
-                      (UW)stable.b_left_high,
-                      surface_name(result.left),
-                      (UW)raw.b_right_high,
-                      (UW)stable.b_right_high,
-                      surface_name(result.right),
-                      (UW)raw.b_barcode_high,
-                      surface_name(result.barcode),
-                      position_name(line.position),
-                      steer_name(line.latest_steer),
-                      (UW)line.b_lost,
-                      min_gap_us,
-                      max_gap_us,
-                      in_range,
-                      intervals,
-                      over_limit,
-                      (UW)fault_status.b_gpio_init_failed,
-                      fault_status.gaps_over_limit);
+            APP_LOG((UB const *)
+                    "t=%u ms L=%u>%u/%s R=%u>%u/%s B=%u/%s"
+                    " pos=%s steer=%s lost=%u"
+                    " gap=%u..%u us ok=%u/%u over10ms=%u"
+                    " ir_init_fault=%u late_total=%u\n",
+                    now.lo,
+                    (UW)raw.b_left_high,
+                    (UW)stable.b_left_high,
+                    surface_name(result.left),
+                    (UW)raw.b_right_high,
+                    (UW)stable.b_right_high,
+                    surface_name(result.right),
+                    (UW)raw.b_barcode_high,
+                    surface_name(result.barcode),
+                    position_name(line.position),
+                    steer_name(line.latest_steer),
+                    (UW)line.b_lost,
+                    min_gap_us,
+                    max_gap_us,
+                    in_range,
+                    intervals,
+                    over_limit,
+                    (UW)fault_status.b_gpio_init_failed,
+                    fault_status.gaps_over_limit);
         }
 
         b_console_was_ready = b_console_ready;
@@ -527,11 +527,11 @@ static void print_capture (ir_barcode_window_t const * p_window)
         return;
     }
 
-    tm_printf((UB const *)"Barcode edge window: count=%u invalid=%u"
-              " overflows=%u segments=%s\n",
-              p_window->count, (UW)p_window->b_invalid,
-              ir_barcode_gpio_overflows(),
-              b_candidate ? "PROVISIONAL" : "NONE");
+    APP_LOG((UB const *)"Barcode edge window: count=%u invalid=%u"
+            " overflows=%u segments=%s\n",
+            p_window->count, (UW)p_window->b_invalid,
+            ir_barcode_gpio_overflows(),
+            b_candidate ? "PROVISIONAL" : "NONE");
     if (p_window->b_invalid)
     {
         return;
@@ -545,11 +545,11 @@ static void print_capture (ir_barcode_window_t const * p_window)
         uint32_t const fraction_ppm =
             (b_candidate && (index < segments.count)) ?
             segments.fractions[index] : 0u;
-        tm_printf((UB const *)"  edge=%u t=%u us level=%u"
-                  " duration=%u us fraction=%u ppm\n",
-                  index, p_window->edges[index].time_us,
-                  (UW)p_window->edges[index].b_high,
-                  duration_us, fraction_ppm);
+        APP_LOG((UB const *)"  edge=%u t=%u us level=%u"
+                " duration=%u us fraction=%u ppm\n",
+                index, p_window->edges[index].time_us,
+                (UW)p_window->edges[index].b_high,
+                duration_us, fraction_ppm);
     }
 #elif defined(BUDDY3_IR_MOVING_TEST)
     moving_log_window(p_window, '-', '-',
