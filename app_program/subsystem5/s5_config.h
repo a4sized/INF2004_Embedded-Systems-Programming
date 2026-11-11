@@ -447,11 +447,20 @@
  * at about half the angle, so the wheels must roll about twice as far. */
 #define S5_WHEEL_TRACK_MM           (220u)
 
-/* Each turn of the bypass (out, back to the heading, in, back to the
- * heading), in degrees.  45: quicker than 90 and enough to get round.  The
- * car leaves the line on a slant and comes back on the same slant, so it
- * returns to the line as long as the turns are equal. */
+/* The turns of the bypass going out (out, and back to the heading), in
+ * degrees.  45: quicker than 90 and enough to get round. */
 #define S5_BYPASS_TURN_DEG          (45u)
+
+/* Coming back to the line after passing the obstacle, the car turns in
+ * (and at the line back to the heading) by this percentage of
+ * S5_BYPASS_TURN_DEG: 70, i.e. 30% less (45 -> 32 degrees), a gentler
+ * slant back onto the line.  The return leg is then longer, to cover the
+ * same sideways distance as the out leg (s5_bypass_go_round). */
+#define S5_RETURN_TURN_PERCENT      (70u)
+
+/* Derived: do not edit.  Rounded to the nearest degree. */
+#define S5_RETURN_TURN_DEG          (((S5_BYPASS_TURN_DEG * \
+                                       S5_RETURN_TURN_PERCENT) + 50u) / 100u)
 
 /* ---------------- Line recovery (Stage 5, s5_bypass.c) ---------------- */
 /* Driving back to the line after a bypass, the car watches Subsystem 3's IR

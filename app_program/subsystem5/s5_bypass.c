@@ -24,9 +24,11 @@
  *      back corner, so the car drives S5_PASS_CLEAR_MM (about one car's
  *      length) more, until the whole car is past it. If the side is never
  *      seen, it is taken as a short obstacle: just S5_PASS_CLEAR_MM;
- *   5. turns in S5_BYPASS_TURN_DEG and drives back on the same slant until
- *      Subsystem 3's IR sensors find the line, plus S5_IR_TO_AXLE_MM so the
- *      drive wheels are on it; turns back to the original heading. If the
+ *   5. turns in S5_RETURN_TURN_DEG (a gentler slant than going out) and
+ *      drives back, far enough to cover the same sideways distance as the
+ *      out leg, until Subsystem 3's IR sensors find the line, plus
+ *      S5_IR_TO_AXLE_MM so the drive wheels are on it; turns back to the
+ *      original heading (S5_RETURN_TURN_DEG again). If the
  *      IR sensors are not over the line then, the line follower searches
  *      for it once it has the car back, toward the side it is on
  *      (subsystem5_take_line_side).
@@ -65,6 +67,10 @@
  * the line, turn out. */
 #define MAX_LEGS            (7u)
 
+_Static_assert((S5_RETURN_TURN_DEG >= 5u) &&
+               (S5_RETURN_TURN_DEG <= S5_BYPASS_TURN_DEG),
+               "the return turn must be 5 degrees up to the out turn (the "
+               "return distance divides by sin(return turn))");
 _Static_assert((S5_BYPASS_TURN_DEG >= 5u) && (S5_BYPASS_TURN_DEG <= 90u),
                "bypass turns must be 5..90 degrees (the out-leg clearance "
                "divides by sin(turn))");
@@ -698,17 +704,27 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
     }
     else
     {
+        /* Back to the line on a gentler slant than going out: to cover
+         * the out leg's sideways distance (out x sin(out turn)) it drives
+         * out x sin(out turn) / sin(return turn). Widened to 32 bits:
+         * 65535 x 16384 fits; the cast back is safe for any real leg (the
+         * ratio is at most sin(90) / sin(5), and out legs are well under
+         * a metre). */
+        const uint16_t back_mm = (uint16_t)(
+            ((uint32_t)out_mm * s5_profile_sin_q14(S5_BYPASS_TURN_DEG)) /
+            s5_profile_sin_q14(S5_RETURN_TURN_DEG));
+
         if (b_ok)
         {
-            b_ok = s5_bypass_move(turn_in, S5_BYPASS_TURN_DEG);
+            b_ok = s5_bypass_move(turn_in, S5_RETURN_TURN_DEG);
         }
         if (b_ok)
         {
-            b_ok = s5_bypass_to_line(out_mm);
+            b_ok = s5_bypass_to_line(back_mm);
         }
         if (b_ok)
         {
-            b_ok = s5_bypass_move(turn_out, S5_BYPASS_TURN_DEG);
+            b_ok = s5_bypass_move(turn_out, S5_RETURN_TURN_DEG);
         }
         if (b_ok)
         {
