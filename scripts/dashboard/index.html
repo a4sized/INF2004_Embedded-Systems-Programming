@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>INF2004 Team 15 — Ground Station Telemetry</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="status-pill" id="conn-pill" data-status="connecting">
+          <span class="dot"></span>
+          <span id="conn-label">CONNECTING</span>
+        </div>
+        <div>
+          <h1>INF2004 Team 15 Ground Station</h1>
+          <p class="subtitle">
+            <span>RX: <code id="topic-telem">robot/inf2004team15/telemetry</code></span>
+            <span class="sep">·</span>
+            <span>TX: <code id="topic-cmd">robot/inf2004team15/cmd</code></span>
+          </p>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <form id="broker-form" class="broker-form" autocomplete="off">
+          <label class="sr-only" for="broker-ip">Broker IP</label>
+          <input id="broker-ip" type="text" value="10.33.147.245" placeholder="Broker IP" title="Mosquitto Broker IP">
+          <label class="sr-only" for="broker-port">Port</label>
+          <input id="broker-port" type="number" min="1" max="65535" value="1883" title="MQTT Port">
+          <button type="submit" class="btn btn-secondary">Connect</button>
+        </form>
+
+        <button type="button" id="demo-btn" class="btn btn-toggle" aria-pressed="false" title="Simulate packets without Mosquitto">
+          Demo Sim: OFF
+        </button>
+        <button type="button" id="export-txt-btn" class="btn btn-secondary" title="Export exact decoder terminal log">Export .TXT</button>
+        <button type="button" id="export-csv-btn" class="btn btn-secondary" title="Export decoded packet history CSV">Export .CSV</button>
+        <button type="button" id="reset-btn" class="btn btn-ghost" title="Clear session history & counters">Reset</button>
+      </div>
+    </header>
+
+    <section class="banner-alert hidden" id="error-banner" role="alert"></section>
+
+    <section class="kpi-strip">
+      <div class="kpi-card">
+        <span class="kpi-label">Sequence</span>
+        <strong class="kpi-value mono" id="kpi-seq">#---</strong>
+        <span class="kpi-sub mono" id="kpi-raw-hex">[-- -- -- -- -- -- -- --]</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Packets RX</span>
+        <strong class="kpi-value mono" id="kpi-rx">0</strong>
+        <span class="kpi-sub" id="kpi-invalid">0 invalid frames</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Last Packet Age</span>
+        <strong class="kpi-value mono" id="kpi-age">--</strong>
+        <span class="kpi-sub mono" id="kpi-rx-time">waiting for packet</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Seq Gaps</span>
+        <strong class="kpi-value mono" id="kpi-drops">0</strong>
+        <span class="kpi-sub">expected 1 Hz cadence</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Max Session Hump</span>
+        <strong class="kpi-value mono" id="kpi-max-hump">0 mm</strong>
+        <span class="kpi-sub">S4 peak height</span>
+      </div>
+    </section>
+
+    <main class="grid-main">
+      <!-- State & Faults -->
+      <section class="card card-state">
+        <div class="card-header">
+          <h2>Vehicle & Motion State</h2>
+          <span class="badge mono" id="state-id-badge">ID: -</span>
+        </div>
+        <div class="state-hero" id="state-hero" data-tone="idle">
+          <div class="state-name" id="state-name">WAITING FOR TELEMETRY</div>
+          <div class="state-desc" id="state-desc">No 8-byte binary frame received yet.</div>
+        </div>
+        <div class="sub-label">Recent Transitions</div>
+        <div class="chip-row" id="state-history">
+          <span class="chip muted">None yet</span>
+        </div>
+      </section>
+
+      <section class="card card-faults">
+        <div class="card-header">
+          <h2>Fault Matrix</h2>
+          <span class="badge mono" id="fault-hex-badge">0x000</span>
+        </div>
+        <div class="fault-summary" id="fault-summary" data-tone="ok">NONE (ALL CLEAR)</div>
+        <div class="fault-grid" id="fault-grid"></div>
+      </section>
+
+      <!-- Terrain & Pitch -->
+      <section class="card card-terrain">
+        <div class="card-header">
+          <h2>Terrain & Attitude (S4 IMU)</h2>
+          <span class="badge" id="hump-badge">FLAT (0)</span>
+        </div>
+        <div class="terrain-body">
+          <div class="horizon-box" title="Live robot pitch attitude">
+            <svg viewBox="0 0 220 130" class="horizon-svg" aria-label="Pitch horizon">
+              <line x1="16" y1="95" x2="204" y2="95" class="ground-line" />
+              <g id="car-tilt-group" transform="translate(110 72) rotate(0)">
+                <rect x="-54" y="-18" width="108" height="22" rx="5" class="car-chassis" />
+                <polygon points="-24,-18 -6,-32 24,-32 36,-18" class="car-cabin" />
+                <line x1="36" y1="-7" x2="64" y2="-7" class="car-nose" />
+                <circle cx="-34" cy="8" r="11" class="car-wheel" />
+                <circle cx="34" cy="8" r="11" class="car-wheel" />
+              </g>
+              <text x="110" y="120" text-anchor="middle" class="horizon-label" id="pitch-horizon-text">+0 deg (NOSE LEVEL)</text>
+            </svg>
+          </div>
+          <div class="terrain-metrics">
+            <div class="metric-tile">
+              <span class="metric-label">Pitch Angle</span>
+              <strong class="metric-num mono" id="pitch-value">+0°</strong>
+            </div>
+            <div class="metric-tile">
+              <span class="metric-label">Peak Hump Height</span>
+              <strong class="metric-num mono" id="hump-height-value">0 mm</strong>
+            </div>
+            <div class="metric-tile">
+              <span class="metric-label">Terrain Phase</span>
+              <strong class="metric-sub mono" id="hump-state-value">FLAT (0)</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sensors -->
+      <section class="card card-sensors">
+        <div class="card-header">
+          <h2>Onboard Sensors (S5 / S3)</h2>
+          <span class="badge mono" id="line-bin-badge">0b00000</span>
+        </div>
+
+        <div class="sensor-block">
+          <div class="sensor-row-head">
+            <span>Ultrasonic Obstacle</span>
+            <strong class="mono" id="obstacle-value">511 cm (CLEAR)</strong>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" id="obstacle-bar" style="width: 0%"></div>
+            <div class="bar-marker" style="left: 10%" title="5 cm stop target"></div>
+            <div class="bar-marker detect" style="left: 70%" title="35 cm detect threshold"></div>
+          </div>
+          <div class="bar-legend mono">
+            <span>0 cm</span>
+            <span>5 cm stop</span>
+            <span>35 cm detect</span>
+            <span>50+ cm</span>
+          </div>
+        </div>
+
+        <div class="sensor-split">
+          <div class="sensor-subbox">
+            <div class="sensor-row-head">
+              <span>Line IR Mask (5-bit)</span>
+              <span class="mono muted" id="line-hex-val">0x00</span>
+            </div>
+            <div class="ir-leds" id="ir-leds">
+              <div class="ir-bit"><span class="led"></span><small>B4</small></div>
+              <div class="ir-bit"><span class="led"></span><small>B3</small></div>
+              <div class="ir-bit"><span class="led"></span><small>B2</small></div>
+              <div class="ir-bit"><span class="led"></span><small>B1</small></div>
+              <div class="ir-bit"><span class="led"></span><small>B0</small></div>
+            </div>
+          </div>
+
+          <div class="sensor-subbox">
+            <div class="sensor-row-head">
+              <span>Code 39 Barcode</span>
+              <span class="mono muted" id="barcode-raw-id">id=0</span>
+            </div>
+            <div class="barcode-readout">
+              <span class="barcode-glyph mono" id="barcode-glyph">NONE</span>
+              <div class="barcode-chips" id="barcode-history">
+                <span class="chip muted">No scans</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Rolling Charts -->
+      <section class="card card-charts">
+        <div class="card-header">
+          <h2>Telemetry Trends (Last 90 Packets)</h2>
+          <span class="muted small">Pitch (°), Obstacle (cm capped 60), Hump Height (mm)</span>
+        </div>
+        <div class="charts-grid">
+          <div class="chart-panel">
+            <div class="chart-title"><span>Pitch Angle (°)</span><span class="mono" id="chart-pitch-range">-20..+20°</span></div>
+            <svg id="chart-pitch" viewBox="0 0 420 120" class="chart-svg"></svg>
+          </div>
+          <div class="chart-panel">
+            <div class="chart-title"><span>Ultrasonic Distance (cm, 60+ = clear)</span><span class="mono" id="chart-obs-latest">--</span></div>
+            <svg id="chart-obstacle" viewBox="0 0 420 120" class="chart-svg"></svg>
+          </div>
+          <div class="chart-panel">
+            <div class="chart-title"><span>Peak Hump Height (mm)</span><span class="mono" id="chart-hump-latest">--</span></div>
+            <svg id="chart-hump" viewBox="0 0 420 120" class="chart-svg"></svg>
+          </div>
+        </div>
+      </section>
+
+      <!-- MQTT Command Center -->
+      <section class="card card-cmd">
+        <div class="card-header">
+          <h2>Remote Mission Commands</h2>
+          <div class="mode-switch" role="group" aria-label="Command payload encoding">
+            <button type="button" class="mode-btn active" data-cmd-mode="ascii">ASCII</button>
+            <button type="button" class="mode-btn" data-cmd-mode="binary">1-Byte Binary</button>
+          </div>
+        </div>
+
+        <div class="cmd-buttons">
+          <button type="button" class="btn-cmd start" data-cmd="START">START</button>
+          <button type="button" class="btn-cmd stop" data-cmd="STOP">STOP</button>
+          <button type="button" class="btn-cmd clear" data-cmd="CLEAR">CLEAR</button>
+          <button type="button" class="btn-cmd ping" data-cmd="PING">PING</button>
+          <button type="button" class="btn-cmd estop" data-cmd="ESTOP">E-STOP</button>
+        </div>
+
+        <form id="custom-cmd-form" class="custom-cmd-form">
+          <input id="custom-cmd-input" type="text" placeholder="Custom payload (e.g. INVALID for S1-U14 test)" maxlength="16">
+          <button type="submit" class="btn btn-secondary">Publish</button>
+        </form>
+
+        <div class="cmd-feedback mono" id="cmd-feedback">Ready to publish to robot/inf2004team15/cmd</div>
+        <div class="cmd-log mono" id="cmd-log"></div>
+      </section>
+
+      <!-- Terminal Mirror & Event Log -->
+      <section class="card card-terminal">
+        <div class="card-header">
+          <div class="tab-bar">
+            <button type="button" class="tab-btn active" data-tab="decoder">Terminal Mirror</button>
+            <button type="button" class="tab-btn" data-tab="table">Packet Table</button>
+            <button type="button" class="tab-btn" data-tab="events">Events</button>
+          </div>
+          <div class="term-controls">
+            <label class="chk-label"><input type="checkbox" id="filter-faults"> Faults only</label>
+            <label class="chk-label"><input type="checkbox" id="pause-scroll"> Pause scroll</label>
+          </div>
+        </div>
+
+        <div id="tab-decoder" class="tab-pane active">
+          <pre class="terminal-pre mono" id="terminal-output">Waiting for 8-byte packets on robot/inf2004team15/telemetry...</pre>
+        </div>
+
+        <div id="tab-table" class="tab-pane">
+          <div class="table-wrap">
+            <table class="pkt-table mono">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>SEQ</th>
+                  <th>Raw HEX</th>
+                  <th>State</th>
+                  <th>Terrain</th>
+                  <th>Hump</th>
+                  <th>Pitch</th>
+                  <th>Obstacle</th>
+                  <th>IR</th>
+                  <th>Barcode</th>
+                  <th>Faults</th>
+                </tr>
+              </thead>
+              <tbody id="pkt-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tab-events" class="tab-pane">
+          <div class="event-list mono" id="event-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
