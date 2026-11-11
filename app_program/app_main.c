@@ -62,6 +62,10 @@
 #include "subsystem5/subsystem5.h"
 #include "systemFaults.h"
 #include "vehicle_controller.h"
+#if defined(BUDDY3_WIFI_ONLY_TEST)
+#include "cyw43_utk.h"
+extern UW tm_usb_state (void);
+#endif
 #if defined(BUDDY3_FORCE_MOTOR_TEST)
 #include "motor_force_test.h"
 #endif
@@ -106,6 +110,34 @@ EXPORT ID app_start_task(FP entry, PRI pri, UW prc, const char *name)
 
 EXPORT INT usermain(void)
 {
+#if defined(BUDDY3_WIFI_ONLY_TEST)
+    /* Wi-Fi service starts in the platform kernel. Initialize only the
+     * Gatekeeper objects needed by its link/fault callbacks; leave motors,
+     * sensors, MQTT telemetry and their serial output inactive.
+     */
+    CHECK(subsystem1_init(), "subsystem1_init");
+    for (;;)
+    {
+        /* The one-shot join/link messages may precede opening USB serial.
+         * Repeat the latest radio status so a late monitor still has data.
+         */
+        if (3u == tm_usb_state())
+        {
+            T_CYW43_UTK_STATUS status = {0};
+            cyw43_utk_get_status(&status);
+            tm_printf((UB *)"wifi test: init=%u err=%d link=%d"
+                      " ip=%u.%u.%u.%u polls=%u\n",
+                      (UW)status.init_complete, (INT)status.init_result,
+                      (INT)status.link_status,
+                      (UW)(status.ip_addr & 0xffu),
+                      (UW)((status.ip_addr >> 8u) & 0xffu),
+                      (UW)((status.ip_addr >> 16u) & 0xffu),
+                      (UW)((status.ip_addr >> 24u) & 0xffu),
+                      (UW)status.poll_count);
+        }
+        (void)tk_dly_tsk(1000);
+    }
+#else
 	T_RVER	ver;
 
 	/* tk_ref_ver: ask the kernel who it is */
@@ -172,4 +204,5 @@ EXPORT INT usermain(void)
 	/* Sleep forever.  Returning from usermain() would shut down. */
 	tk_slp_tsk(TMO_FEVR);
 	return 0;
+#endif
 }

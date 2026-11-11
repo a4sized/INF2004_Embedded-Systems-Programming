@@ -20,7 +20,7 @@ bool ir_barcode_segments_make (ir_barcode_window_t const * p_window,
         p_window->edges[p_window->count - 1u].time_us -
         p_window->edges[0].time_us;
 
-    if ((0u == total) || (total > IR_BARCODE_WINDOW_US))
+    if (0u == total)
     {
         return false;
     }

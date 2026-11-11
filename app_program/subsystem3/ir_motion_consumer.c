@@ -4,12 +4,19 @@
 #if defined(BUDDY3_TEAM_IR)
 #include "ir_line_snapshot_shared.h"
 #include "ir_motion_handoff.h"
+#include "ir_junction.h"
 #include "../subsystem2/subsystem2.h"
-#if defined(BUDDY3_IR_MOVING_TEST)
 #include "../subsystem1/subsystem1.h"
-#endif
+#include "../systemFaults.h"
 
 #define IR_MOTION_PERIOD_MS 10u
+/* Keep the wheels even through short line-sensor gaps while reading bars.
+ * A sustained both-white reading still returns control to line recovery.
+ */
+#define IR_BARCODE_WHITE_HOLD_MS 350u
+#if defined(BUDDY3_IR_MOVING_TEST)
+#define IR_TEST_STRAIGHT_MAX_MS 8000u
+#endif
 
 static ID settings_mutex;
 /* Movement stays disabled until the Vehicle Controller explicitly enables it. */
@@ -127,12 +134,20 @@ ER ir_motion_consumer_set_following (ir_motion_settings_t const * p_settings)
 
 void ir_motion_consumer_task (INT stacd, void * exinf)
 {
-    uint32_t last_sequence = 0u;
-    bool b_seen_sequence = false;
     ir_follow_controller_t follow = {0};
+#if defined(BUDDY3_BARCODE_DEBUG)
+    ir_follow_mode_t logged_follow_mode = IR_FOLLOW_WAIT;
+#endif
+#if !defined(BUDDY3_IR_MOVING_TEST)
+    ir_junction_t junction = {0};
+    uint32_t barcode_white_started_ms = 0u;
+    bool b_barcode_white_hold = false;
+#endif
 #if defined(BUDDY3_IR_MOVING_TEST)
     uint32_t diagnostic_cycles = 0u;
+    uint32_t capture_started_ms = 0u;
     bool b_line_seen = false;
+    bool b_capture_started = false;
 #endif
     (void)stacd;
     (void)exinf;
@@ -145,26 +160,32 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
         ir_line_snapshot_t const * p_snapshot = (void *)0;
         ir_motion_target_t target = {0};
         bool b_have_snapshot = false;
+        bool b_time_valid = false;
+#if !defined(BUDDY3_IR_MOVING_TEST)
+        ir_junction_event_t junction_event = IR_JUNCTION_NO_EVENT;
+#endif
 #if defined(BUDDY3_IR_MOVING_TEST)
         bool b_allowed = false;
 #endif
         if (E_OK == tk_loc_mtx(settings_mutex, TMO_FEVR))
         {
             b_have_snapshot = ir_line_snapshot_shared_read(&snapshot);
-            if (b_have_snapshot &&
-                (E_OK == tk_get_tim(&now)) &&
-                ir_motion_snapshot_is_new(&snapshot, last_sequence,
-                                          b_seen_sequence))
+            b_time_valid = b_have_snapshot && (E_OK == tk_get_tim(&now));
+            if (b_time_valid)
             {
+                /* A still-fresh publication remains valid for this cycle.
+                 * Treating an unchanged sequence as NULL reset the ordinary
+                 * loss/search state whenever sensing missed one consumer
+                 * cycle under load. Freshness is checked by the controller.
+                 */
                 p_snapshot = &snapshot;
-                last_sequence = snapshot.sequence;
-                b_seen_sequence = true;
             }
 #if defined(BUDDY3_IR_MOVING_TEST)
             b_allowed = settings.b_follow_allowed;
             if (!settings.b_follow_allowed)
             {
                 b_line_seen = false;
+                b_capture_started = false;
             }
             else if (((void *)0 != p_snapshot) &&
                      (IR_STEERING_AVAILABLE ==
@@ -173,9 +194,24 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
             {
                 b_line_seen = true;
             }
+            if ((void *)0 != p_snapshot)
+            {
+                if (!p_snapshot->b_barcode_capturing)
+                {
+                    b_capture_started = false;
+                }
+                else if (!b_capture_started)
+                {
+                    capture_started_ms = now.lo;
+                    b_capture_started = true;
+                }
+            }
             if (ir_barcode_capture_target(
                     p_snapshot, now.lo, settings.max_age_ms,
-                    settings.b_follow_allowed, b_line_seen,
+                    settings.b_follow_allowed,
+                    b_line_seen && b_capture_started &&
+                    ((uint32_t)(now.lo - capture_started_ms) <=
+                     IR_TEST_STRAIGHT_MAX_MS),
                     settings.base_speed, &target))
             {
                 /* Keep the last tracked side across the barcode. When the
@@ -200,10 +236,54 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
                     settings.turn_speed);
             }
 #else
-            target = ir_follow_controller_update(
-                &follow, p_snapshot, now.lo, settings.max_age_ms,
-                settings.b_follow_allowed, settings.base_speed,
-                settings.turn_speed);
+            if ((NULL != p_snapshot) &&
+                settings.b_follow_allowed &&
+                p_snapshot->b_barcode_capturing &&
+                (IR_LINE_BOTH_WHITE == p_snapshot->position) &&
+                (IR_FOLLOW_TRACK == follow.mode))
+            {
+                if (!b_barcode_white_hold)
+                {
+                    barcode_white_started_ms = now.lo;
+                    b_barcode_white_hold = true;
+                }
+            }
+            else
+            {
+                b_barcode_white_hold = false;
+            }
+            if (ir_junction_update(&junction,
+                                   b_time_valid ? &snapshot : (void *)0,
+                                   now.lo,
+                                   settings.max_age_ms,
+                                   settings.b_follow_allowed,
+                                   settings.base_speed,
+                                   settings.turn_speed, &target,
+                                   &junction_event))
+            {
+                /* Turn and failed states own the request. */
+            }
+            else
+            {
+                if (IR_JUNCTION_TURN_DONE == junction_event)
+                {
+                    ir_follow_controller_reset(&follow);
+                }
+                if (!b_barcode_white_hold ||
+                    ((uint32_t)(now.lo - barcode_white_started_ms) >=
+                     IR_BARCODE_WHITE_HOLD_MS) ||
+                    !ir_barcode_capture_target(
+                        p_snapshot, now.lo, settings.max_age_ms,
+                        settings.b_follow_allowed,
+                        (IR_FOLLOW_TRACK == follow.mode),
+                        settings.base_speed, &target))
+                {
+                    target = ir_follow_controller_update(
+                        &follow, p_snapshot, now.lo, settings.max_age_ms,
+                        settings.b_follow_allowed, settings.base_speed,
+                        settings.turn_speed);
+                }
+            }
 #endif
             s2_set_ir_velocity(target.left, target.right);
             (void)tk_unl_mtx(settings_mutex);
@@ -212,6 +292,60 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
         {
             s2_set_ir_velocity(0, 0);
         }
+#if !defined(BUDDY3_IR_MOVING_TEST)
+        switch (junction_event)
+        {
+            case IR_JUNCTION_ARMED:
+                s1_csv_log_event("JUNCTION_ARMED",
+                                 (IR_BARCODE_TURN_LEFT == junction.action) ?
+                                     "LEFT" : "RIGHT");
+                break;
+            case IR_JUNCTION_TURN_STARTED:
+                /* The letter has become a turn request. Clear the visible
+                 * telemetry value so the next decode is a new instruction.
+                 * The junction sequence number prevents stale rearming.
+                 */
+                s1_set_barcode_id(0u);
+                s1_csv_log_event("JUNCTION_TURN",
+                                 (IR_BARCODE_TURN_LEFT == junction.action) ?
+                                     "LEFT" : "RIGHT");
+                break;
+            case IR_JUNCTION_CROSSING:
+                s1_csv_log_event("JUNCTION_CROSSING", "FORWARD");
+                break;
+            case IR_JUNCTION_TURN_DONE:
+                s1_csv_log_event("JUNCTION_DONE", "LINE_FOUND");
+                break;
+            case IR_JUNCTION_TURN_TIMEOUT:
+                s1_csv_log_event("JUNCTION_TIMEOUT", "LINE_NOT_FOUND");
+                s1_report_fault(FAULT_IR_NAV);
+                break;
+            case IR_JUNCTION_CROSSING_TIMEOUT:
+                s1_csv_log_event("JUNCTION_TIMEOUT", "GP6_NOT_CLEARED");
+                s1_report_fault(FAULT_IR_NAV);
+                break;
+            case IR_JUNCTION_NO_EVENT:
+            default:
+                break;
+        }
+#endif
+#if defined(BUDDY3_BARCODE_DEBUG)
+        if (follow.mode != logged_follow_mode)
+        {
+            char const * p_mode = "WAIT";
+            switch (follow.mode)
+            {
+                case IR_FOLLOW_TRACK: p_mode = "TRACK"; break;
+                case IR_FOLLOW_CORRECT: p_mode = "CORRECT"; break;
+                case IR_FOLLOW_STOPPING: p_mode = "STOPPING"; break;
+                case IR_FOLLOW_SEARCH: p_mode = "SEARCH"; break;
+                case IR_FOLLOW_WAIT:
+                default: break;
+            }
+            s1_csv_log_event("IR_FOLLOW_MODE", p_mode);
+            logged_follow_mode = follow.mode;
+        }
+#endif
 #if defined(BUDDY3_IR_MOVING_TEST)
         if (++diagnostic_cycles >= 50u)
         {

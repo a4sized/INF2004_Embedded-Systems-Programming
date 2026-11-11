@@ -18,6 +18,14 @@ typedef enum
     IR_CODE39_REVERSE
 } ir_code39_direction_t;
 
+/** Validate the first Code 39 asterisk after its ten boundary edges. */
+bool ir_code39_start_marker_seen (ir_barcode_window_t const * p_window);
+
+/** Validate *LETTER* as soon as all 30 edges arrive, before trailing quiet. */
+bool ir_code39_frame_single_with_direction (
+    ir_barcode_window_t const * p_window,
+    char * p_letter, ir_code39_direction_t * p_direction);
+
 /**
  * Decode exactly *LETTER* without a check character. The window must contain
  * 30 alternating edges (15 bars) and a trailing quiet zone at now_us.

@@ -41,13 +41,16 @@ int main (void)
     }
     assert(IR_BARCODE_COMPLETE_EDGES == window.count);
     assert(!window.b_invalid);
+    window.count = 10u;
+    assert(ir_code39_start_marker_seen(&window));
+    window.count = IR_BARCODE_COMPLETE_EDGES;
 
-    uint32_t const capture_deadline = a_edges_us[0] + IR_BARCODE_WINDOW_US;
+    uint32_t const early_quiet = a_edges_us[29] + 100u;
     char letter = '\0';
     ir_code39_direction_t direction = IR_CODE39_FORWARD;
     assert(!ir_code39_decode_single_with_direction(
-        &window, capture_deadline, &letter, &direction));
-    assert(!ir_barcode_window_expired(&window, capture_deadline));
+        &window, early_quiet, &letter, &direction));
+    assert(!ir_barcode_window_expired(&window, early_quiet));
 
     uint32_t const quiet_complete = a_edges_us[29] + 600000u;
     assert(!ir_barcode_window_expired(&window, quiet_complete));
@@ -56,7 +59,7 @@ int main (void)
     assert('A' == letter);
     assert(IR_CODE39_REVERSE == direction);
     assert(ir_barcode_window_expired(
-        &window, a_edges_us[29] + IR_BARCODE_QUIET_GRACE_US));
+        &window, a_edges_us[29] + IR_BARCODE_FINAL_QUIET_MAX_US));
 
     ir_barcode_window_reset(&window);
     ir_barcode_edge_t const first =
@@ -64,7 +67,8 @@ int main (void)
         .time_us = a_edges_us[0], .b_high = true, .b_ambiguous = false
     };
     ir_barcode_window_feed(&window, first);
-    assert(ir_barcode_window_expired(&window, capture_deadline));
+    assert(ir_barcode_window_expired(
+        &window, a_edges_us[0] + IR_BARCODE_EDGE_IDLE_US));
 
     ir_barcode_window_reset(&window);
     for (uint32_t i = 0u; i < IR_BARCODE_COMPLETE_EDGES; ++i)
@@ -78,6 +82,9 @@ int main (void)
         ir_barcode_window_feed(&window, forward_edge);
     }
     assert(!window.b_invalid);
+    window.count = 10u;
+    assert(ir_code39_start_marker_seen(&window));
+    window.count = IR_BARCODE_COMPLETE_EDGES;
     assert(ir_code39_decode_single_with_direction(
         &window, a_forward_edges_us[29] + 600000u, &letter, &direction));
     assert('A' == letter);

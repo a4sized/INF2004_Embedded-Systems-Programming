@@ -23,18 +23,19 @@ int main (void)
     assert(3u == window.count);
     assert(!window.b_invalid);
     assert(60u == (window.edges[1].time_us - window.edges[0].time_us));
-    assert(!ir_barcode_window_expired(&window, 200u + IR_BARCODE_WINDOW_US - 1u));
-    assert(ir_barcode_window_expired(&window, 200u + IR_BARCODE_WINDOW_US));
+    assert(!ir_barcode_window_expired(
+        &window, 300u + IR_BARCODE_EDGE_IDLE_US - 1u));
+    assert(ir_barcode_window_expired(
+        &window, 300u + IR_BARCODE_EDGE_IDLE_US));
 
     ir_barcode_window_reset(&window);
     ir_barcode_window_feed(&window, edge(UINT32_MAX - 100u, true, false));
     ir_barcode_window_feed(&window, edge(50u, false, false));
     assert(151u ==
            (window.edges[1].time_us - window.edges[0].time_us));
-    assert(!ir_barcode_window_expired(&window, 20u));
+    assert(!ir_barcode_window_expired(&window, 60u));
     assert(ir_barcode_window_expired(&window,
-                                     (UINT32_MAX - 100u) +
-                                     IR_BARCODE_WINDOW_US));
+                                     50u + IR_BARCODE_EDGE_IDLE_US));
 
     ir_barcode_window_reset(&window);
     ir_barcode_window_feed(&window, edge(10u, true, false));
@@ -51,7 +52,7 @@ int main (void)
     ir_barcode_window_reset(&window);
     ir_barcode_window_feed(&window, edge(100u, true, false));
     ir_barcode_window_feed(&window,
-                           edge(100u + IR_BARCODE_WINDOW_US + 1u,
+                           edge(100u + IR_BARCODE_EDGE_IDLE_US + 1u,
                                 false, false));
     assert(window.b_invalid);
     ir_barcode_window_reset(&window);

@@ -5,18 +5,12 @@
 #include "ir_barcode_capture.h"
 
 #define IR_BARCODE_COMPLETE_EDGES 30u
-#if defined(BUDDY3_IR_MOVING_TEST)
-/* Diagnostic margin for a slow car; tune from measured moving scans. */
-#define IR_BARCODE_WINDOW_US 8000000u
-#define IR_BARCODE_QUIET_GRACE_US 3000000u
-#elif defined(BUDDY3_TEAM_IR)
-/* Moving Z passes took 2.679 and 2.800 s for 30 edges at 51/255 PWM. */
-#define IR_BARCODE_WINDOW_US 4000000u
-#define IR_BARCODE_QUIET_GRACE_US 1500000u
-#else
-#define IR_BARCODE_WINDOW_US 2000000u
-#define IR_BARCODE_QUIET_GRACE_US 750000u
-#endif
+/* A progressing scan has no fixed total-duration limit. A stalled bar/gap
+ * expires after 2 s; a valid closing marker has enough quiet time for the
+ * decoder's 10-narrow-width rule even at that slowest permitted edge pace.
+ */
+#define IR_BARCODE_EDGE_IDLE_US 2000000u
+#define IR_BARCODE_FINAL_QUIET_MAX_US 21000000u
 
 typedef struct
 {

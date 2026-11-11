@@ -12,7 +12,7 @@ import struct
 import sys
 import paho.mqtt.client as mqtt
 
-BROKER_IP = "10.33.147.245"
+BROKER_IP = "172.20.10.4"
 BROKER_PORT = 1883
 TOPIC_TELEM = "robot/inf2004team15/telemetry"
 
@@ -25,6 +25,7 @@ FAULT_NAMES = {
     (1 << 4): "FAULT_IMU_SENS",
     (1 << 5): "FAULT_WIFI",
     (1 << 6): "FAULT_CMD_REJECTED",
+    (1 << 7): "FAULT_IR_NAV",
 }
 
 # State machine names matching subsystem2.h

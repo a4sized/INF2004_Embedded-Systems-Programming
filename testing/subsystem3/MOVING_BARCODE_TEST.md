@@ -8,9 +8,12 @@ after reading A or Z. Keep the first test track straight beyond the barcode.
 
 ## What this image changes for the test
 
-- GP6 is still polled every 5 ms. The test image allows 8 s for the 30 barcode
-  edges and up to 3 s more for trailing white. These are diagnostic margins,
-  not validated competition timing limits.
+- GP6 is still polled every 5 ms. Capture verifies the opening and closing
+  Code 39 `*` patterns around one letter, without a fixed total crossing
+  time. A 2 s pause between edges cancels an incomplete scan; a complete
+  frame waits for its required trailing white, with a 21 s fallback limit.
+  The test-only straight-motion override ends after at most 8 s even if
+  capture is still active.
 - Before the first GP6 white-to-black edge, the usual line follower owns the
   request. From that edge until decode or capture timeout, the test requests
   equal forward wheel speeds through Subsystem 2, even if both line sensors
@@ -93,10 +96,11 @@ output for each run, including the startup lines and all `LOG_CSV` lines.
    then replace A with Z and do three Z passes. Record each pass as decoded,
    incomplete, rejected or invalid. Also note whether the car stayed on the
    line and the `duration_ms` values of complete captures.
-5. If you see `result=INCOMPLETE` with fewer than 30 edges, the 8 s capture
-   window may still be too short or an edge was missed. `result=REJECTED`
-   means 30 edges arrived but failed Code 39/quiet checks. `INVALID` means
-   malformed edges or overflow. Save that run's full log for diagnosis.
+5. If you see `result=INCOMPLETE` with fewer than 30 edges, the opening
+   marker failed, a 2 s interedge pause occurred, or an edge was missed.
+   `result=REJECTED` means a complete frame or its trailing quiet failed
+   Code 39 checks. `INVALID` means malformed edges or overflow. Save that
+   run's full log for diagnosis.
 
 The next tuning decision uses the largest successful `duration_ms`, any
 incomplete captures and the distance from the barcode to the junction. A

@@ -14,8 +14,8 @@ typedef struct
 } ir_motion_settings_t;
 
 /* Provisional first-run targets in Buddy 2's 0..255 units. */
-#define IR_START_BASE_SPEED 51u  /* 20% of the 0..255 PWM range. */
-#define IR_START_TURN_SPEED 22u
+#define IR_START_BASE_SPEED 51u  /* Trial: 20% of 0..255 PWM. */
+#define IR_START_TURN_SPEED 64u  /* Keep 25% for junction/search torque. */
 #define IR_START_MAX_AGE_MS 20u
 
 /** Create the task-side permission mutex before tasks start. */

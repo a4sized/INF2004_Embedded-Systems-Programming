@@ -148,7 +148,16 @@ EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
         (event_type != NULL &&
          ((event_type[0] == 'C' && event_type[1] == 'M' &&
            event_type[2] == 'D') ||
-          knl_strcmp(event_type, "BARCODE_DECODED") == 0))) {
+          knl_strcmp(event_type, "BARCODE_DECODED") == 0 ||
+          (event_type[0] == 'J' && event_type[1] == 'U' &&
+           event_type[2] == 'N' && event_type[3] == 'C') ||
+#if defined(BUDDY3_BARCODE_DEBUG)
+          (event_type[0] == 'I' && event_type[1] == 'R' &&
+           event_type[2] == '_' &&
+           (event_type[3] == 'B' ||
+            knl_strcmp(event_type, "IR_FOLLOW_MODE") == 0)) ||
+#endif
+          0))) {
 
         tm_printf((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
                   (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
