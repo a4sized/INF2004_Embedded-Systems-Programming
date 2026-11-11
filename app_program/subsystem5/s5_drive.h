@@ -61,4 +61,8 @@ uint32_t s5_drive_ticks_for_mm (const uint16_t distance_mm);
  * Pure function. */
 uint16_t s5_drive_turn_mm (const uint16_t angle_deg);
 
+/* How far (degrees) the turn that ran last actually turned, from the
+ * encoders (to undo a turn that was stopped part-way). */
+uint16_t s5_drive_turned_deg (void);
+
 #endif /* S5_DRIVE_H */

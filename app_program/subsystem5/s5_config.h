@@ -462,6 +462,22 @@
 #define S5_RETURN_TURN_DEG          (((S5_BYPASS_TURN_DEG * \
                                        S5_RETURN_TURN_PERCENT) + 50u) / 100u)
 
+/* While turning in toward the line, the servo stays on the obstacle's side
+ * (S5_PASS_LOOK_OFF_DEG; it faces ahead only for the drive back to the
+ * line), and turning swings the sensor round toward that side.  An echo
+ * this close (cm) in the first part of the turn means the car has not got
+ * past the obstacle yet: it turns back, passes it further and tries again,
+ * as often as it takes (each pass still gives up as too long after
+ * S5_EDGE_MAX_MM).  30: the side is about 10-15 cm from the sensor, while
+ * floor echoes start at about 28 cm. */
+#define S5_RETURN_CHECK_CM          (30u)
+
+/* Once the turn in is this far done (percent of S5_RETURN_TURN_DEG: 50 =
+ * half), an echo no longer stops it: the sensor, 45 degrees off the car's
+ * heading, then looks back past the corner the car has already cleared,
+ * so the car can still get round, and it finishes the turn. */
+#define S5_RETURN_COMMIT_PERCENT    (50u)
+
 /* ---------------- Line recovery (Stage 5, s5_bypass.c) ---------------- */
 /* Driving back to the line after a bypass, the car watches Subsystem 3's IR
  * line sensors (ir_line_snapshot_shared_read()).  It expects the line about

@@ -24,8 +24,14 @@
  *      back corner, so the car drives S5_PASS_CLEAR_MM (about one car's
  *      length) more, until the whole car is past it. If the side is never
  *      seen, it is taken as a short obstacle: just S5_PASS_CLEAR_MM;
- *   5. turns in S5_RETURN_TURN_DEG (a gentler slant than going out) and
- *      drives back, far enough to cover the same sideways distance as the
+ *   5. turns in S5_RETURN_TURN_DEG (a gentler slant than going out), the
+ *      servo still on the obstacle's side: if the obstacle shows up within
+ *      S5_RETURN_CHECK_CM while turning, the car has not got past it, so it
+ *      turns back to the heading, passes it further (step 4) and tries
+ *      again, as often as it takes (s5_bypass_turn_in); an echo once the
+ *      turn is S5_RETURN_COMMIT_PERCENT done no longer stops it. Then, the
+ *      servo facing ahead, it drives back, far enough to cover the same
+ *      sideways distance as the
  *      out leg, until Subsystem 3's IR sensors find the line, plus
  *      S5_IR_TO_AXLE_MM so the drive wheels are on it; turns back to the
  *      original heading (S5_RETURN_TURN_DEG again). If the
@@ -71,6 +77,8 @@ _Static_assert((S5_RETURN_TURN_DEG >= 5u) &&
                (S5_RETURN_TURN_DEG <= S5_BYPASS_TURN_DEG),
                "the return turn must be 5 degrees up to the out turn (the "
                "return distance divides by sin(return turn))");
+_Static_assert(S5_RETURN_COMMIT_PERCENT <= 100u,
+               "the turn-in commit point is a percentage of the turn");
 _Static_assert((S5_BYPASS_TURN_DEG >= 5u) && (S5_BYPASS_TURN_DEG <= 90u),
                "bypass turns must be 5..90 degrees (the out-leg clearance "
                "divides by sin(turn))");
@@ -366,7 +374,8 @@ static bool s5_bypass_along_ping (const bool b_good,
  * side (look_deg) until it has ended, then extra_mm further. If its side is
  * not in view, it is taken as a short obstacle that has already ended (just
  * extra_mm), unless it comes into view on the way. *p_driven_mm receives
- * how far the car went. The servo turns to look ahead again afterwards.
+ * how far the car went. The servo stays on the obstacle's side afterwards
+ * (for the turn in, s5_bypass_turn_in).
  */
 static along_result_t s5_bypass_along (const uint16_t look_deg,
                                        const uint16_t extra_mm,
@@ -382,7 +391,6 @@ static along_result_t s5_bypass_along (const uint16_t look_deg,
     run = s5_bypass_run(S5_MOVE_FORWARD, S5_EDGE_MAX_MM, &hooks);
 
     *p_driven_mm = s5_drive_mm_for_ticks(s5_drive_progress_ticks());
-    s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
 
     if (RUN_DONE != run)
     {
@@ -606,6 +614,108 @@ static void s5_bypass_width_check (const bool b_left, const uint16_t plan_cm)
     }
 }
 
+/* ------------------------------------------------------------------------
+ * Turning in toward the line (step 5), checking it really is passed
+ * ------------------------------------------------------------------------ */
+
+/* Degrees into the turn in from which an echo no longer stops it. */
+#define RETURN_COMMIT_DEG   (((S5_RETURN_TURN_DEG * \
+                               S5_RETURN_COMMIT_PERCENT) + 50u) / 100u)
+
+/* Every reading while turning in: the servo is still turned toward the
+ * obstacle's side (S5_PASS_LOOK_OFF_DEG), and turning in swings the sensor
+ * further round toward it, so the obstacle echoes if the car has not
+ * really got past it. Stop the turn if anything is within
+ * S5_RETURN_CHECK_CM, but only in its first part: from RETURN_COMMIT_DEG
+ * on, the sensor (45 degrees off the car's heading) looks back past the
+ * corner the car has already cleared, so an echo then does not mean the
+ * car is still beside the obstacle, and the turn carries on. *p_ctx (a
+ * bool) keeps that from being reported more than once per turn. */
+static bool s5_bypass_turn_in_ping (const bool b_good,
+                                    const uint16_t distance_mm,
+                                    void * const p_ctx)
+{
+    bool * const   p_b_told    = (bool *)p_ctx;
+    const uint16_t distance_cm = s5_report_mm_to_cm(distance_mm);
+    const bool     b_echo      = (b_good &&
+                                  (distance_cm <= S5_RETURN_CHECK_CM));
+    const bool     b_committed = (s5_drive_turned_deg() >= RETURN_COMMIT_DEG);
+    const bool     b_stop      = (b_echo && (!b_committed));
+
+    if (b_stop)
+    {
+        S5_LOG((UB *)"S5 return: obstacle %u cm ahead while turning in, "
+               "not past it yet\n", (unsigned int)distance_cm);
+        s5_log_event("S5_RETURN", "STILL_BESIDE");
+    }
+    else if (b_echo && (!*p_b_told))
+    {
+        *p_b_told = true;
+        S5_LOG((UB *)"S5 return: echo %u cm, but already turned %u of %u "
+               "deg: carrying on\n", (unsigned int)distance_cm,
+               (unsigned int)s5_drive_turned_deg(),
+               (unsigned int)S5_RETURN_TURN_DEG);
+    }
+    else
+    {
+        /* Nothing near, or already reported. */
+    }
+
+    return b_stop;
+}
+
+/*
+ * Turn in S5_RETURN_TURN_DEG (turn_in) toward the line. If the obstacle
+ * shows up in the first part of the turn (s5_bypass_turn_in_ping), it has
+ * not been passed: turn back to the heading (turn_out, by as far as the car
+ * had turned), drive on past it (s5_bypass_along, look_deg: until its side
+ * ends, then S5_PASS_CLEAR_MM; that leg is logged in *p_legs so a retrace
+ * can undo it) and try again, as often as it takes: each pass leg still
+ * gives up as too long after S5_EDGE_MAX_MM. Returns ALONG_DONE once
+ * turned in, ALONG_TOO_BIG if a pass leg found it too long (retrace),
+ * ALONG_FAILED if a move failed.
+ */
+static along_result_t s5_bypass_turn_in (const s5_move_t turn_in,
+                                         const s5_move_t turn_out,
+                                         const uint16_t look_deg,
+                                         leg_log_t * const p_legs)
+{
+    along_result_t result = ALONG_FAILED;
+    bool           b_more = true;
+
+    while (b_more)
+    {
+        bool               b_told = false;
+        const run_hooks_t  hooks  = { NULL, s5_bypass_turn_in_ping, &b_told };
+        const run_result_t run    = s5_bypass_run(turn_in,
+                                                  S5_RETURN_TURN_DEG, &hooks);
+
+        b_more = false;
+        if (RUN_DONE == run)
+        {
+            result = ALONG_DONE;
+        }
+        else if (RUN_HOOK_STOP != run)
+        {
+            result = ALONG_FAILED;   /* already reported */
+        }
+        else if (!s5_bypass_move(turn_out, s5_drive_turned_deg()))
+        {
+            result = ALONG_FAILED;   /* could not straighten up again */
+        }
+        else
+        {
+            uint16_t more_mm = 0u;
+
+            result = s5_bypass_along(look_deg, S5_PASS_CLEAR_MM, &more_mm);
+            s5_bypass_log_leg(p_legs, S5_MOVE_FORWARD, more_mm);
+            b_more = (ALONG_DONE == result);
+        }
+    }
+
+    return result;
+}
+
 s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
                                   const uint16_t plan_cm,
                                   const uint16_t backup_mm)
@@ -663,7 +773,8 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
     b_ok = ((0u == backup_mm) || s5_bypass_move(S5_MOVE_BACK, backup_mm));
 
     /* The servo stays on the obstacle from the turn out until the car has
-     * passed it, then faces ahead again for the way back to the line. */
+     * passed it and turned in toward the line, then faces ahead for the
+     * way back to the line. */
     if (b_ok)
     {
         s5_sense_servo_to(out_look_deg, S5_LOOK_SIDE);
@@ -692,6 +803,13 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
         s5_bypass_log_leg(&legs, S5_MOVE_FORWARD, pass_mm);
         b_ok  = (ALONG_DONE == along);
     }
+    if (b_ok)
+    {
+        /* Turn in toward the line, the servo still on the obstacle's side:
+         * if it is still there, pass it further and try again. */
+        along = s5_bypass_turn_in(turn_in, turn_out, look_deg, &legs);
+        b_ok  = (ALONG_DONE == along);
+    }
 
     if (ALONG_TOO_BIG == along)
     {
@@ -716,10 +834,10 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
 
         if (b_ok)
         {
-            b_ok = s5_bypass_move(turn_in, S5_RETURN_TURN_DEG);
-        }
-        if (b_ok)
-        {
+            /* Only now face ahead: the path back to the line is watched by
+             * the obstacle guard, which only uses readings taken straight
+             * ahead. */
+            s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
             b_ok = s5_bypass_to_line(back_mm);
         }
         if (b_ok)

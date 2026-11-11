@@ -72,6 +72,22 @@ uint16_t s5_drive_turn_mm (const uint16_t angle_deg)
                        angle_deg) / (PI_DENOMINATOR * DEGREES_PER_TURN));
 }
 
+uint16_t s5_drive_turned_deg (void)
+{
+    /* The inverse of s5_drive_turn_mm, straight from the encoder ticks (not
+     * via whole mm, which loses about a degree): degrees =
+     * ticks x circumference x 360 / (ticks per turn x pi x track), rounded.
+     * Worked in 64 bits: the product is far beyond 32 bits. The cast back is
+     * safe: a turn asked for in 16 bits cannot go much further. */
+    const uint64_t num = (uint64_t)s5_drive_progress_ticks() *
+                         S5_WHEEL_CIRCUM_MM * PI_DENOMINATOR *
+                         DEGREES_PER_TURN;
+    const uint64_t den = (uint64_t)S5_ENCODER_TICKS_PER_REV *
+                         S5_WHEEL_TRACK_MM * PI_NUMERATOR;
+
+    return (uint16_t)((num + (den / 2u)) / den);
+}
+
 /* True for the two turn-on-the-spot moves. */
 static bool s5_drive_is_turn (const s5_move_t move)
 {
