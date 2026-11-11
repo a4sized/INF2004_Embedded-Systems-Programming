@@ -757,6 +757,7 @@ void imu_task(INT stacd, void *exinf)
     BOOL ok = FALSE;        /* is the sensor working? */
     UINT fail = 0;          /* failed reads in a row  */
     UINT tick = 0;          /* samples since the last status message */
+    UINT cal_wait_ms = 0;   /* time since the last failed calibration */
 
     (void)stacd;
     (void)exinf;
@@ -812,6 +813,23 @@ void imu_task(INT stacd, void *exinf)
             s4_fault_set(S4_FAULT_COMM);
             send_fault_msg();
             ok = FALSE;
+        }
+
+        /* Calibration failed (the car was moving during start-up): try it
+         * again every S4_CAL_AGAIN_MS until it works.  The Vehicle Controller
+         * keeps the car in INIT until it does (S4_FLG_CALIBRATED), so the
+         * car is standing still here and nothing is driving it. */
+        if (ok && !calibrated) {
+            cal_wait_ms += S4_SAMPLE_MS;
+            if (cal_wait_ms >= S4_CAL_AGAIN_MS) {
+                cal_wait_ms = 0;
+                S4_LOG("calibration: trying again\n");
+                calibrated = calibrate();       /* the car must be still */
+                if (calibrated) {
+                    (void)tk_set_flg(s4_flg, S4_FLG_CALIBRATED);
+                    reset_filters();
+                }
+            }
         }
         
         /* 3. Calculate time spent in microseconds, convert to milliseconds, and sleep the remainder */

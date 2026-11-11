@@ -48,6 +48,11 @@
 #define S4_CAL_GAP_MS       10
 #define S4_CAL_MAX_RANGE_G  0.05f   /* more spread than this = car is moving */
 #define S4_CAL_RETRIES      3
+#define S4_CAL_AGAIN_MS     3000    /* still uncalibrated after all retries
+                                       (car moved during start-up): try the
+                                       whole calibration again this often,
+                                       so the car does not stay not-ready
+                                       until it is rebooted                 */
 
 /* ------------------------------------------------------------------ *
  *  Filters.  filtered += alpha * (new - filtered): a small alpha is smooth
