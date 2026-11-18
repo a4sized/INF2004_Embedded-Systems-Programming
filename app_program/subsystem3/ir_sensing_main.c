@@ -20,6 +20,9 @@
 #include "ir_line_state.h"
 #include "ir_sensing.h"
 #include "ir_time.h"
+#if defined(BUDDY3_BARCODE_DEBUG)
+#include "../subsystem2/subsystem2.h"
+#endif
 
 #include <stdint.h>
 #include <config.h>
@@ -60,7 +63,8 @@ static void halt_task (void);
 static char * barcode_debug_u32 (char * p_out, uint32_t value);
 static void barcode_debug_reading (char const * p_event,
                                    drv_ir_levels_t raw, uint32_t count,
-                                   uint32_t now_ms);
+                                   uint32_t now_ms, int32_t left_ticks,
+                                   int32_t right_ticks);
 #endif
 #if defined(BUDDY3_IR_MOVING_TEST)
 static void moving_log_window (ir_barcode_window_t const * p_window,
@@ -271,6 +275,13 @@ static void sensing_task (INT start_code, void * p_extra)
         uint32_t const sample_us = ir_time_us();
         ir_fault_status_note_sample(&fault_status, sample_us);
         drv_ir_levels_t const raw = drv_ir_read();
+#if defined(BUDDY3_BARCODE_DEBUG)
+        /* Sample next to the GPIO read, before logging or decoding. These
+         * sequential getter reads are approximate, not an atomic wheel pair.
+         */
+        int32_t const edge_left_ticks = get_left_encoder_ticks();
+        int32_t const edge_right_ticks = get_right_encoder_ticks();
+#endif
         ir_barcode_gpio_poll(raw.b_barcode_high, sample_us);
         SYSTIM now = {0};
         ir_barcode_edge_t edge = {0};
@@ -297,7 +308,8 @@ static void sensing_task (INT start_code, void * p_extra)
             drv_ir_levels_t edge_levels = raw;
             edge_levels.b_barcode_high = edge.b_high;
             barcode_debug_reading("IR_BARCODE_EDGE", edge_levels, window.count,
-                                  edge.time_us / 1000u);
+                                  edge.time_us / 1000u,
+                                  edge_left_ticks, edge_right_ticks);
 #endif
             if (10u == window.count)
             {
@@ -362,7 +374,8 @@ static void sensing_task (INT start_code, void * p_extra)
                     ir_barcode_action_for(decoded_letter);
                 char const * p_action =
                     (IR_BARCODE_TURN_LEFT == action) ? "LEFT" :
-                    (IR_BARCODE_TURN_RIGHT == action) ? "RIGHT" : "UNMAPPED";
+                    (IR_BARCODE_TURN_RIGHT == action) ? "RIGHT" :
+                    (IR_BARCODE_U_TURN == action) ? "UTURN" : "UNMAPPED";
                 APP_LOG((UB const *)
                         "Code 39 decoded: %c pattern_order=%s action=%s\n",
                         decoded_letter,
@@ -442,7 +455,7 @@ static void sensing_task (INT start_code, void * p_extra)
             IR_BARCODE_DEBUG_PERIOD_MS)
         {
             barcode_debug_reading("IR_BARCODE_SAMPLE", raw, window.count,
-                                  now.lo);
+                                  now.lo, edge_left_ticks, edge_right_ticks);
             last_barcode_debug_ms = now.lo;
         }
 #endif
@@ -559,7 +572,7 @@ static void print_capture (ir_barcode_window_t const * p_window)
 #elif defined(BUDDY3_BARCODE_DEBUG)
     if ((0u != p_window->count) && (IR_USB_READY == tm_usb_state()))
     {
-        char details[80];
+        char details[160];
         char * p_out = details;
         char const * p_prefix = "edges=";
         while ('\0' != *p_prefix)
@@ -587,6 +600,23 @@ static void print_capture (ir_barcode_window_t const * p_window)
         p_out = barcode_debug_u32(
             p_out, (p_window->edges[p_window->count - 1u].time_us -
                     p_window->edges[0].time_us) / 1000u);
+        char const * reasons[2] =
+        {
+            ir_code39_frame_reason(p_window, false),
+            ir_code39_frame_reason(p_window, true)
+        };
+        for (uint32_t i = 0u; i < 2u; ++i)
+        {
+            p_prefix = (0u == i) ? ";reasonF=" : ";reasonR=";
+            while ('\0' != *p_prefix) *p_out++ = *p_prefix++;
+            p_prefix = reasons[i];
+            if ((10u == p_window->count) && !p_window->b_invalid &&
+                !ir_code39_start_marker_seen(p_window))
+            {
+                p_prefix = "START_MARKER_REJECTED";
+            }
+            while ('\0' != *p_prefix) *p_out++ = *p_prefix++;
+        }
         *p_out = '\0';
         s1_csv_log_event("IR_BARCODE_WINDOW", details);
     }
@@ -614,11 +644,12 @@ static char * barcode_debug_u32 (char * p_out, uint32_t value)
 
 static void barcode_debug_reading (char const * p_event,
                                    drv_ir_levels_t raw, uint32_t count,
-                                   uint32_t now_ms)
+                                   uint32_t now_ms, int32_t left_ticks,
+                                   int32_t right_ticks)
 {
     if (IR_USB_READY == tm_usb_state())
     {
-        char details[64];
+        char details[112];
         char * p_out = details;
         *p_out++ = 'B';
         *p_out++ = '=';
@@ -639,6 +670,18 @@ static void barcode_debug_reading (char const * p_event,
         *p_out++ = 't';
         *p_out++ = '=';
         p_out = barcode_debug_u32(p_out, now_ms);
+        int32_t const ticks[2] = {left_ticks, right_ticks};
+        for (uint32_t i = 0u; i < 2u; ++i)
+        {
+            *p_out++ = ';';
+            *p_out++ = 'E';
+            *p_out++ = (0u == i) ? 'L' : 'R';
+            *p_out++ = '=';
+            uint32_t const magnitude = (ticks[i] < 0) ?
+                (0u - (uint32_t)ticks[i]) : (uint32_t)ticks[i];
+            if (ticks[i] < 0) *p_out++ = '-';
+            p_out = barcode_debug_u32(p_out, magnitude);
+        }
         *p_out = '\0';
         s1_csv_log_event(p_event, details);
     }

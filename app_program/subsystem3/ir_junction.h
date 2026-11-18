@@ -12,7 +12,8 @@ typedef enum
     IR_JUNCTION_WAIT_BLACK,
     IR_JUNCTION_WAIT_EXIT,
     IR_JUNCTION_TURNING,
-    IR_JUNCTION_FAILED
+    IR_JUNCTION_FAILED,
+    IR_JUNCTION_UTURNING
 } ir_junction_mode_t;
 
 typedef enum
@@ -38,11 +39,18 @@ typedef struct
     uint8_t barcode_phase;
     bool b_seen_decode_sequence;
     bool b_line_confirmed;
+    bool b_uturn_line_timing;
+    uint32_t uturn_line_since_ms;
+    uint32_t uturn_last_sample_ms;
 } ir_junction_t;
 
 #define IR_JUNCTION_LEVEL_SAMPLES 2u
 #define IR_JUNCTION_TIMEOUT_MS 3000u
 #define IR_JUNCTION_CROSSING_TIMEOUT_MS 3000u
+
+/* Sensor-confirmed U-turn: no angle, encoder-distance or GP6 gate. */
+#define IR_UTURN_LINE_STABLE_MS 40u
+#define IR_UTURN_TIMEOUT_MS 8000u
 
 /** Returns true while the junction policy owns the motion request. */
 bool ir_junction_update (ir_junction_t * p_junction,

@@ -244,11 +244,61 @@ bool ir_code39_decode_single (ir_barcode_window_t const * p_window,
                                                    p_letter, NULL);
 }
 
+char const * ir_code39_frame_reason (
+    ir_barcode_window_t const * p_window, bool b_reverse)
+{
+    if (NULL == p_window) return "NO_WINDOW";
+    if (p_window->b_invalid) return "INVALID_CAPTURE";
+    if (p_window->count < CODE39_EDGE_COUNT) return "INCOMPLETE";
+    if (p_window->count > CODE39_EDGE_COUNT) return "EXTRA_EDGES";
+    for (uint32_t i = 0u; i < CODE39_EDGE_COUNT; ++i)
+    {
+        if (p_window->edges[i].b_ambiguous ||
+            (p_window->edges[i].b_high != (0u == (i & 1u))))
+        {
+            return "EDGE_LEVEL";
+        }
+    }
+    uint16_t patterns[3] = {0};
+    uint32_t narrow[3] = {0};
+    char const * const width_reasons[3] =
+        {"START_WIDTH", "DATA_WIDTH", "STOP_WIDTH"};
+    for (uint32_t i = 0u; i < 3u; ++i)
+    {
+        if (!decode_character(p_window, CODE39_EDGE_COUNT, i * 10u,
+                              b_reverse, &patterns[i], &narrow[i]))
+        {
+            return width_reasons[i];
+        }
+    }
+    if (CODE39_ASTERISK != patterns[0]) return "START_PATTERN";
+    if (CODE39_ASTERISK != patterns[2]) return "STOP_PATTERN";
+    uint32_t const mean = (narrow[0] + narrow[1] + narrow[2]) / 3u;
+    for (uint32_t i = 9u; i <= 19u; i += 10u)
+    {
+        uint32_t const gap = edge_duration(p_window, CODE39_EDGE_COUNT,
+                                            i, b_reverse);
+        if ((gap < mean / 2u) || ((uint64_t)gap > (uint64_t)mean * 3u))
+        {
+            return "CHARACTER_GAP";
+        }
+    }
+    for (uint32_t i = 0u; i < 26u; ++i)
+    {
+        if (patterns[1] == code39_letter_patterns[i]) return "VALID";
+    }
+    return "DATA_PATTERN";
+}
+
 ir_barcode_action_t ir_barcode_action_for (char letter)
 {
     if ('W' == letter)
     {
         return IR_BARCODE_TURN_LEFT;
+    }
+    if ('F' == letter)
+    {
+        return IR_BARCODE_U_TURN;
     }
     if ('Z' == letter)
     {

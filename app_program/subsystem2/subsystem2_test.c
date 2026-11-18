@@ -29,11 +29,15 @@ EXPORT void subsystem2_test(void)
            tk_ref_mtx(mtx_motor_intent, &rmtx) == E_OK,
            "Semaphore, MemPool, and Mutex successfully created");
 
+
+
     /* S2-U02: The Priority-Inheritance Mutex must not be locked at startup */
     tk_ref_mtx(mtx_motor_intent, &rmtx);
     TEST_CHECK("S2-U02", 
            rmtx.htsk == 0, 
            "mtx_motor_intent is unlocked and ready for intents");
+
+
 
     /* S2-U03: Verify Arbitrator Input Bounding */
     s2_set_ir_velocity(500, -600); 
@@ -41,10 +45,14 @@ EXPORT void subsystem2_test(void)
            motion_fsm_get_state() != MOTOR_SAFETY_HALT,
            "Arbitrator handles out-of-bounds velocities gracefully without crashing");
 
+
+
     /* S2-U04: Verify FSM boots into the STOPPED state */
     TEST_CHECK("S2-U04",
            motion_fsm_get_state() == MOTOR_STOPPED,
            "FSM boots securely into MOTOR_STOPPED state");
+
+
 
     /* S2-U05: Verify Encoder Getters are encapsulated safely */
     motor_reset_ticks();
@@ -52,16 +60,18 @@ EXPORT void subsystem2_test(void)
            get_left_encoder_ticks() == 0 && get_right_encoder_ticks() == 0,
            "Encoders initialized to 0 and getters function normally");
 
+
+
     /* S2-U06: Active Drive Odometry Test */
     tm_printf((UB*)"\n==========================================\n");
     tm_printf((UB*)" S2-U06: ACTIVE DRIVE PI CONTROLLER TEST\n");
-    tm_printf((UB*)" Pausing for 5 seconds... Place robot on floor!\n");
+    tm_printf((UB*)" Pausing for 7 seconds\n");
     tm_printf((UB*)"==========================================\n");
     
     /* 1. Force motors STOPPED during countdown */
     s2_set_ir_velocity(0, 0);
 
-    /* 2. Wait for 5 seconds */
+    /* 2. Wait for 7 seconds */
     for (int p = 7; p > 0; p--) {
         tm_printf((UB*)"Starting in %d...\n", p);
         tk_dly_tsk(1000);
@@ -75,7 +85,7 @@ EXPORT void subsystem2_test(void)
     s2_set_us_clearance(255);
     s2_set_ir_velocity(255, 255);
     
-    /* 5. Drive for 2 seconds, printing live ticks every 100ms */
+    /* 5. Drive for 1 second, printing live ticks every 100ms */
     for (int i = 0; i < 10; i++) {
         int32_t live_l = get_left_encoder_ticks();
         int32_t live_r = get_right_encoder_ticks();
@@ -102,8 +112,61 @@ EXPORT void subsystem2_test(void)
 
     TEST_CHECK("S2-U06",
            1, 
-           "Active 2-second drive completed and distance calculated");
+           "Active 1-second drive completed and distance calculated");
 
+
+
+    /* S2-U08: Reverse Odometry (Quadrature Polarity Test) */
+    tm_printf((UB*)"\n[S2-U08] Testing reverse odometry (500ms)...\n");
+    s2_set_ir_velocity(0, 0);
+    motor_reset_ticks();
+    s2_set_us_clearance(255);
+    s2_set_ir_velocity(-255, -255); /* Command full reverse */
+    tk_dly_tsk(500);
+    s2_set_ir_velocity(0, 0);
+    tk_dly_tsk(200); /* Wait for momentum to settle */
+    
+    TEST_CHECK("S2-U08",
+           get_left_encoder_ticks() < -50 && get_right_encoder_ticks() < -50,
+           "Encoders correctly track negative ticks during reverse drive");
+
+
+
+    /* S2-U09: Differential Steering (Pivot Left/Right) */
+    tm_printf((UB*)"\n[S2-U09] Testing counter-rotation (pivots)...\n");
+    motor_reset_ticks();
+    
+    s2_set_ir_velocity(-255, 255); /* Pivot Left */
+    tk_dly_tsk(250);
+    s2_set_ir_velocity(255, -255); /* Pivot Right */
+    tk_dly_tsk(250);
+    
+    s2_set_ir_velocity(0, 0);
+    
+    /* If the microcontroller doesn't crash from the H-bridge current flip, it passes */
+    TEST_CHECK("S2-U09", 
+           1, 
+           "Differential steering inputs processed safely");
+
+
+
+    /* S2-U10: Channel Isolation (Crosstalk Test) */
+    tm_printf((UB*)"\n[S2-U10] Testing channel isolation (Left 255, Right 0)...\n");
+    motor_reset_ticks();
+    
+    s2_set_us_clearance(255);
+    s2_set_ir_velocity(255, 0); /* Command left wheel only */
+    tk_dly_tsk(500);
+    
+    s2_set_ir_velocity(0, 0);
+    tk_dly_tsk(200); /* Wait for momentum to settle */
+    
+    TEST_CHECK("S2-U10",
+           get_left_encoder_ticks() > 50 && get_right_encoder_ticks() == 0,
+           "Left encoder counts positive while right encoder remains at exactly 0");
+
+
+           
     TEST_SUMMARY("subsystem2");
 }
 

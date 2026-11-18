@@ -238,3 +238,19 @@ separation was only 1.12, below the 1.4 threshold. No overflow was logged.
 Repeated W/Z decoding and reliable line retention after junction turns
 remain unverified; retain the raw edge logs for comparison with the next
 physical run.
+
+Encoder diagnostic trial (18 November 2026): the networked debug image logs
+signed wheel counters beside GP6 edges and identifies rejection stages in
+both pattern orders. The Code 39 host tests, including the measured Z
+width-overlap rejection, passed with sanitizers and the networked UF2 built.
+Encoder/GPIO alignment, logging load, small/large W/Z capture in both
+directions, and movement during corrections remain untested on the car.
+Distance-based acceptance is not enabled by this diagnostic change.
+
+F U-turn trial (18 November 2026): F now triggers an immediate left pivot
+(-64/+64) without GP6 junction gating. Completion uses a line sensor's
+white-to-black transition and 40 ms stable black, with an 8 s fault timeout.
+Host tests and the networked build passed. Actual pivot direction, reverse
+motor torque, early reacquisition, correct return heading, repeat scanning,
+and fault/obstacle takeover on the car remain untested. No 180-degree gate
+is used, at the user's explicit request.
