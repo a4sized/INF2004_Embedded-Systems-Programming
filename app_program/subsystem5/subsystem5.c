@@ -32,7 +32,9 @@
  *   (subsystem5_set_drive_permission). The car fine scans the obstacle from
  *   where it stopped and decides (reversing and scanning again only while
  *   no edge was found, REVERSE). Then (S5_DRIVE_BYPASS):
- *     LEFT / RIGHT  reverse only as far as needed for room to swing out,
+ *     LEFT / RIGHT  check once more that the obstacle is still in front
+ *                   (if it has been taken away: hand back, no bypass);
+ *                   reverse only as far as needed for room to swing out,
  *                   go round it and back to the line, and hand back,
  *                   saying which side the line is on (the line follower
  *                   searches toward it if the IR sensors are not over
@@ -40,8 +42,11 @@
  *     CONTINUE      the obstacle has gone: hand back;
  *     STOP          too big to get round, or the scan failed: wait
  *                   (held, below).
- *   If going round shows the obstacle is too big after all (too wide or too
- *   long), the car retraces its moves back to the line and waits there.
+ *   Driving out measures the real edge on that side (the fine scan cannot
+ *   always tell which side of a flat face is shorter). If it is too wide
+ *   there, the car retraces its moves back to the line and goes round the
+ *   other side instead (once). If that is too wide as well, or the
+ *   obstacle is too long, it retraces and waits there.
  *   Losing the permission stops any move at once.
  *
  * Held (could not get past)
@@ -83,6 +88,10 @@
 #include "s5_scan.h"
 #include "s5_bypass.h"
 
+_Static_assert((S5_RECHECK_CLEAR_READINGS >= 1u) &&
+               (S5_RECHECK_CLEAR_READINGS <= S5_RECHECK_MAX_READINGS) &&
+               (S5_RECHECK_MAX_READINGS <= 255u),
+               "recheck readings: 1 <= clear <= max <= 255");
 _Static_assert((S5_STOP_TRIGGER_CM < S5_DETECT_RANGE_CM) &&
                (S5_SLOW_DISTANCE_CM <= S5_DETECT_RANGE_CM) &&
                (S5_DETECT_RANGE_CM <= S5_MAX_RANGE_CM),
@@ -126,6 +135,14 @@ static bool gb_avoiding     = false;
  * subsystem5_startup_scan_ready). Written by the scanning task only. */
 static bool gb_forward_reading_seen = false;
 static UW   g_line_side     = LINE_SIDE_NONE;   /* 32-bit aligned (smp.h) */
+
+/* True if a good straight-ahead reading (mm) shows nothing within
+ * S5_STILL_BLOCKED_CM: the obstacle is not (or no longer) in front. */
+static bool s5_path_clear (const uint16_t distance_mm)
+{
+    return ((NO_OBSTACLE == distance_mm) ||
+            (distance_mm > (S5_STILL_BLOCKED_CM * S5_MM_PER_CM)));
+}
 
 /* ------------------------------------------------------------------------
  * Held: could not get past
@@ -173,19 +190,12 @@ static void s5_watch_held (void)
 {
     uint16_t distance_mm = NO_OBSTACLE;
 
-    if (S5_FORWARD_DEG != drv_servo_get_angle())
-    {
-        s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
-    }
+    s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);   /* if turned */
 
     /* A failed or busy reading says nothing: it neither counts nor resets. */
     if (s5_sense_reading(S5_LOOK_AHEAD, false, &distance_mm))
     {
-        const bool b_clear = ((NO_OBSTACLE == distance_mm) ||
-                              (distance_mm >
-                               (S5_STILL_BLOCKED_CM * S5_MM_PER_CM)));
-
-        if (!b_clear)
+        if (!s5_path_clear(distance_mm))
         {
             g_hold_clear_count = 0u;
         }
@@ -221,6 +231,58 @@ static void s5_watch_held (void)
  * ------------------------------------------------------------------------ */
 
 /*
+ * Right before going round: is the obstacle still in front of the car? It
+ * may have been taken away during the fine scan. The sensor faces ahead and
+ * pings every S5_PING_INTERVAL_MS: anything within S5_STILL_BLOCKED_CM means
+ * it is still there (true at once); S5_RECHECK_CLEAR_READINGS good readings
+ * in a row with nothing that close (no echo, or further) mean it has gone
+ * (false). From where the car stops the obstacle echoes reliably, so no
+ * echo here means nothing is there (as when the car waits for an obstacle
+ * to be removed). If no answer comes within S5_RECHECK_MAX_READINGS (the
+ * sensor keeps failing), it is taken as still there: the path cannot be
+ * shown to be clear.
+ */
+static bool s5_obstacle_still_ahead (void)
+{
+    uint8_t clear_count = 0u;
+    bool    b_still     = true;
+    bool    b_decided   = false;
+
+    s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
+
+    for (uint8_t reads = 0u;
+         (!b_decided) && (reads < S5_RECHECK_MAX_READINGS); reads++)
+    {
+        uint16_t distance_mm = NO_OBSTACLE;
+
+        (void)tk_dly_tsk(S5_PING_INTERVAL_MS);
+        if (s5_sense_reading(S5_LOOK_AHEAD, false, &distance_mm))
+        {
+            if (!s5_path_clear(distance_mm))
+            {
+                b_decided = true;   /* still there: b_still stays true */
+            }
+            else if (++clear_count >= S5_RECHECK_CLEAR_READINGS)
+            {
+                b_still   = false;
+                b_decided = true;
+            }
+            else
+            {
+                /* Clear so far: keep looking. */
+            }
+        }
+    }
+
+    tm_printf((UB *)"S5 recheck: %s\n", b_still ?
+              "obstacle still ahead, going round" :
+              "obstacle gone, back to line following");
+    s5_log_event("S5_RECHECK", b_still ? "STILL_THERE" : "GONE");
+
+    return b_still;
+}
+
+/*
  * Carry the decision out (S5_DRIVE_BYPASS, with the drive permission):
  * reverse and scan again while it is REVERSE, then go round or wait.
  * Returns the reason to hold the car, or NULL to hand it back; *p_off_line
@@ -248,14 +310,67 @@ static const char * s5_carry_out (s5_bypass_t decision,
          * only, never move the car on our own. */
         S5_LOG((UB *)"S5 avoiding: no drive permission, decision only\n");
     }
-    else if ((S5_BYPASS_LEFT == decision) || (S5_BYPASS_RIGHT == decision))
+    else if ((S5_BYPASS_LEFT != decision) && (S5_BYPASS_RIGHT != decision))
     {
-        const bool          b_left    = (S5_BYPASS_LEFT == decision);
-        const s5_go_round_t result    = s5_bypass_go_round(
-            decision, s5_avoid_plan_extent(p_profile, b_left),
-            s5_avoid_plan_backup_mm(p_profile, b_left));
+        if (S5_BYPASS_CONTINUE != decision)
+        {
+            p_hold = "no way round the obstacle (too big, or not measured)";
+        }
+        else if (b_reversed)
+        {
+            S5_LOG((UB *)"S5 drive: path clear after reversing\n");
+            s5_drive_resume();
+        }
+        else
+        {
+            /* Gone without reversing: the line follower carries on. */
+        }
+    }
+    else if (!s5_obstacle_still_ahead())
+    {
+        /* Taken away since the scan: nothing to go round. The car is still
+         * on the line, so the line follower simply carries on. */
+    }
+    else
+    {
+        bool           b_left    = (S5_BYPASS_LEFT == decision);
+        const uint16_t backed_mm = s5_avoid_plan_backup_mm(p_profile, b_left);
+        s5_go_round_t  result    = s5_bypass_go_round(
+            decision, s5_avoid_plan_extent(p_profile, b_left), backed_mm);
 
-        if (S5_GO_ROUND_TOO_BIG == result)
+        if ((S5_GO_ROUND_TOO_WIDE == result) && s5_bypass_permitted())
+        {
+            /* The fine scan cannot always tell which side of a flat face is
+             * shorter, so it may have picked the long one: the car is back
+             * on the line where it turned out (already backed_mm back), so
+             * go round the other side once. Its own reversing is counted
+             * from where the car stopped; only the rest is still needed.
+             * If that side needs more than S5_BYPASS_MAX_BACKUP_MM it is
+             * too wide as well. The casts are safe: the subtraction is
+             * guarded to be positive. */
+            const uint16_t other_mm = s5_avoid_plan_backup_mm(p_profile,
+                                                              !b_left);
+
+            b_left = !b_left;
+            if (other_mm > S5_BYPASS_MAX_BACKUP_MM)
+            {
+                result = S5_GO_ROUND_TOO_BIG;
+            }
+            else
+            {
+                tm_printf((UB *)"S5 bypass decision: %s (the other side was "
+                          "too wide)\n", b_left ? "LEFT" : "RIGHT");
+                s5_log_event("S5_BYPASS", b_left ? "LEFT" : "RIGHT");
+                result = s5_bypass_go_round(
+                    b_left ? S5_BYPASS_LEFT : S5_BYPASS_RIGHT,
+                    s5_avoid_plan_extent(p_profile, b_left),
+                    (other_mm > backed_mm) ?
+                        (uint16_t)(other_mm - backed_mm) : 0u);
+            }
+        }
+
+        if ((S5_GO_ROUND_TOO_WIDE == result) ||
+            (S5_GO_ROUND_TOO_BIG == result))
         {
             p_hold = "obstacle too big to get round (found going round it)";
         }
@@ -274,18 +389,6 @@ static const char * s5_carry_out (s5_bypass_t decision,
             (void)atomic_xchg(&g_line_side, b_left ? LINE_SIDE_RIGHT :
                                                      LINE_SIDE_LEFT);
         }
-    }
-    else if (S5_BYPASS_CONTINUE == decision)
-    {
-        if (b_reversed)
-        {
-            S5_LOG((UB *)"S5 drive: path clear after reversing\n");
-            s5_drive_resume();
-        }
-    }
-    else
-    {
-        p_hold = "no way round the obstacle (too big, or not measured)";
     }
 
     return p_hold;
@@ -315,26 +418,21 @@ static void s5_handle_obstacle (void)
     if (0u != S5_CLEARANCE_TEST)
     {
         /* Clearance and decision have been printed: hold the car still
-         * for good (nothing else sets the speed cap after this). */
+         * for good (nothing else sets the speed cap after this) and stay
+         * avoiding. */
         s5_guard_set_hold(true);
         g_scanner.b_test_done = 1u;
+        return;
     }
-    else if (0u != S5_DRIVE_BYPASS)
+
+    if (0u != S5_DRIVE_BYPASS)
     {
         p_hold = s5_carry_out(decision, &profile, &b_off_line);
-    }
-    else
-    {
-        /* Decide only. */
     }
 
     /* The scan and the bypass both end with the servo facing ahead, so the
      * line follower always starts with the sensor watching the path. */
-    if (0u != g_scanner.b_test_done)
-    {
-        /* Clearance test over: stays avoiding for good. */
-    }
-    else if ((NULL != p_hold) && s5_bypass_permitted())
+    if ((NULL != p_hold) && s5_bypass_permitted())
     {
         s5_enter_held(b_off_line, p_hold);
     }

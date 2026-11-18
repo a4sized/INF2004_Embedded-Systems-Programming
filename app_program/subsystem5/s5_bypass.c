@@ -11,11 +11,14 @@
  *      would not change the obstacle's width);
  *   1. turns out S5_BYPASS_TURN_DEG toward that side, the sensor looking
  *      along the original heading, straight at the obstacle's front;
- *   2. drives out on that slant far enough that, once it turns back, its
- *      side clears the planned edge by S5_BYPASS_CLEAR_MARGIN_CM:
- *      (planned edge + half the car's width + margin) / sin(turn). Meanwhile
- *      it watches the front: closer than S5_OUT_LEG_MIN_CM and the obstacle
- *      is wider than planned;
+ *   2. drives out on that slant, the sensor watching the front square-on,
+ *      until the front stops echoing (the sensor has passed the REAL edge:
+ *      the fine scan cannot always tell where a flat face ends), then far
+ *      enough more that, once it turns back, its side clears that edge by
+ *      S5_BYPASS_CLEAR_MARGIN_CM; at most as far as an obstacle
+ *      S5_OBSTACLE_MAX_WIDTH_CM to that side needs. Closer than
+ *      S5_OUT_LEG_MIN_CM, or still there at that most, and it is too wide
+ *      on this side;
  *   3. turns back to the original heading;
  *   4. drives along the obstacle, the sensor turned toward its side
  *      (S5_PASS_LOOK_OFF_DEG off straight ahead, within the fine scan's
@@ -39,12 +42,12 @@
  *      for it once it has the car back, toward the side it is on
  *      (subsystem5_take_line_side).
  *
- * Too big: if the obstacle's front comes within S5_OUT_LEG_MIN_CM on the out
- * leg (too wide: the car's front corner would hit it) or its side has not
- * ended after S5_EDGE_MAX_MM (too long), the bypass is NOT carried on. Every
- * move made so far after step 0 is undone in reverse order (forward legs
- * driven back, turns turned back), so the car ends up on the line where it
- * turned out, and S5_GO_ROUND_TOO_BIG is returned.
+ * Too big: if the obstacle is too wide on this side (step 2) or its side
+ * has not ended after S5_EDGE_MAX_MM (too long), the bypass is NOT carried
+ * on. Every move made so far after step 0 is undone in reverse order
+ * (forward legs driven back, turns turned back), so the car ends up on the
+ * line where it turned out, and S5_GO_ROUND_TOO_WIDE (the other side may
+ * still be passable) or S5_GO_ROUND_TOO_BIG (too long) is returned.
  *
  * Casts in this file: (UB *) only retypes a string literal for the T-Kernel
  * tm_printf() API; (unsigned int) widens values that always fit; (void)
@@ -69,9 +72,11 @@
 
 #define HALF_CAR_CM         ((S5_CAR_WIDTH_CM + 1u) / 2u)   /* rounded up */
 
-/* Most moves in one bypass: turn out, out, turn in, pass, turn in, back to
- * the line, turn out. */
-#define MAX_LEGS            (7u)
+/* Most moves logged for a retrace: turn out, out, turn back, pass. Only
+ * these can come before a retrace (a too-wide out leg or a too-long pass);
+ * every further pass after a turn in that saw the obstacle again is added
+ * to the last pass leg (s5_bypass_log_leg). */
+#define MAX_LEGS            (4u)
 
 _Static_assert((S5_RETURN_TURN_DEG >= 5u) &&
                (S5_RETURN_TURN_DEG <= S5_BYPASS_TURN_DEG),
@@ -186,7 +191,8 @@ static run_result_t s5_bypass_run (const s5_move_t move, const uint16_t amount,
         }
     }
 
-    bool b_done = s5_drive_is_done();
+    /* Latched: the same answer the loop last got, if it was done. */
+    const bool b_done = s5_drive_is_done();
 
     s5_drive_print_result(move, amount, b_done, elapsed_ms);   /* verbose */
     s5_drive_stop();
@@ -245,7 +251,8 @@ typedef enum
 {
     ALONG_DONE = 0,     /* driven as planned (passing: it ended, and the
                          * extra distance driven)                          */
-    ALONG_TOO_BIG,      /* out: front too close; passing: it did not end   */
+    ALONG_TOO_WIDE,     /* out: front too close, or it did not end         */
+    ALONG_TOO_BIG,      /* passing: it did not end (too long)              */
     ALONG_FAILED        /* blocked, timed out or permission withdrawn       */
 } along_result_t;
 
@@ -253,23 +260,54 @@ typedef enum
  * Driving out (step 2)
  * ------------------------------------------------------------------------ */
 
-/* Every reading on the out leg: track where the obstacle's front ends (for
- * the width check) and stop if it is so close that the car's front corner
- * would hit it. */
+typedef struct
+{
+    uint16_t extra_mm;   /* drive this far once the front has ended       */
+    uint16_t max_mm;     /* furthest out: the widest the obstacle can be   */
+    bool     b_ended;    /* the front has (for now) ended                  */
+} out_ctx_t;
+
+/* Every reading on the out leg. The sensor looks along the original
+ * heading, square-on to the obstacle's front, and moves sideways with the
+ * car, so the front stops echoing when the sensor passes its REAL edge
+ * (unlike the fine scan, where a flat face echoes from straight ahead
+ * whatever the servo angle). Once the front has ended, the move ends
+ * extra_mm after the last reading that saw it, so the car's side clears
+ * that edge; if the front shows up again, back to max_mm. It stops at once
+ * if the front is so close that the car's front corner would hit it. */
 static bool s5_bypass_out_ping (const bool b_good, const uint16_t distance_mm,
                                 void * const p_ctx)
 {
-    bool * const   p_b_ended   = (bool *)p_ctx;
-    const uint16_t distance_cm = s5_report_mm_to_cm(distance_mm);
-    bool           b_stop      = false;
+    out_ctx_t * const p_out       = (out_ctx_t *)p_ctx;
+    const uint16_t    distance_cm = s5_report_mm_to_cm(distance_mm);
+    const bool        b_ended     = s5_edge_feed(b_good, distance_cm,
+                                                 s5_drive_progress_ticks());
+    bool              b_stop      = false;
 
-    *p_b_ended = s5_edge_feed(b_good, distance_cm, s5_drive_progress_ticks());
+    if (b_ended && (!p_out->b_ended))
+    {
+        s5_drive_retarget(s5_edge_last_seen_ticks() +
+                          s5_drive_ticks_for_mm(p_out->extra_mm));
+        S5_LOG((UB *)"S5 out: front ends after %u mm, driving %u mm more\n",
+               (unsigned int)s5_drive_mm_for_ticks(s5_edge_last_seen_ticks()),
+               (unsigned int)p_out->extra_mm);
+    }
+    else if ((!b_ended) && p_out->b_ended)
+    {
+        s5_drive_retarget(s5_drive_ticks_for_mm(p_out->max_mm));
+        S5_LOG((UB *)"S5 out: front seen again, carrying on\n");
+    }
+    else
+    {
+        /* No change. */
+    }
+    p_out->b_ended = b_ended;
 
     if (b_good && (distance_cm <= S5_OUT_LEG_MIN_CM))
     {
         b_stop = true;
-        S5_LOG((UB *)"S5 out: obstacle front only %u cm away, wider than "
-               "planned\n", (unsigned int)distance_cm);
+        S5_LOG((UB *)"S5 out: obstacle front only %u cm away, too wide on "
+               "this side\n", (unsigned int)distance_cm);
         s5_log_event("S5_OUT", "TOO_WIDE");
     }
 
@@ -277,33 +315,44 @@ static bool s5_bypass_out_ping (const bool b_good, const uint16_t distance_mm,
 }
 
 /*
- * Drive out on the slant distance_mm, the sensor turned to look along the
- * original heading at the obstacle's front (look_deg). *p_driven_mm
+ * Drive out on the slant until the obstacle's front has ended and then
+ * extra_mm more (at most max_mm if it never ends), the sensor turned to
+ * look along the original heading at the front (look_deg). *p_driven_mm
  * receives how far the car went, *p_b_front_ended whether the sensor saw
- * the front end on the way (for the width check).
+ * the front end (for the width check). ALONG_TOO_WIDE if the front came
+ * too close, or had still not ended at max_mm.
  */
 static along_result_t s5_bypass_out (const uint16_t look_deg,
-                                     const uint16_t distance_mm,
+                                     const uint16_t extra_mm,
+                                     const uint16_t max_mm,
                                      uint16_t * const p_driven_mm,
                                      bool * const p_b_front_ended)
 {
-    const run_hooks_t hooks  = { NULL, s5_bypass_out_ping, p_b_front_ended };
+    out_ctx_t         out    = { extra_mm, max_mm, false };
+    const run_hooks_t hooks  = { NULL, s5_bypass_out_ping, &out };
     along_result_t    result = ALONG_DONE;
     run_result_t      run;
 
-    *p_b_front_ended = false;
     s5_sense_servo_to(look_deg, S5_LOOK_SIDE);
     s5_edge_start(false);
-    run = s5_bypass_run(S5_MOVE_FORWARD, distance_mm, &hooks);
-    *p_driven_mm = s5_drive_mm_for_ticks(s5_drive_progress_ticks());
+    run = s5_bypass_run(S5_MOVE_FORWARD, max_mm, &hooks);
+    *p_driven_mm     = s5_drive_mm_for_ticks(s5_drive_progress_ticks());
+    *p_b_front_ended = (out.b_ended && s5_edge_was_seen());
 
     if (RUN_HOOK_STOP == run)
     {
-        result = ALONG_TOO_BIG;   /* too wide: front too close */
+        result = ALONG_TOO_WIDE;   /* front too close */
     }
     else if (RUN_FAILED == run)
     {
         result = ALONG_FAILED;
+    }
+    else if (!out.b_ended)
+    {
+        result = ALONG_TOO_WIDE;   /* still there at the widest it can be */
+        S5_LOG((UB *)"S5 out: front still there after %u mm, wider than "
+               "it can be\n", (unsigned int)*p_driven_mm);
+        s5_log_event("S5_OUT", "TOO_WIDE");
     }
     else
     {
@@ -537,14 +586,36 @@ typedef struct
     uint8_t   count;
 } leg_log_t;
 
+/* Log one move. The same move straight after the last one is added to it
+ * (passing it further after a turn in found it still beside the car: the
+ * part-way turn in was turned back, so the two pass legs are one straight
+ * line), so the log never fills up however often that happens. The cast
+ * is safe: the sum is clipped to 65535 first. */
 static void s5_bypass_log_leg (leg_log_t * const p_log, const s5_move_t move,
                                const uint16_t amount)
 {
-    if ((0u != amount) && (p_log->count < MAX_LEGS))
+    const uint8_t last = (uint8_t)(p_log->count - 1u);
+
+    if (0u == amount)
+    {
+        /* Nothing moved: nothing to undo. */
+    }
+    else if ((0u != p_log->count) && (move == p_log->move[last]))
+    {
+        const uint32_t sum = (uint32_t)p_log->amount[last] + amount;
+
+        p_log->amount[last] = (sum > 65535u) ? (uint16_t)65535u :
+                                               (uint16_t)sum;
+    }
+    else if (p_log->count < MAX_LEGS)
     {
         p_log->move[p_log->count]   = move;
         p_log->amount[p_log->count] = amount;
         p_log->count++;
+    }
+    else
+    {
+        /* Cannot happen (MAX_LEGS covers every move before a retrace). */
     }
 }
 
@@ -589,8 +660,8 @@ static bool s5_bypass_retrace (const leg_log_t * const p_log)
 }
 
 /*
- * Second measurement of the edge on the chosen side, printed for tuning
- * S5_EDGE_TRIM_DEG: on the out leg the sensor looks along the original
+ * Second measurement of the edge on the chosen side, printed to compare
+ * with the fine scan's: on the out leg the sensor looks along the original
  * heading, square-on to the obstacle's front, so the sideways position at
  * which it last saw the front is where the edge is. It is sensor-to-axle +
  * distance driven (to that point) along the slant, times sin(turn). Call
@@ -716,6 +787,17 @@ static along_result_t s5_bypass_turn_in (const s5_move_t turn_in,
     return result;
 }
 
+/* How far (mm) to drive on the S5_BYPASS_TURN_DEG slant to move
+ * sideways_mm, scaled to S5_OUT_LEG_PERCENT. Widened to 32 bits: 65535 x
+ * 16384 fits; the cast back is safe for any real leg (the divisor is at
+ * least sin(5 deg), static assert, and legs are well under a metre). */
+static uint16_t s5_bypass_slant_mm (const uint16_t sideways_mm)
+{
+    return (uint16_t)(((((uint32_t)sideways_mm << 14) /
+                        s5_profile_sin_q14(S5_BYPASS_TURN_DEG)) *
+                       S5_OUT_LEG_PERCENT) / 100u);
+}
+
 s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
                                   const uint16_t plan_cm,
                                   const uint16_t backup_mm)
@@ -741,19 +823,26 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
                     (uint16_t)(S5_FORWARD_DEG - S5_BYPASS_TURN_DEG);
     /* Out leg (step 2): the car turns about its rear axle, so the axle is
      * still on the line after turning out; every mm then driven on the
-     * slant moves it sin(turn) mm sideways. Once it turns back its side is
-     * half its width from the axle, so it must move the planned edge + half
-     * its width + the margin sideways:
-     *   out = (plan + half width + margin) / sin(turn).
+     * slant moves it sin(turn) mm sideways, and the sensor (ahead of the
+     * axle) is already sensor-to-axle x sin(turn) out. The front stops
+     * echoing when the sensor passes the obstacle's edge; once it turns
+     * back the car's side is half its width from the axle, so from there
+     * the axle must still move half its width + the margin + the sensor's
+     * lead sideways (out_extra_mm). It drives at most as far as the widest
+     * the obstacle can be (S5_OBSTACLE_MAX_WIDTH_CM to one side) needs
+     * (out_max_mm). Both scaled to S5_OUT_LEG_PERCENT.
      * Passing it (step 4, straight): when the sensor loses the side the
      * car drives S5_PASS_CLEAR_MM (about one car's length) more, so the
-     * rest of the car is past the corner before it turns in.
-     * The cast is safe: the cm values are at most a few hundred, so it fits
-     * 16 bits easily (the divisor is at least sin(5 deg), static assert). */
-    const uint16_t  out_mm_plan = (uint16_t)(
-                    ((((uint32_t)plan_cm + HALF_CAR_CM +
-                       S5_BYPASS_CLEAR_MARGIN_CM) * S5_MM_PER_CM) << 14) /
-                    s5_profile_sin_q14(S5_BYPASS_TURN_DEG));
+     * rest of the car is past the corner before it turns in. */
+    const uint16_t  lead_mm      = (uint16_t)(
+                    ((uint32_t)S5_SENSOR_TO_AXLE_CM * S5_MM_PER_CM *
+                     s5_profile_sin_q14(S5_BYPASS_TURN_DEG)) >> 14);
+    const uint16_t  out_extra_mm = s5_bypass_slant_mm(
+                    (uint16_t)(((HALF_CAR_CM + S5_BYPASS_CLEAR_MARGIN_CM) *
+                                S5_MM_PER_CM) + lead_mm));
+    const uint16_t  out_max_mm   = s5_bypass_slant_mm(
+                    (uint16_t)((S5_OBSTACLE_MAX_WIDTH_CM + HALF_CAR_CM +
+                                S5_BYPASS_CLEAR_MARGIN_CM) * S5_MM_PER_CM));
     leg_log_t       legs          = { { S5_MOVE_FORWARD }, { 0u }, 0u };
     along_result_t  along         = ALONG_DONE;
     uint16_t        out_mm        = 0u;
@@ -765,7 +854,7 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
     S5_LOG((UB *)"S5 drive: going round on the %s, edge planned %u cm "
            "out: reversing %u mm, then driving out %u mm\n",
            b_left ? "left" : "right", (unsigned int)plan_cm,
-           (unsigned int)backup_mm, (unsigned int)out_mm_plan);
+           (unsigned int)backup_mm, (unsigned int)out_max_mm);
     s5_guard_set_drive(true);
 
     /* Step 0: only as far back as the out leg needs (not retraced: the car
@@ -777,14 +866,16 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
      * way back to the line. */
     if (b_ok)
     {
+        /* Look at the front during the turn already (s5_bypass_out then
+         * has nothing left to turn). */
         s5_sense_servo_to(out_look_deg, S5_LOOK_SIDE);
         b_ok = s5_bypass_move(turn_out, S5_BYPASS_TURN_DEG);
     }
     if (b_ok)
     {
         s5_bypass_log_leg(&legs, turn_out, S5_BYPASS_TURN_DEG);
-        along = s5_bypass_out(out_look_deg, out_mm_plan, &out_mm,
-                              &b_front_ended);
+        along = s5_bypass_out(out_look_deg, out_extra_mm, out_max_mm,
+                              &out_mm, &b_front_ended);
         if ((ALONG_DONE == along) && b_front_ended)
         {
             s5_bypass_width_check(b_left, plan_cm);
@@ -811,13 +902,14 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
         b_ok  = (ALONG_DONE == along);
     }
 
-    if (ALONG_TOO_BIG == along)
+    if ((ALONG_TOO_WIDE == along) || (ALONG_TOO_BIG == along))
     {
         /* Do not carry on round something this big: go back to the line
          * (only reversing and turning, so the servo may stay turned). */
         if (s5_bypass_retrace(&legs))
         {
-            result = S5_GO_ROUND_TOO_BIG;
+            result = (ALONG_TOO_WIDE == along) ? S5_GO_ROUND_TOO_WIDE :
+                                                 S5_GO_ROUND_TOO_BIG;
         }
     }
     else
@@ -836,7 +928,7 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
         {
             /* Only now face ahead: the path back to the line is watched by
              * the obstacle guard, which only uses readings taken straight
-             * ahead. */
+             * ahead (the call after the bypass then has nothing to do). */
             s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
             b_ok = s5_bypass_to_line(back_mm);
         }
@@ -869,9 +961,15 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
         s5_log_event("S5_DRIVE", b_on_line ? "DONE_ON_LINE" : "DONE_NO_LINE");
         s5_drive_resume();
     }
+    else if (S5_GO_ROUND_TOO_WIDE == result)
+    {
+        S5_LOG((UB *)"S5 drive: too wide on the %s, back on the line\n",
+               b_left ? "left" : "right");
+        s5_log_event("S5_DRIVE", "TOO_WIDE");
+    }
     else if (S5_GO_ROUND_TOO_BIG == result)
     {
-        S5_LOG((UB *)"S5 drive: obstacle too big, back on the line\n");
+        S5_LOG((UB *)"S5 drive: obstacle too long, back on the line\n");
         s5_log_event("S5_DRIVE", "TOO_BIG");
     }
     else

@@ -19,9 +19,10 @@ typedef enum
 {
     S5_GO_ROUND_DONE = 0,   /* round it and back at the line (the IR sensors
                              * over it, or the line follower searches)      */
-    S5_GO_ROUND_TOO_BIG,    /* it turned out too wide or too long to get
-                             * round: the car retraced its moves and is back
-                             * on the line where it started, facing it      */
+    S5_GO_ROUND_TOO_WIDE,   /* too wide on this side: the car retraced its
+                             * moves and is back on the line where it
+                             * started, facing it (try the other side)      */
+    S5_GO_ROUND_TOO_BIG,    /* too long to get round: retraced the same way */
     S5_GO_ROUND_FAILED      /* stopped part-way (blocked, timed out, or the
                              * permission was withdrawn): off the line      */
 } s5_go_round_t;
@@ -36,9 +37,10 @@ bool s5_bypass_back (const uint16_t distance_mm);
 
 /* Go round the obstacle on side (S5_BYPASS_LEFT or S5_BYPASS_RIGHT), then
  * back to the line. plan_cm is the planned edge on that side, in cm from
- * the car's centre line (s5_avoid_plan_extent): the car drives out far
- * enough to clear it. It first reverses backup_mm straight back along the
- * line (s5_avoid_plan_backup_mm; 0 = not at all), for room to swing out.
+ * the car's centre line (s5_avoid_plan_extent), for the log and the width
+ * check: the car drives out by the real edge, which it measures on the
+ * way. It first reverses backup_mm straight back along the line
+ * (s5_avoid_plan_backup_mm; 0 = not at all), for room to swing out.
  * The servo faces ahead again afterwards. */
 s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
                                   const uint16_t plan_cm,
