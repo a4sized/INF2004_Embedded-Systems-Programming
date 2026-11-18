@@ -74,7 +74,8 @@ uint16_t s5_avoid_plan_backup_mm (const s5_profile_t * const p_profile,
  * car's centre line, using the width range S5_OBSTACLE_MIN/MAX_WIDTH_CM:
  * a measured edge as measured (but at least MIN minus the other side); a
  * lower-bound or missing edge as far out as the width allows (MAX minus
- * the other side). The bypass drives out to clear this. Pure function. */
+ * the other side, the other side first reduced by S5_EDGE_SPREAD_CM). The
+ * bypass drives out to clear this. Pure function. */
 uint16_t s5_avoid_plan_extent (const s5_profile_t * const p_profile,
                                const bool b_left);
 

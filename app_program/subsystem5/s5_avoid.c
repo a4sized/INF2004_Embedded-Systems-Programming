@@ -88,17 +88,24 @@ uint16_t s5_avoid_plan_extent (const s5_profile_t * const p_profile,
                                        (uint16_t)p_profile->left_extent_cm;
     const bool     b_exact  = b_left ? (0u != p_profile->b_left_exact) :
                                        (0u != p_profile->b_right_exact);
-    /* The width is MIN..MAX, so this side's edge is at most MAX - other
-     * and at least MIN - other from the centre line. A measured edge is
-     * kept, but never closer than MIN allows; a lower bound (or no edge)
-     * is taken at the furthest MAX allows. The other side's extent is
-     * itself at least the real one, so both limits err on the wide side.
+    /* The width is MIN..MAX, so this side's edge is at least MIN - other
+     * and at most MAX - other from the centre line (other = the real
+     * extent of the other side).
+     * A measured edge is kept, but never closer than MIN allows. The other
+     * side's measured extent is never smaller than its real one (the beam
+     * spread makes it read wide), so MIN - measured is a safe lower limit.
+     * A lower bound (or no edge) is taken at the furthest MAX allows. Here
+     * the other side reading wide would make MAX - measured too SMALL, so
+     * the other side is first reduced by S5_EDGE_SPREAD_CM, the most it
+     * may read too wide: the planned edge then errs on the wide side.
      * The casts are safe: each subtraction is guarded to be positive. */
+    const uint16_t other_lo = (other_cm > S5_EDGE_SPREAD_CM) ?
+                              (uint16_t)(other_cm - S5_EDGE_SPREAD_CM) : 0u;
     const uint16_t limit_cm = b_exact ?
         ((other_cm < S5_OBSTACLE_MIN_WIDTH_CM) ?
          (uint16_t)(S5_OBSTACLE_MIN_WIDTH_CM - other_cm) : 0u) :
-        ((other_cm < S5_OBSTACLE_MAX_WIDTH_CM) ?
-         (uint16_t)(S5_OBSTACLE_MAX_WIDTH_CM - other_cm) : 0u);
+        ((other_lo < S5_OBSTACLE_MAX_WIDTH_CM) ?
+         (uint16_t)(S5_OBSTACLE_MAX_WIDTH_CM - other_lo) : 0u);
 
     return (own_cm > limit_cm) ? own_cm : limit_cm;
 }
@@ -112,14 +119,14 @@ static bool s5_avoid_any_edge (const s5_profile_t * const p_profile)
 }
 
 /* True if the car can go round the obstacle on the left (b_left) or right:
- * an edge was found, and it fits round the planned edge after reversing no
- * more than S5_BYPASS_MAX_BACKUP_MM (0 if it fits from where it is). */
+ * it fits round the planned edge after reversing no more than
+ * S5_BYPASS_MAX_BACKUP_MM (0 if it fits from where it is). Only meaningful
+ * once an edge was found (s5_avoid_any_edge). */
 static bool s5_avoid_side_ok (const s5_profile_t * const p_profile,
                               const bool b_left)
 {
-    return (s5_avoid_any_edge(p_profile) &&
-            (s5_avoid_plan_backup_mm(p_profile, b_left) <=
-             S5_BYPASS_MAX_BACKUP_MM));
+    return (s5_avoid_plan_backup_mm(p_profile, b_left) <=
+            S5_BYPASS_MAX_BACKUP_MM);
 }
 
 /* The car fits round both sides: the side whose planned edge is closer to
@@ -158,9 +165,7 @@ static s5_bypass_t s5_avoid_better_side (const s5_profile_t * const p_profile)
 static s5_bypass_t s5_avoid_from_edges (const s5_profile_t * const p_profile,
                                         const uint8_t reverse_count)
 {
-    const bool  b_left_ok  = s5_avoid_side_ok(p_profile, true);
-    const bool  b_right_ok = s5_avoid_side_ok(p_profile, false);
-    s5_bypass_t decision   = S5_BYPASS_STOP;
+    s5_bypass_t decision = S5_BYPASS_STOP;
 
     if (!s5_avoid_any_edge(p_profile))
     {
@@ -169,22 +174,28 @@ static s5_bypass_t s5_avoid_from_edges (const s5_profile_t * const p_profile,
             decision = S5_BYPASS_REVERSE;
         }
     }
-    else if (b_left_ok && b_right_ok)
-    {
-        decision = s5_avoid_better_side(p_profile);
-    }
-    else if (b_left_ok)
-    {
-        decision = S5_BYPASS_LEFT;
-    }
-    else if (b_right_ok)
-    {
-        decision = S5_BYPASS_RIGHT;
-    }
     else
     {
-        /* Too big to get round even after reversing: stay stopped and wait
-         * for the obstacle to be removed. */
+        const bool b_left_ok  = s5_avoid_side_ok(p_profile, true);
+        const bool b_right_ok = s5_avoid_side_ok(p_profile, false);
+
+        if (b_left_ok && b_right_ok)
+        {
+            decision = s5_avoid_better_side(p_profile);
+        }
+        else if (b_left_ok)
+        {
+            decision = S5_BYPASS_LEFT;
+        }
+        else if (b_right_ok)
+        {
+            decision = S5_BYPASS_RIGHT;
+        }
+        else
+        {
+            /* Too big to get round even after reversing: stay stopped and
+             * wait for the obstacle to be removed. */
+        }
     }
 
     return decision;
