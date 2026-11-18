@@ -11,6 +11,22 @@ static bool is_fresh (ir_line_snapshot_t const * p_snapshot,
            ((uint32_t)(now_ms - p_snapshot->sampled_at_ms) <= max_age_ms);
 }
 
+void ir_junction_note_odometry (ir_junction_t * p_junction,
+                                int32_t left_ticks, int32_t right_ticks)
+{
+    p_junction->left_ticks = left_ticks;
+    p_junction->right_ticks = right_ticks;
+    p_junction->b_odometry_ready = true;
+}
+
+/* Signed modular difference for short moves across encoder rollover. */
+static int64_t tick_delta (int32_t current, int32_t start)
+{
+    uint32_t const delta = (uint32_t)current - (uint32_t)start;
+    return (delta <= INT32_MAX) ? (int64_t)delta :
+                                 (int64_t)delta - 4294967296LL;
+}
+
 bool ir_junction_update (ir_junction_t * p_junction,
                          ir_line_snapshot_t const * p_snapshot,
                          uint32_t now_ms, uint32_t max_age_ms,
@@ -53,14 +69,8 @@ bool ir_junction_update (ir_junction_t * p_junction,
                 {
                     p_junction->mode = IR_JUNCTION_UTURNING;
                     p_junction->turn_started_ms = now_ms;
-                    p_junction->white_seen_mask = 0u;
-                    p_junction->b_uturn_line_timing = false;
-                    if ((uint32_t)(p_snapshot->sampled_at_ms -
-                     p_junction->uturn_last_sample_ms) > max_age_ms)
-                {
-                    p_junction->b_uturn_line_timing = false;
-                }
-                p_junction->uturn_last_sample_ms = p_snapshot->sampled_at_ms;
+                    p_junction->start_left_ticks = p_junction->left_ticks;
+                    p_junction->start_right_ticks = p_junction->right_ticks;
                     *p_event = IR_JUNCTION_TURN_STARTED;
                 }
             }
@@ -113,53 +123,35 @@ bool ir_junction_update (ir_junction_t * p_junction,
             break;
         case IR_JUNCTION_UTURNING:
         {
-            if ((uint32_t)(now_ms - p_junction->turn_started_ms) >=
-                IR_UTURN_TIMEOUT_MS)
+            int64_t const left = tick_delta(p_junction->left_ticks,
+                                            p_junction->start_left_ticks);
+            int64_t const right = tick_delta(p_junction->right_ticks,
+                                             p_junction->start_right_ticks);
+            if (!p_junction->b_odometry_ready ||
+                ((uint32_t)(now_ms - p_junction->turn_started_ms) >=
+                 IR_UTURN_TIMEOUT_MS))
             {
                 p_junction->mode = IR_JUNCTION_FAILED;
                 *p_event = IR_JUNCTION_TURN_TIMEOUT;
-                break;
             }
-            if (p_snapshot->sampled_at_ms != p_junction->uturn_last_sample_ms)
+            else if ((left < 0) && (right > 0) &&
+                     ((right - left) >= (int64_t)IR_UTURN_WHEEL_TICKS * 2))
             {
-                if ((uint32_t)(p_snapshot->sampled_at_ms -
-                     p_junction->uturn_last_sample_ms) > max_age_ms)
-                {
-                    p_junction->b_uturn_line_timing = false;
-                }
-                p_junction->uturn_last_sample_ms = p_snapshot->sampled_at_ms;
-                bool const lb = IR_SURFACE_BLACK == p_snapshot->left_surface;
-                bool const rb = IR_SURFACE_BLACK == p_snapshot->right_surface;
-                bool const reacquired =
-                    (lb && (0u != (p_junction->white_seen_mask & 1u))) ||
-                    (rb && (0u != (p_junction->white_seen_mask & 2u)));
-                if (!lb) p_junction->white_seen_mask |= 1u;
-                if (!rb) p_junction->white_seen_mask |= 2u;
-                if (reacquired)
-                {
-                    if (!p_junction->b_uturn_line_timing)
-                    {
-                        p_junction->b_uturn_line_timing = true;
-                        p_junction->uturn_line_since_ms =
-                            p_snapshot->sampled_at_ms;
-                    }
-                    if ((uint32_t)(p_snapshot->sampled_at_ms -
-                          p_junction->uturn_line_since_ms) >=
-                        IR_UTURN_LINE_STABLE_MS)
-                    {
-                        p_junction->mode = IR_JUNCTION_IDLE;
-                        p_junction->action = IR_BARCODE_NO_ACTION;
-                        *p_event = IR_JUNCTION_TURN_DONE;
-                        return false; /* Consumer resets ordinary following. */
-                    }
-                }
-                else
-                {
-                    p_junction->b_uturn_line_timing = false;
-                }
+                p_junction->mode = IR_JUNCTION_UTURN_SETTLING;
+                p_junction->uturn_stop_ms = now_ms;
             }
             break;
         }
+        case IR_JUNCTION_UTURN_SETTLING:
+            if ((uint32_t)(now_ms - p_junction->uturn_stop_ms) >=
+                IR_UTURN_SETTLE_MS)
+            {
+                p_junction->mode = IR_JUNCTION_IDLE;
+                p_junction->action = IR_BARCODE_NO_ACTION;
+                *p_event = IR_JUNCTION_UTURN_DONE;
+                return false;
+            }
+            break;
         case IR_JUNCTION_TURNING:
         {
             bool const b_left_black =
@@ -238,13 +230,11 @@ bool ir_junction_update (ir_junction_t * p_junction,
         }
     }
 
-    if (IR_JUNCTION_UTURNING == p_junction->mode)
+    if ((IR_JUNCTION_UTURNING == p_junction->mode) ||
+        (IR_JUNCTION_UTURN_SETTLING == p_junction->mode))
     {
         *p_target = (ir_motion_target_t){ .status = IR_STEERING_AVAILABLE };
-        /* Pause on reacquisition while checking stable black. A flicker
-         * back to white resumes the pivot until the overall timeout.
-         */
-        if (!p_junction->b_uturn_line_timing)
+        if (IR_JUNCTION_UTURNING == p_junction->mode)
         {
             p_target->left = -(int16_t)turn_speed;
             p_target->right = (int16_t)turn_speed;

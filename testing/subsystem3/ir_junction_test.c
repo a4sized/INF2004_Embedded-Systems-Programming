@@ -231,59 +231,78 @@ static void test_uturn (void)
     ir_line_snapshot_t snapshot = {0};
     snapshot.b_ready = true;
     snapshot.b_gpio_ready = true;
-    snapshot.barcode_surface = IR_SURFACE_BLACK; /* GP6 cannot delay F. */
+    snapshot.barcode_surface = IR_SURFACE_BLACK;
     snapshot.left_surface = IR_SURFACE_BLACK;
     snapshot.right_surface = IR_SURFACE_BLACK;
     snapshot.barcode_decode_sequence = 1u;
     snapshot.decoded_letter = 'F';
+    int32_t const goal = (int32_t)IR_UTURN_WHEEL_TICKS;
+    ir_junction_note_odometry(&junction, 1000, 2000);
     tick(&junction, &snapshot, 0u, true, true, -64, 64,
          IR_JUNCTION_TURN_STARTED);
+    /* Driving straight must not count as a half-turn. */
+    ir_junction_note_odometry(&junction, 1000 + goal, 2000 + goal);
     tick(&junction, &snapshot, 10u, true, true, -64, 64,
-         IR_JUNCTION_NO_EVENT); /* Initial black is not confirmation. */
+         IR_JUNCTION_NO_EVENT);
+    ir_junction_note_odometry(&junction, 1000 - goal / 2, 2000 + goal / 2);
     snapshot.left_surface = IR_SURFACE_WHITE;
     snapshot.right_surface = IR_SURFACE_WHITE;
     tick(&junction, &snapshot, 20u, true, true, -64, 64,
          IR_JUNCTION_NO_EVENT);
-    snapshot.right_surface = IR_SURFACE_BLACK;
-    tick(&junction, &snapshot, 30u, true, true, 0, 0,
+    snapshot.left_surface = IR_SURFACE_BLACK; /* Early reacquisition ignored. */
+    tick(&junction, &snapshot, 30u, true, true, -64, 64,
          IR_JUNCTION_NO_EVENT);
-    snapshot.right_surface = IR_SURFACE_WHITE;
+    ir_junction_note_odometry(&junction, 1000 - goal + 1, 2000 + goal - 1);
     tick(&junction, &snapshot, 40u, true, true, -64, 64,
-         IR_JUNCTION_NO_EVENT); /* Brief black must not finish. */
-    snapshot.left_surface = IR_SURFACE_BLACK;
+         IR_JUNCTION_NO_EVENT);
+    snapshot.left_surface = IR_SURFACE_WHITE;
+    ir_junction_note_odometry(&junction, 1000 - goal, 2000 + goal);
     tick(&junction, &snapshot, 50u, true, true, 0, 0,
+         IR_JUNCTION_NO_EVENT); /* Finishes encoder rotation with NO black. */
+    assert(IR_JUNCTION_UTURN_SETTLING == junction.mode);
+    tick(&junction, &snapshot, 249u, true, true, 0, 0,
          IR_JUNCTION_NO_EVENT);
-    tick(&junction, &snapshot, 60u, true, true, 0, 0,
+    tick(&junction, &snapshot, 250u, true, false, 0, 0,
+         IR_JUNCTION_UTURN_DONE);
+    tick(&junction, &snapshot, 260u, true, false, 0, 0,
          IR_JUNCTION_NO_EVENT);
-    tick(&junction, &snapshot, 70u, true, true, 0, 0,
-         IR_JUNCTION_NO_EVENT);
-    tick(&junction, &snapshot, 80u, true, true, 0, 0,
-         IR_JUNCTION_NO_EVENT);
-    tick(&junction, &snapshot, 90u, true, false, 0, 0,
-         IR_JUNCTION_TURN_DONE);
-    tick(&junction, &snapshot, 100u, true, false, 0, 0,
-         IR_JUNCTION_NO_EVENT); /* Consumed F does not restart. */
 
     snapshot.barcode_decode_sequence = 2u;
-    tick(&junction, &snapshot, 110u, true, true, -64, 64,
+    tick(&junction, &snapshot, 300u, true, true, -64, 64,
          IR_JUNCTION_TURN_STARTED);
-    tick(&junction, &snapshot, 8110u, true, true, 0, 0,
+    tick(&junction, &snapshot, 8300u, true, true, 0, 0,
          IR_JUNCTION_TURN_TIMEOUT);
-    tick(&junction, &snapshot, 8120u, true, true, 0, 0,
+    tick(&junction, &snapshot, 8310u, true, true, 0, 0,
          IR_JUNCTION_NO_EVENT);
-    tick(&junction, &snapshot, 8130u, false, false, 0, 0,
+    tick(&junction, &snapshot, 8320u, false, false, 0, 0,
          IR_JUNCTION_NO_EVENT);
     snapshot.barcode_decode_sequence = 3u;
-    tick(&junction, &snapshot, 8140u, true, true, -64, 64,
+    tick(&junction, &snapshot, 8330u, true, true, -64, 64,
          IR_JUNCTION_TURN_STARTED);
-    /* Stale readings cancel output; the same F cannot restart on recovery. */
     ir_motion_target_t target = {0};
     ir_junction_event_t event = IR_JUNCTION_NO_EVENT;
-    assert(!ir_junction_update(&junction, &snapshot, 8161u, 20u, true,
+    assert(!ir_junction_update(&junction, &snapshot, 8351u, 20u, true,
                               64u, 64u, &target, &event));
     assert(0 == target.left && 0 == target.right);
-    tick(&junction, &snapshot, 8170u, true, false, 0, 0,
+    tick(&junction, &snapshot, 8360u, true, false, 0, 0,
          IR_JUNCTION_NO_EVENT);
+
+    /* Signed wheel totals may wrap during a pivot. */
+    ir_junction_note_odometry(&junction, INT32_MIN + 10, INT32_MAX - 10);
+    snapshot.barcode_decode_sequence = 4u;
+    tick(&junction, &snapshot, 8400u, true, true, -64, 64,
+         IR_JUNCTION_TURN_STARTED);
+    ir_junction_note_odometry(&junction, INT32_MAX - goal + 11,
+                              INT32_MIN + goal - 11);
+    tick(&junction, &snapshot, 8500u, true, true, 0, 0,
+         IR_JUNCTION_NO_EVENT);
+    tick(&junction, &snapshot, 8700u, true, false, 0, 0,
+         IR_JUNCTION_UTURN_DONE);
+
+    /* No supplied odometry must stop rather than execute a blind pivot. */
+    junction = (ir_junction_t){0};
+    tick(&junction, &snapshot, 8800u, true, true, 0, 0,
+         IR_JUNCTION_TURN_TIMEOUT);
 }
 
 int main (void)
