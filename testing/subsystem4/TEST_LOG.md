@@ -41,6 +41,8 @@ and do not touch it for about 8 seconds. They are in `app_program/subsystem4/sub
 | S4-U33 | the reason follows the tilt: lifted (`PICKED_UP`, 6), turned over in the hand (`OVERTURNED`, 7), turned back up (`PICKED_UP`, 6), put down (`PUT_DOWN`); only one halt is sent | IF-09, IF-10, lift detection | auto (PC) | scenario 3g of `./run_sim.sh` | `ALL PASSED`; events: `PICKED_UP` twice, `OVERTURNED` once, `PUT_DOWN` once |
 | S4-U29 | a wrongly mounted board (reads upside down) is not reported as overturned: with no calibration the detector is off | lift detection | auto (PC) | scenario 6 of `./run_sim.sh` | `ALL PASSED` |
 | S4-U23 | the encoder counters are zeroed in the middle of a hump (as `motor_reset_ticks()` would do): the hump is still measured, because one step of more than 5 cm per 20 ms is ignored | IF-06, hump measurement | auto (PC) | scenario 2b of `./run_sim.sh` | `ALL PASSED`: the 30 mm hump reads 29 mm (without the guard it read 19 mm) |
+| S4-U34 | a hump under ONE rear wheel (tricycle: front wheel stays down, nose never goes up, the car rolls), right and left: exactly one hump, height within ±20% of the true 15 mm from the roll and the track width; and the control run with the roll detector off (`S4_SIDE_ENABLE 0`) sees nothing, proving the old detector could not | IF-01, hump measurement | auto (PC) | scenarios 7, 7a and 7b of `./run_sim.sh` | all print `ALL PASSED`; the right and left humps read 14 to 15 mm, the control run reads 0 humps |
+| S4-U35 | NO false hump from the roll detector: a tight curve with 0.06 g of sideways acceleration (3.4 degrees of fake roll), the car lifted and carried, tipped onto its side, turned over in the hand, a 0.8 g sideways shove on rough ground, a 30 degree slope | hump measurement | auto (PC) | scenarios 7c, 3, 3a, 3c, 3d, 3g, 3e and 3f of `./run_sim.sh` | all `ALL PASSED`; no `HUMP` line in any of them (without the turn-rate guard the curve reads a false 8 mm hump; without the lockout a tip-over read 91 mm) |
 
 **Manual tests (flash the normal `make` image; the `HUMP`, `PICKED_UP`, `OVERTURNED`, `PUT_DOWN` and `RUN_SUMMARY` lines come from Subsystem 1's CSV logger):**
 
@@ -58,6 +60,7 @@ and do not touch it for about 8 seconds. They are in `app_program/subsystem4/sub
 | S4-U31 | put down: release (and manual clearance) | lift detection, IF-07 | manual | Pick the car up, carry it around for 5 s, and put it down. With `S4_LIFT_LATCH 1` the release needs `s4_clear_lifted()`: call it while it is still in your hand, then again once it rests on the floor. | it does NOT release while carried (the hand shakes). Automatic mode: released once it has rested about 3 s. Latch mode: the clear in the hand is ignored (`clear ignored: the car is not resting level`), the clear on the floor releases it |
 | S4-U32 | no false stops while driving | lift detection | manual | 10 full runs of the course (humps, turns, knocks against walls, rough floor). Count unwanted stops from the `PICKED_UP` / `OVERTURNED` lines. | none. The slopes and shaking of the course are well inside the limits (simulated: no false stop up to 34 deg or +/-0.18 g) |
 | S4-U24 | the distance subsystem 4 uses is right | IF-06, hump measurement | manual | Mark a straight line of exactly 1.00 m (tape measure), start the robot at one end and let it stop at the other (or push it by hand with the motors off). Compare Subsystem 2's `CALCULATED DISTANCE` with the tape. | within ±2 % (hump heights are off by the same percentage) |
+| S4-U36 | humps under ONE rear wheel are detected and measured (tricycle chassis) | hump measurement (project brief) | manual | First measure the distance between the two rear wheel centres and set `S4_TRACK_MM`. Drive over a ruler-measured hump so that only the RIGHT rear wheel climbs it, 5 runs; then the LEFT, 5 runs; then across the whole width, 5 runs. Compare the `LOG_CSV,HUMP` `peak_mm` with the ruler. Also drive a tight curve on the flat 5 times. | right and left: one `HUMP` line per run, each peak within ±20% of the ruler (correct `S4_TRACK_MM` if all are off by the same percentage); across the width: still one `HUMP` line, not two; the curves: no `HUMP` line |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console; **auto (PC)** = run on a laptop;
 **manual** = a person observes the result (LED, scope, meter, phone app…).
@@ -68,3 +71,25 @@ Add a new row for every run. Never edit or delete old rows.
 
 | Date | Test ID | Commit | Tester | Result | Log / evidence | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-18 | S4-U20 | 1bdd64f | Darius | PASS | logs/2026-11-18_pc_sim.txt | packing: 21 checks, 0 failed |
+| 2026-11-18 | S4-U09 | 1bdd64f | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenarios 1, 2, 4, 5 all ALL PASSED (full drive with and without encoders, sensor unplugged, plugged in) |
+| 2026-11-18 | S4-U23 | 1bdd64f | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenario 2b: hump read 28 mm for the true 30 mm with encoders zeroed mid-hump |
+| 2026-11-18 | S4-U22 | 1bdd64f | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenario 3b: all 6 LED phases (0 to 200 ms) ALL PASSED, no ghost fault |
+| 2026-11-18 | S4-U26 | 1bdd64f | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenarios 3 and 3a (automatic release and LIFT_LATCH 1) ALL PASSED |
+| 2026-11-18 | S4-U27 | 1bdd64f | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenarios 3c (on its side, then set upright) and 3d (upside down) ALL PASSED |
+| 2026-11-18 | S4-U28 | 1bdd64f | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenarios 1, 3e and 3f ALL PASSED: knock, rough ground and 30 degree slope never stop the car |
+| 2026-11-18 | S4-U33 | 1bdd64f | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenario 3g: PICKED_UP twice, OVERTURNED once, one halt only |
+| 2026-11-18 | S4-U29 | 1bdd64f | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenario 6: not reported as overturned; the calibration FAILED line is expected |
+| 2026-11-18 | S4-U01 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U02 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U03 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U04 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U05 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U06 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U07 | 1bdd64f | Darius | FAIL | logs/2026-11-18_unit.txt | test.c line 66. Subsystem 5 was running and rewrites the obstacle field after every reading, most likely overwriting the test's value 33. Test changed to wait for Subsystem 4's own status message and retry; re-run needed |
+| 2026-11-18 | S4-U08 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U17 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U18 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U19 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U25 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
+| 2026-11-18 | S4-U07 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit_rerun.txt | Re-run of the earlier FAIL. Fixed in 1bdd64f: the test now waits for Subsystem 4's own status message and retries, because Subsystem 5 rewrites the obstacle field |
