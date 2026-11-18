@@ -182,13 +182,51 @@
               <span class="mono muted" id="barcode-raw-id">id=0</span>
             </div>
             <div class="barcode-readout">
-              <span class="barcode-glyph mono" id="barcode-glyph">NONE</span>
+              <div class="barcode-top">
+                <span class="barcode-glyph mono" id="barcode-glyph">NONE</span>
+                <span class="badge mono" id="barcode-action-badge">--</span>
+              </div>
               <div class="barcode-chips" id="barcode-history">
                 <span class="chip muted">No scans</span>
               </div>
             </div>
           </div>
         </div>
+      </section>
+
+      <!-- Live Barcode Action Mapping -->
+      <section class="card card-barcode-map">
+        <div class="card-header">
+          <h2>Barcode Action Mapping (Live MQTT)</h2>
+          <span class="badge mono" id="map-payload-badge">MAP:WZ-F</span>
+        </div>
+
+        <form id="barcode-map-form" class="barcode-map-form">
+          <div class="barcode-map-grid">
+            <label class="map-slot" for="map-left">
+              <span class="map-dir">← Left</span>
+              <select id="map-left" data-map-slot="left"></select>
+            </label>
+            <label class="map-slot" for="map-right">
+              <span class="map-dir">→ Right</span>
+              <select id="map-right" data-map-slot="right"></select>
+            </label>
+            <label class="map-slot" for="map-straight">
+              <span class="map-dir">↑ Straight</span>
+              <select id="map-straight" data-map-slot="straight"></select>
+            </label>
+            <label class="map-slot" for="map-uturn">
+              <span class="map-dir">↺ U-Turn</span>
+              <select id="map-uturn" data-map-slot="uturn"></select>
+            </label>
+          </div>
+
+          <div class="map-actions">
+            <button type="submit" class="btn btn-primary" id="map-apply-btn">Apply Map to Car</button>
+            <button type="button" class="btn btn-secondary" id="map-default-btn">Defaults (W / Z / - / F)</button>
+            <span class="map-status mono" id="map-status">Default firmware map (W=Left, Z=Right, -=Straight, F=U-Turn). Re-apply after Pico reboot.</span>
+          </div>
+        </form>
       </section>
 
       <!-- Rolling Charts -->

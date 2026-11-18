@@ -47,7 +47,17 @@ bool ir_code39_decode_single_with_direction (
 char const * ir_code39_frame_reason (
     ir_barcode_window_t const * p_window, bool b_reverse);
 
-/** Fixed course trial mapping; W is left, Z is right, F is U-turn. */
+/** Runtime-configurable barcode mapping; defaults: W=left, Z=right, -=straight, F=U-turn. */
 ir_barcode_action_t ir_barcode_action_for (char letter);
+
+/**
+ * Update runtime barcode letter -> action mapping ('A'..'Z', or '\0'/'-' for none).
+ * Rejects invalid characters or duplicate assigned letters without changing the active map.
+ */
+bool ir_code39_set_action_map (char left, char right, char straight, char uturn);
+
+/** Read the active barcode letter -> action mapping ('\0' if unassigned). */
+void ir_code39_get_action_map (char * p_left, char * p_right,
+                               char * p_straight, char * p_uturn);
 
 #endif

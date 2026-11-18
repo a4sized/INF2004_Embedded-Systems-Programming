@@ -86,6 +86,23 @@ class TelemetryDashboardUnitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             telemetry_dashboard.encode_command_payload("   ", mode="ascii")
 
+    def test_encode_barcode_map_payload_validation(self):
+        norm, wire, raw = telemetry_dashboard.encode_barcode_map_payload(
+            {"left": "a", "right": "q", "straight": "", "uturn": "u"}
+        )
+        self.assertEqual(norm, {"left": "A", "right": "Q", "straight": "", "uturn": "U"})
+        self.assertEqual(wire, "MAP:AQ-U")
+        self.assertEqual(raw, b"MAP:AQ-U")
+
+        with self.assertRaises(ValueError):
+            telemetry_dashboard.encode_barcode_map_payload(
+                {"left": "W", "right": "W", "straight": "", "uturn": "F"}
+            )
+        with self.assertRaises(ValueError):
+            telemetry_dashboard.encode_barcode_map_payload(
+                {"left": "1", "right": "Z", "straight": "", "uturn": "F"}
+            )
+
     def test_hub_tracks_drops_max_hump_demo_overrides_and_reset(self):
         hub = telemetry_dashboard.TelemetryHub(demo=True, enable_mqtt=False)
 
@@ -206,6 +223,27 @@ class TelemetryDashboardHttpTests(unittest.TestCase):
         code_cmd, cmd_raw = self._request("POST", "/api/cmd", {"command": "PING", "mode": "binary"})
         self.assertEqual(code_cmd, 200)
         self.assertEqual(json.loads(cmd_raw)["entry"]["hex"], "05")
+
+        code_map, map_raw = self._request(
+            "POST",
+            "/api/barcode-map",
+            {"left": "A", "right": "Q", "straight": "S", "uturn": "F"},
+        )
+        self.assertEqual(code_map, 200)
+        map_data = json.loads(map_raw)
+        self.assertEqual(map_data["barcode_map_payload"], "MAP:AQSF")
+        self.assertEqual(map_data["barcode_map"]["straight"], "S")
+
+        code_map_dup, _ = self._request(
+            "POST",
+            "/api/barcode-map",
+            {"left": "A", "right": "A", "straight": "", "uturn": "F"},
+        )
+        self.assertEqual(code_map_dup, 400)
+
+        code_state, state_raw = self._request("GET", "/api/state")
+        self.assertEqual(code_state, 200)
+        self.assertEqual(json.loads(state_raw)["barcode_map_payload"], "MAP:AQSF")
 
         code_bad, _ = self._request("POST", "/api/cmd", {"command": "NOPE", "mode": "binary"})
         self.assertEqual(code_bad, 400)

@@ -62,7 +62,18 @@
     irLeds: Array.from(document.querySelectorAll("#ir-leds .ir-bit")),
     barcodeRawId: document.getElementById("barcode-raw-id"),
     barcodeGlyph: document.getElementById("barcode-glyph"),
+    barcodeActionBadge: document.getElementById("barcode-action-badge"),
     barcodeHistory: document.getElementById("barcode-history"),
+
+    mapForm: document.getElementById("barcode-map-form"),
+    mapLeft: document.getElementById("map-left"),
+    mapRight: document.getElementById("map-right"),
+    mapStraight: document.getElementById("map-straight"),
+    mapUturn: document.getElementById("map-uturn"),
+    mapPayloadBadge: document.getElementById("map-payload-badge"),
+    mapApplyBtn: document.getElementById("map-apply-btn"),
+    mapDefaultBtn: document.getElementById("map-default-btn"),
+    mapStatus: document.getElementById("map-status"),
 
     chartPitchRange: document.getElementById("chart-pitch-range"),
     chartPitch: document.getElementById("chart-pitch"),
@@ -94,6 +105,9 @@
     events: [],
     commands: [],
     barcodes: [],
+    barcodeMap: { left: "W", right: "Z", straight: "", uturn: "F" },
+    barcodeMapPayload: "MAP:WZ-F",
+    barcodeMapAppliedAt: "",
     stateTransitions: [],
     cmdMode: "ascii",
     sseConnected: true,
@@ -277,6 +291,7 @@
       ui.barcodeRawId.textContent = "id=0";
       ui.barcodeGlyph.textContent = "NONE";
       ui.barcodeGlyph.classList.remove("active");
+      ui.barcodeActionBadge.textContent = "--";
       return;
     }
 
@@ -342,6 +357,125 @@
     ui.barcodeRawId.textContent = `id=${pkt.barcode_id}`;
     ui.barcodeGlyph.textContent = pkt.barcode_display;
     ui.barcodeGlyph.classList.toggle("active", pkt.barcode_id !== 0);
+    ui.barcodeActionBadge.textContent = actionForBarcodeChar(pkt.barcode_char);
+  }
+
+  function actionForBarcodeChar(ch) {
+    if (!ch) return "--";
+    const upper = ch.toUpperCase();
+    const m = store.barcodeMap || {};
+    if (m.straight && upper === m.straight) return "STRAIGHT";
+    if (m.left && upper === m.left) return "LEFT";
+    if (m.right && upper === m.right) return "RIGHT";
+    if (m.uturn && upper === m.uturn) return "U-TURN";
+    return "STRAIGHT";
+  }
+
+  function populateBarcodeMapSelects() {
+    const selects = [ui.mapLeft, ui.mapRight, ui.mapStraight, ui.mapUturn];
+    for (const sel of selects) {
+      sel.replaceChildren();
+      const noneOpt = document.createElement("option");
+      noneOpt.value = "";
+      noneOpt.textContent = "Unassigned (-)";
+      sel.appendChild(noneOpt);
+      for (let code = 65; code <= 90; code++) {
+        const letter = String.fromCharCode(code);
+        const opt = document.createElement("option");
+        opt.value = letter;
+        opt.textContent = letter;
+        sel.appendChild(opt);
+      }
+    }
+  }
+
+  function readBarcodeMapForm() {
+    const mapping = {
+      left: ui.mapLeft.value || "",
+      right: ui.mapRight.value || "",
+      straight: ui.mapStraight.value || "",
+      uturn: ui.mapUturn.value || "",
+    };
+    const wire =
+      "MAP:" +
+      (mapping.left || "-") +
+      (mapping.right || "-") +
+      (mapping.straight || "-") +
+      (mapping.uturn || "-");
+    const seen = {};
+    let dupError = "";
+    for (const [slot, val] of Object.entries(mapping)) {
+      if (!val) continue;
+      if (seen[val]) {
+        dupError = `Duplicate letter '${val}' assigned to both ${seen[val]} and ${slot}.`;
+        break;
+      }
+      seen[val] = slot;
+    }
+    return { mapping, wire, dupError };
+  }
+
+  function updateBarcodeMapPreview() {
+    const { wire, dupError } = readBarcodeMapForm();
+    ui.mapPayloadBadge.textContent = wire;
+    if (dupError) {
+      ui.mapApplyBtn.disabled = true;
+      ui.mapStatus.className = "map-status mono error";
+      ui.mapStatus.textContent = dupError;
+      return;
+    }
+    ui.mapApplyBtn.disabled = false;
+    if (wire !== store.barcodeMapPayload) {
+      ui.mapStatus.className = "map-status mono warn";
+      ui.mapStatus.textContent = `Unsent changes (${wire}) — click Apply Map to Car.`;
+    } else if (store.barcodeMapAppliedAt) {
+      ui.mapStatus.className = "map-status mono ok";
+      ui.mapStatus.textContent = `Applied ${store.barcodeMapPayload} at ${store.barcodeMapAppliedAt} (re-apply after Pico reboot).`;
+    } else {
+      ui.mapStatus.className = "map-status mono";
+      ui.mapStatus.textContent = `Default firmware map (${store.barcodeMapPayload}). Re-apply after Pico reboot.`;
+    }
+  }
+
+  function syncBarcodeMapFromServer(mapObj, payloadStr, appliedAt) {
+    if (mapObj) {
+      store.barcodeMap = {
+        left: mapObj.left || "",
+        right: mapObj.right || "",
+        straight: mapObj.straight || "",
+        uturn: mapObj.uturn || "",
+      };
+    }
+    if (payloadStr) store.barcodeMapPayload = payloadStr;
+    if (typeof appliedAt === "string") store.barcodeMapAppliedAt = appliedAt;
+
+    ui.mapLeft.value = store.barcodeMap.left;
+    ui.mapRight.value = store.barcodeMap.right;
+    ui.mapStraight.value = store.barcodeMap.straight;
+    ui.mapUturn.value = store.barcodeMap.uturn;
+    updateBarcodeMapPreview();
+
+    const latest = store.packets[store.packets.length - 1];
+    if (latest) {
+      ui.barcodeActionBadge.textContent = actionForBarcodeChar(latest.barcode_char);
+    }
+  }
+
+  async function applyBarcodeMap(mapping) {
+    ui.mapApplyBtn.disabled = true;
+    ui.mapStatus.className = "map-status mono";
+    ui.mapStatus.textContent = "Publishing barcode map to car...";
+    try {
+      const res = await postJson("/api/barcode-map", mapping);
+      syncBarcodeMapFromServer(res.barcode_map, res.barcode_map_payload, res.barcode_map_applied_at);
+      if (res.entry) {
+        ui.cmdFeedback.textContent = `TX OK: ${res.entry.display} [${res.entry.hex}]`;
+      }
+    } catch (err) {
+      ui.mapApplyBtn.disabled = false;
+      ui.mapStatus.className = "map-status mono error";
+      ui.mapStatus.textContent = `Apply failed: ${err.message}`;
+    }
   }
 
   function renderStateTransitions() {
@@ -657,6 +791,11 @@
     }
 
     renderMeta(data.meta, true);
+    syncBarcodeMapFromServer(
+      data.barcode_map,
+      data.barcode_map_payload,
+      data.barcode_map_applied_at || ""
+    );
     renderLatestPacket(data.latest || store.packets[store.packets.length - 1] || null);
     renderStateTransitions();
     renderBarcodes();
@@ -849,6 +988,30 @@
         ui.eventList.scrollTop = ui.eventList.scrollHeight;
       }
     });
+
+    for (const sel of [ui.mapLeft, ui.mapRight, ui.mapStraight, ui.mapUturn]) {
+      sel.addEventListener("change", updateBarcodeMapPreview);
+    }
+
+    ui.mapForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const { mapping, dupError } = readBarcodeMapForm();
+      if (dupError) {
+        updateBarcodeMapPreview();
+        return;
+      }
+      await applyBarcodeMap(mapping);
+    });
+
+    ui.mapDefaultBtn.addEventListener("click", async () => {
+      const defaults = { left: "W", right: "Z", straight: "", uturn: "F" };
+      ui.mapLeft.value = defaults.left;
+      ui.mapRight.value = defaults.right;
+      ui.mapStraight.value = defaults.straight;
+      ui.mapUturn.value = defaults.uturn;
+      updateBarcodeMapPreview();
+      await applyBarcodeMap(defaults);
+    });
   }
 
   function startStream() {
@@ -902,6 +1065,27 @@
       if (payload.meta) renderMeta(payload.meta, false);
     });
 
+    es.addEventListener("barcode_map", (e) => {
+      const payload = JSON.parse(e.data);
+      syncBarcodeMapFromServer(
+        payload.barcode_map,
+        payload.barcode_map_payload,
+        payload.barcode_map_applied_at || ""
+      );
+      if (Array.isArray(payload.commands)) {
+        store.commands = payload.commands;
+        renderCommands();
+      }
+      if (payload.event) {
+        store.events.push(payload.event);
+        if (store.events.length > 160) {
+          store.events.splice(0, store.events.length - 160);
+        }
+        renderEvents();
+      }
+      if (payload.meta) renderMeta(payload.meta, false);
+    });
+
     es.addEventListener("reset", (e) => {
       const payload = JSON.parse(e.data);
       store.packets = [];
@@ -931,6 +1115,7 @@
     }, 250);
   }
 
+  populateBarcodeMapSelects();
   wireControls();
   startStream();
   startAgeTicker();

@@ -190,6 +190,39 @@ def encode_command_payload(command: str, mode: str = "ascii") -> tuple[bytes, st
     return cleaned.encode("utf-8"), f"ASCII '{cleaned}'"
 
 
+BARCODE_MAP_DEFAULTS: dict[str, str] = {
+    "left": "W",
+    "right": "Z",
+    "straight": "",
+    "uturn": "F",
+}
+
+
+def encode_barcode_map_payload(mapping: dict[str, Any]) -> tuple[dict[str, str], str, bytes]:
+    """Validate and encode a 4-movement barcode map into 'MAP:LRSU' (8 ASCII bytes)."""
+    slots = ("left", "right", "straight", "uturn")
+    normalized: dict[str, str] = {}
+    seen: dict[str, str] = {}
+    wire_chars: list[str] = []
+
+    for key in slots:
+        raw = str(mapping.get(key, "") or "").strip().upper()
+        if raw in ("", "-"):
+            normalized[key] = ""
+            wire_chars.append("-")
+            continue
+        if len(raw) != 1 or not ("A" <= raw <= "Z"):
+            raise ValueError(f"'{key}' must be a single letter A-Z or unassigned ('-'), got '{raw}'.")
+        if raw in seen:
+            raise ValueError(f"Letter '{raw}' cannot be assigned to both '{seen[raw]}' and '{key}'.")
+        seen[raw] = key
+        normalized[key] = raw
+        wire_chars.append(raw)
+
+    wire_str = "MAP:" + "".join(wire_chars)
+    return normalized, wire_str, wire_str.encode("ascii")
+
+
 @dataclass
 class DashboardState:
     broker_ip: str = BROKER_IP_DEFAULT
@@ -205,6 +238,9 @@ class DashboardState:
     session_max_hump_mm: int = 0
     last_seq: int | None = None
     last_rx_epoch: float | None = None
+    barcode_map: dict[str, str] = field(default_factory=lambda: dict(BARCODE_MAP_DEFAULTS))
+    barcode_map_payload: str = "MAP:WZ-F"
+    barcode_map_applied_at: str = ""
     packets: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=240))
     events: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=160))
     commands: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=60))
@@ -304,6 +340,9 @@ class TelemetryHub:
                 "events": list(self._state.events)[-80:],
                 "commands": list(self._state.commands)[-25:],
                 "barcodes": list(self._state.barcodes)[-15:],
+                "barcode_map": dict(self._state.barcode_map),
+                "barcode_map_payload": self._state.barcode_map_payload,
+                "barcode_map_applied_at": self._state.barcode_map_applied_at,
                 "dictionaries": {
                     "states": STATE_NAMES,
                     "humps": HUMP_NAMES,
@@ -565,6 +604,77 @@ class TelemetryHub:
             meta = self._meta_dict_locked()
         self._broadcast("command", {"command": entry, "commands": cmds, "meta": meta, "event": ev})
         return {"ok": ok, "entry": entry}
+
+    def set_barcode_map(self, mapping: dict[str, Any]) -> dict[str, Any]:
+        normalized, wire_str, raw_bytes = encode_barcode_map_payload(mapping)
+        ts_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
+        with self._lock:
+            demo_mode = self._state.demo_mode
+            topic_cmd = self._state.topic_cmd
+            client = self._mqtt_client
+            mqtt_status = self._state.mqtt_status
+
+        if not demo_mode and (not self._enable_mqtt or client is None or mqtt_status != "connected"):
+            raise RuntimeError("MQTT broker is not connected (connect Mosquitto or switch to Demo Mode).")
+
+        if demo_mode:
+            ok = True
+            status_label = "simulated"
+            display = f"ASCII '{wire_str}' [DEMO]"
+        else:
+            info = client.publish(topic_cmd, payload=raw_bytes, qos=0, retain=False)
+            ok = getattr(info, "rc", 0) == 0
+            status_label = "sent" if ok else f"rc={getattr(info, 'rc', '?')}"
+            display = f"ASCII '{wire_str}'"
+
+        entry = {
+            "time": ts_str,
+            "topic": topic_cmd,
+            "display": display,
+            "hex": raw_bytes.hex(" ").upper(),
+            "status": status_label,
+        }
+        summary = (
+            f"L={normalized['left'] or '-'} R={normalized['right'] or '-'} "
+            f"S={normalized['straight'] or '-'} U={normalized['uturn'] or '-'}"
+        )
+        with self._lock:
+            if ok:
+                self._state.barcode_map = dict(normalized)
+                self._state.barcode_map_payload = wire_str
+                self._state.barcode_map_applied_at = ts_str
+            self._state.commands.append(entry)
+            ev = self._push_event_locked(
+                "BARCODE_MAP",
+                f"{'DEMO ' if demo_mode else ''}Applied {wire_str} ({summary})",
+                "ok" if ok else "warn",
+            )
+            cmds = list(self._state.commands)[-25:]
+            meta = self._meta_dict_locked()
+            active_map = dict(self._state.barcode_map)
+            active_payload = self._state.barcode_map_payload
+            applied_at = self._state.barcode_map_applied_at
+
+        self._broadcast(
+            "barcode_map",
+            {
+                "barcode_map": active_map,
+                "barcode_map_payload": active_payload,
+                "barcode_map_applied_at": applied_at,
+                "command": entry,
+                "commands": cmds,
+                "meta": meta,
+                "event": ev,
+            },
+        )
+        return {
+            "ok": ok,
+            "barcode_map": active_map,
+            "barcode_map_payload": active_payload,
+            "barcode_map_applied_at": applied_at,
+            "entry": entry,
+        }
 
     def _start_mqtt(self) -> None:
         self._stop_mqtt()
@@ -832,6 +942,9 @@ def make_handler(hub: TelemetryHub):
                 body = self._read_json_body()
                 if parsed.path == "/api/cmd":
                     res = hub.send_command(str(body.get("command", "")), mode=str(body.get("mode", "ascii")))
+                    self._send_json(HTTPStatus.OK, res)
+                elif parsed.path == "/api/barcode-map":
+                    res = hub.set_barcode_map(body)
                     self._send_json(HTTPStatus.OK, res)
                 elif parsed.path == "/api/demo":
                     res = hub.set_demo_mode(bool(body.get("enabled", False)))

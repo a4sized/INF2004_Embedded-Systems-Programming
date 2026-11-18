@@ -6,7 +6,10 @@
 
 #include "subsystem1.h"
 #include "../systemFaults.h"
+#include <stdbool.h>
 #include <tstdlib.h>
+
+extern bool ir_code39_set_action_map(char left, char right, char straight, char uturn);
 
 /* Telemetry and command counters */
 EXPORT UW               s1_tx_queued = 0;          /* Total telemetry packets queued for TX */
@@ -129,6 +132,42 @@ EXPORT S1_CMD_TYPE s1_parse_command(const UB *payload, INT len) {
     return S1_CMD_NONE;
 }
 
+/* Applies runtime barcode mapping command "MAP:LRSU" (each char A-Z or '-').
+ * Returns: 0 if not a MAP: command, 1 if applied, -1 if malformed/duplicate. */
+LOCAL INT s1_try_apply_barcode_map(const UB *payload, INT len, char details[16]) {
+    INT i;
+    char c0, c1, c2, c3;
+    char m[4];
+
+    if (payload == NULL || len < 4) return 0;
+    c0 = (char)payload[0]; if (c0 >= 'a' && c0 <= 'z') c0 -= 32;
+    c1 = (char)payload[1]; if (c1 >= 'a' && c1 <= 'z') c1 -= 32;
+    c2 = (char)payload[2]; if (c2 >= 'a' && c2 <= 'z') c2 -= 32;
+    c3 = (char)payload[3];
+    if (!(c0 == 'M' && c1 == 'A' && c2 == 'P' && c3 == ':')) return 0;
+
+    if (len < 8) return -1;
+    for (i = 8; i < len; i++) {
+        char ch = (char)payload[i];
+        if (!(ch == '\r' || ch == '\n' || ch == ' ' || ch == '\t' || ch == '\0')) {
+            return -1;
+        }
+    }
+    for (i = 0; i < 4; i++) {
+        char ch = (char)payload[4 + i];
+        if (ch >= 'a' && ch <= 'z') ch -= 32;
+        m[i] = ch;
+    }
+    if (!ir_code39_set_action_map(m[0], m[1], m[2], m[3])) {
+        return -1;
+    }
+    details[0]  = 'L'; details[1]  = '='; details[2]  = m[0]; details[3]  = ',';
+    details[4]  = 'R'; details[5]  = '='; details[6]  = m[1]; details[7]  = ',';
+    details[8]  = 'S'; details[9]  = '='; details[10] = m[2]; details[11] = ',';
+    details[12] = 'U'; details[13] = '='; details[14] = m[3]; details[15] = '\0';
+    return 1;
+}
+
 /* Logs event and telemetry state in CSV format over USB serial */
 EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
 #if defined(BUDDY3_IR_MOVING_TEST) || defined(BUDDY3_FORCE_MOTOR_TEST)
@@ -203,6 +242,18 @@ EXPORT void led_task(INT stacd, void *exinf) {
 
         /* Drain and execute inbound MQTT commands from message buffer */
         while ((len = tk_rcv_mbf(mbf_mqtt_rx, rx_buf, TMO_POL)) > 0) {
+            char map_details[16];
+            INT map_res = s1_try_apply_barcode_map(rx_buf, len, map_details);
+            if (map_res == 1) {
+                s1_rx_commands++;
+                s1_csv_log_event("CMD_MAP", map_details);
+                continue;
+            } else if (map_res < 0) {
+                s1_rx_rejected++;
+                s1_csv_log_event("CMD_REJECTED", "INVALID_MAP");
+                s1_report_fault(FAULT_CMD_REJECTED);
+                continue;
+            }
             S1_CMD_TYPE cmd = s1_parse_command(rx_buf, len);
             if (cmd != S1_CMD_NONE) {
                 s1_last_cmd = cmd;

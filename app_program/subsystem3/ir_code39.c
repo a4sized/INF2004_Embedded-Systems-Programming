@@ -290,19 +290,96 @@ char const * ir_code39_frame_reason (
     return "DATA_PATTERN";
 }
 
+static volatile char g_left_letter = 'W';
+static volatile char g_right_letter = 'Z';
+static volatile char g_straight_letter = '\0';
+static volatile char g_uturn_letter = 'F';
+
+static bool normalize_map_letter (char raw, char * p_out)
+{
+    if (('\0' == raw) || ('-' == raw))
+    {
+        *p_out = '\0';
+        return true;
+    }
+    if ((raw >= 'a') && (raw <= 'z'))
+    {
+        *p_out = (char)(raw - ('a' - 'A'));
+        return true;
+    }
+    if ((raw >= 'A') && (raw <= 'Z'))
+    {
+        *p_out = raw;
+        return true;
+    }
+    return false;
+}
+
+bool ir_code39_set_action_map (char left, char right, char straight, char uturn)
+{
+    char slots[4] = {0};
+    if (!normalize_map_letter(left, &slots[0]) ||
+        !normalize_map_letter(right, &slots[1]) ||
+        !normalize_map_letter(straight, &slots[2]) ||
+        !normalize_map_letter(uturn, &slots[3]))
+    {
+        return false;
+    }
+    for (uint32_t i = 0u; i < 4u; ++i)
+    {
+        if ('\0' == slots[i])
+        {
+            continue;
+        }
+        for (uint32_t j = i + 1u; j < 4u; ++j)
+        {
+            if (slots[i] == slots[j])
+            {
+                return false;
+            }
+        }
+    }
+    g_left_letter = slots[0];
+    g_right_letter = slots[1];
+    g_straight_letter = slots[2];
+    g_uturn_letter = slots[3];
+    return true;
+}
+
+void ir_code39_get_action_map (char * p_left, char * p_right,
+                               char * p_straight, char * p_uturn)
+{
+    if (NULL != p_left)     *p_left = g_left_letter;
+    if (NULL != p_right)    *p_right = g_right_letter;
+    if (NULL != p_straight) *p_straight = g_straight_letter;
+    if (NULL != p_uturn)    *p_uturn = g_uturn_letter;
+}
+
 ir_barcode_action_t ir_barcode_action_for (char letter)
 {
-    if ('W' == letter)
+    if ((letter >= 'a') && (letter <= 'z'))
+    {
+        letter = (char)(letter - ('a' - 'A'));
+    }
+    if ('\0' == letter)
+    {
+        return IR_BARCODE_NO_ACTION;
+    }
+    if (g_straight_letter == letter)
+    {
+        return IR_BARCODE_NO_ACTION;
+    }
+    if (g_left_letter == letter)
     {
         return IR_BARCODE_TURN_LEFT;
     }
-    if ('F' == letter)
-    {
-        return IR_BARCODE_U_TURN;
-    }
-    if ('Z' == letter)
+    if (g_right_letter == letter)
     {
         return IR_BARCODE_TURN_RIGHT;
+    }
+    if (g_uturn_letter == letter)
+    {
+        return IR_BARCODE_U_TURN;
     }
     return IR_BARCODE_NO_ACTION;
 }

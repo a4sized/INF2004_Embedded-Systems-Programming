@@ -221,5 +221,19 @@ int main (void)
     overlap.edges[1].time_us = overlap.edges[0].time_us;
     assert(0 == strcmp("START_WIDTH", ir_code39_frame_reason(&overlap, false)));
     assert(IR_BARCODE_U_TURN == ir_barcode_action_for('F'));
+
+    /* Runtime barcode mapping API: remap L/R/S/U, reject duplicates, restore defaults. */
+    assert(ir_code39_set_action_map('a', 'Q', 'W', 'u'));
+    assert(IR_BARCODE_TURN_LEFT == ir_barcode_action_for('A'));
+    assert(IR_BARCODE_TURN_RIGHT == ir_barcode_action_for('Q'));
+    assert(IR_BARCODE_NO_ACTION == ir_barcode_action_for('W'));
+    assert(IR_BARCODE_U_TURN == ir_barcode_action_for('U'));
+    assert(!ir_code39_set_action_map('A', 'A', '-', 'F'));
+    assert(!ir_code39_set_action_map('1', 'Z', '-', 'F'));
+    assert(IR_BARCODE_TURN_LEFT == ir_barcode_action_for('A'));
+    assert(ir_code39_set_action_map('W', 'Z', '-', 'F'));
+    assert(IR_BARCODE_TURN_LEFT == ir_barcode_action_for('W'));
+    assert(IR_BARCODE_TURN_RIGHT == ir_barcode_action_for('Z'));
+    assert(IR_BARCODE_U_TURN == ir_barcode_action_for('F'));
     return 0;
 }

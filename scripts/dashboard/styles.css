@@ -176,7 +176,8 @@ body {
 }
 
 input[type="text"],
-input[type="number"] {
+input[type="number"],
+select {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -219,6 +220,17 @@ input[type="number"] {
 .btn-ghost {
   background: transparent;
   color: var(--muted);
+}
+
+.btn-primary {
+  background: var(--info-bg);
+  border-color: var(--info);
+  color: #e0f2fe;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .banner-alert {
@@ -289,6 +301,7 @@ input[type="number"] {
 .card-faults { grid-column: span 7; }
 .card-terrain { grid-column: span 6; }
 .card-sensors { grid-column: span 6; }
+.card-barcode-map { grid-column: span 12; }
 .card-charts { grid-column: span 12; }
 .card-cmd { grid-column: span 4; }
 .card-terminal { grid-column: span 8; }
@@ -634,6 +647,62 @@ input[type="number"] {
   gap: 8px;
 }
 
+.barcode-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.barcode-map-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.barcode-map-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.map-slot {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.map-dir {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+
+.map-slot select {
+  width: 100%;
+  cursor: pointer;
+}
+
+.map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.map-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.map-status.ok { color: var(--ok); }
+.map-status.warn { color: var(--warn); }
+.map-status.error { color: #fecaca; }
+
 .barcode-glyph {
   display: inline-block;
   align-self: flex-start;
@@ -873,10 +942,11 @@ input[type="number"] {
   .card-state, .card-faults, .card-terrain, .card-sensors, .card-cmd, .card-terminal {
     grid-column: span 12;
   }
+  .barcode-map-grid { grid-template-columns: repeat(2, 1fr); }
   .charts-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 680px) {
   .fault-grid { grid-template-columns: repeat(2, 1fr); }
-  .terrain-body, .sensor-split { grid-template-columns: 1fr; }
+  .terrain-body, .sensor-split, .barcode-map-grid { grid-template-columns: 1fr; }
 }
