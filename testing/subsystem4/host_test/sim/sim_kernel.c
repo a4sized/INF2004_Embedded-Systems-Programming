@@ -121,6 +121,15 @@ static int    g_stall = 0, g_plugin = 0, g_sensor_present = 1, g_quiet = 0;   /*
 /* Which scripted scene the fake car plays.  SCN_DRIVE is the full drive; the others are handled by hand or on rough ground. */
 enum { SCN_DRIVE = 0, SCN_LIFT, SCN_OVERTURN, SCN_FLIP, SCN_ROUGH, SCN_RAMP, SCN_LIFTFLIP };
 static int    g_scn = SCN_DRIVE;
+/* Which hump the drive scene has: 0 = across the whole width (the front wheel climbs it), +1 = under the RIGHT rear wheel only,
+ * -1 = under the LEFT rear wheel only (the tricycle: the front wheel stays on the floor), 2 = none.  g_curve = a tight curve at 6 s
+ * whose sideways acceleration looks like a roll. */
+static int    g_hump_kind = 0, g_curve = 0;
+#define SIDE_H  1.5         /* cm: height of a hump under ONE rear wheel          */
+#define SIDE_W  13.0        /* cm: rear track (S4_TRACK_MM / 10)                  */
+#define SIDE_L  10.0        /* cm: wheelbase, front wheel to rear axle            */
+#define CURVE_G 0.06        /* sideways acceleration in the curve: 3.4 degrees of fake roll */
+static double g_turn_t = 10.0;
 static double g_lift_g = 0.30, g_lift_s = 0.30, g_rough_g = 0.12, g_ramp_deg = 30.0, g_carry_deg = 12.0;   /* the probe mode changes these */
 /* How the fake board is mounted: raw sensor axis = sign * car axis.  The default is the real car
  * (sensor X backward, Z down).  'wrongmount' flips Z so the firmware's mapping is wrong. */
@@ -146,7 +155,7 @@ static double car_dist(double t)
     return 0.5 * V_CRUISE * T_RAMP + V_CRUISE * (u - T_RAMP);
 }
 static double car_acc_g(double t) { return (t >= T_START && t - T_START < T_RAMP) ? V_CRUISE / T_RAMP / 980.665 : 0.0; }
-static double car_heading_deg(double t) { return t < T_TURN ? 0.0 : (t < T_TURN + 1.0 ? TURN_DPS * (t - T_TURN) : TURN_DPS); }
+static double car_heading_deg(double t) { return t < g_turn_t ? 0.0 : (t < g_turn_t + 1.0 ? TURN_DPS * (t - g_turn_t) : TURN_DPS); }
 
 static void mount(double a[3]) { a[0] *= g_sx; a[1] *= g_sy; a[2] *= g_sz; }      /* car axes -> raw sensor axes */
 
@@ -217,12 +226,23 @@ static void scene_accel(double t, double a[3])
 static void car_accel(double t, double a[3])
 {
     if (g_scn != SCN_DRIVE) { scene_accel(t, a); mount(a); return; }
-    double d = car_dist(t), pitch = 0.0;
+    double d = car_dist(t), pitch = 0.0, roll = 0.0, side_g = 0.0;
     double noise = (t < T_START || g_quiet) ? 0.004 : 0.04;           /* a moving car shakes a lot more than a still one */
-    if (d > HUMP_AT && d < HUMP_AT + HUMP_L) pitch = atan(HUMP_H * (M_PI / HUMP_L) * sin(2 * M_PI * (d - HUMP_AT) / HUMP_L));
+    if (g_hump_kind == 0) {
+        if (d > HUMP_AT && d < HUMP_AT + HUMP_L) pitch = atan(HUMP_H * (M_PI / HUMP_L) * sin(2 * M_PI * (d - HUMP_AT) / HUMP_L));
+    } else if (g_hump_kind == 1 || g_hump_kind == -1) {
+        /* ONE rear wheel climbs a hump of height SIDE_H.  The chassis plane stands on three points: the front wheel (x = SIDE_L) and
+         * the two rear wheels (x = 0, y = -/+ SIDE_W/2).  A rear wheel up by z gives roll = z / SIDE_W (the car rolls AWAY from it:
+         * right wheel up = left side down = NEGATIVE roll) and pitch = -(z / 2) / SIDE_L (the nose goes DOWN, not up). */
+        double z = 0.0;
+        if (d > HUMP_AT && d < HUMP_AT + HUMP_L) z = SIDE_H * (1.0 - cos(2 * M_PI * (d - HUMP_AT) / HUMP_L)) / 2.0;
+        roll  = -g_hump_kind * asin(z / SIDE_W);
+        pitch = -atan((z / 2.0) / SIDE_L);
+    }
+    if (g_curve && t > g_turn_t - 0.05 && t < g_turn_t + 1.0) side_g = CURVE_G;
     a[0] = sin(pitch) + car_acc_g(t) + BIAS[0] + noise * frand();
-    a[1] = BIAS[1] + noise * frand();
-    a[2] = cos(pitch) + BIAS[2] + noise * frand();
+    a[1] = sin(roll) + side_g + BIAS[1] + noise * frand();
+    a[2] = cos(pitch) * cos(roll) + BIAS[2] + noise * frand();
     /* The knock (in car axes).  It is 24 ms long.  In the 'stall' runs a task is pre-empted for 35 ms now and then,
      * and a 22 ms sampling loop can then step right over a 24 ms knock: that is a real limit of 20 ms sampling,
      * not a bug.  So in the stall runs the knock is made longer than the worst gap (80 ms). */
@@ -376,6 +396,9 @@ int main(int argc, char **argv)
     g_reset_mode = !strcmp(mode, "reset");
     g_stall = !strcmp(mode, "stall"); g_plugin = !strcmp(mode, "plugin"); g_quiet = g_plugin;   /* re-plugging is done with the car standing still */
     g_sensor_present = strcmp(mode, "nosensor") != 0;
+    if (!strcmp(mode, "sidehump"))   g_hump_kind = 1;
+    if (!strcmp(mode, "sidehump_l")) g_hump_kind = -1;
+    if (!strcmp(mode, "curve"))      { g_hump_kind = 2; g_curve = 1; g_turn_t = 6.0; }
     if (!strcmp(mode, "wrongmount")) g_sz = 1.0;           /* Z flipped: the firmware's mapping is now wrong */
     if (!strcmp(mode, "probe")) {                          /* PROBE_SCN = lift | rough | ramp,  PROBE_VAL = the number to try */
         const char *sc = getenv("PROBE_SCN"); double v = getenv("PROBE_VAL") ? atof(getenv("PROBE_VAL")) : 0.0;
@@ -391,7 +414,7 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "rough"))    g_scn = SCN_ROUGH;
     else if (!strcmp(mode, "ramp"))     g_scn = SCN_RAMP;
     else if (!strcmp(mode, "liftflip")) g_scn = SCN_LIFTFLIP;
-    clock_gettime(CLOCK_MONOTONIC, &t0); srand(7);
+    clock_gettime(CLOCK_MONOTONIC, &t0); srand(getenv("S4SIM_SEED") ? (unsigned)atoi(getenv("S4SIM_SEED")) : 7u);
 
     /* what the other subsystems have already put in Subsystem 1's packet: it must all survive */
     s1_set_speed(123); s1_set_obstacle(45); s1_set_barcode_id(7);
@@ -465,6 +488,7 @@ int main(int argc, char **argv)
 #endif
         CHECK_SIM(no_ghost, "FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)");
         CHECK_SIM(csv_picked == 1 && csv_put_down == 1 && csv_over == 0, "logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)");
+        CHECK_SIM(csv_hump == 0, "no false HUMP while the car is lifted and carried (the roll detector must stay out)");
         CHECK_SIM(((s1_car_states_seen >> S4_PICKED_UP) & 1u) != 0 && ((s1_car_states_seen >> S4_OVERTURNED) & 1u) == 0, "telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)");
         CHECK_SIM(wifi_bit(), "another subsystem's fault bit untouched");
         CHECK_SIM(!(s4_get_faults() & S4_FAULT_COMM), "no sensor fault");
@@ -496,6 +520,7 @@ int main(int argc, char **argv)
         CHECK_SIM(bit_up, "FAULT_IMU_SENS is set through subsystem 1");
         CHECK_SIM(shown, "the motion state shown is OVERTURNED (7), not PICKED_UP");
         CHECK_SIM(logged, "logged once as OVERTURNED, and not as PICKED_UP");
+        CHECK_SIM(csv_hump == 0, "no false HUMP while it tips over, lies there and is set upright (90 degrees of roll is not a hump)");
         CHECK_SIM(held, flip ? "still stopped while it lies upside down" : "still stopped while it lies on its side, though quiet and still: it is not upright");
         CHECK_SIM(tele_ok, flip ? "telemetry car_state showed 7 (OVERTURNED) and never 6" : "telemetry car_state showed 7 (OVERTURNED) while it lay there, then 6 (PICKED_UP) once it was righted");
         if (!flip) {
@@ -528,6 +553,7 @@ int main(int argc, char **argv)
         CHECK_SIM(righted, "turned back up in the hand: the reason changes back to PICKED_UP (state 6), logged again, the bit stays set");
         CHECK_SIM(released, "put down: released after resting level, and the bit clears");
         CHECK_SIM(csv_picked == 2 && csv_over == 1 && csv_put_down == 1, "events logged: PICKED_UP twice, OVERTURNED once, PUT_DOWN once");
+        CHECK_SIM(csv_hump == 0, "no false HUMP while it is turned over in the hand");
         CHECK_SIM((s1_car_states_seen & 0xC0u) == 0xC0u, "telemetry car_state showed both 6 and 7");
         CHECK_SIM(wifi_bit(), "another subsystem's fault bit untouched");
         return finish();
@@ -545,6 +571,7 @@ int main(int argc, char **argv)
         CHECK_SIM(!bad, ramp ? "the slope never stops the car: no fault, no PICKED_UP / OVERTURNED state" : "none of it stops the car: no fault, no PICKED_UP / OVERTURNED state");
         CHECK_SIM(halt_calls == 0, "the motors were never halted");
         CHECK_SIM(csv_picked == 0 && csv_over == 0 && csv_put_down == 0, "no PICKED_UP / OVERTURNED / PUT_DOWN logged");
+        CHECK_SIM(csv_hump == 0, ramp ? "no HUMP logged on the slope (a 30 degree slope is not a hump)" : "no HUMP logged: a 0.8 g sideways shove or rough ground is not a hump");
         if (ramp) CHECK_SIM(s1_pitch_max >= 25, "the pitch really did reach about 30 degrees");
         CHECK_SIM(wifi_bit() && !imu_bit(), "the IMU bit stayed clear; another subsystem's bit untouched");
         return finish();
@@ -571,6 +598,26 @@ int main(int argc, char **argv)
         return finish();
     }
 
+    if (!strcmp(mode, "curve")) {
+        /* A tight curve at 6.0-7.0 s (60 dps) with 0.06 g of sideways acceleration: that is 3.4 degrees of fake roll, more than the
+         * 2.5 degrees at which a hump under one rear wheel is recognised.  It must NOT be one: the detector ignores the roll while turning. */
+        int seen_turning = 0, bad = 0;
+        double t;
+        while ((t = now_s()) < 9.0) {
+            S4_MOTION m = s4_get_motion();
+            if (t > 6.2 && t < 7.0 && m == S4_TURNING) seen_turning = 1;
+            if (t > 2.5 && (m == S4_CLIMBING_HUMP || m == S4_DESCENDING_HUMP)) bad = 1;
+            usleep(5000);
+        }
+        printf("\n--- a tight curve with 0.06 g of sideways acceleration (3.4 degrees of fake roll), no hump anywhere ---\n");
+        CHECK_SIM(s4_is_calibrated() && s4_samples > 300, "calibrated and sampling");
+        CHECK_SIM(seen_turning, "the curve was seen as TURNING");
+        CHECK_SIM(!bad && s4_get_hump_count() == 0 && csv_hump == 0, "the sideways acceleration of the curve is NOT taken for a hump");
+        CHECK_SIM((s1_hump_states_seen & 6u) == 0u, "hump_state never showed going up or going down");
+        CHECK_SIM(halt_calls == 0 && !imu_bit(), "nothing stopped the car");
+        return finish();
+    }
+
     /* ---- the full scripted drive.  still 0-2 s, accelerate, a hard KNOCK at 5.0 (no longer a fault), hump 7.6-9.1, turn 10-11 ---- */
     int seen_stationary = 0, seen_moving = 0, seen_turning = 0, knock_fired = 0;
     int peak_turn = 0;
@@ -585,23 +632,40 @@ int main(int argc, char **argv)
         if (t > 12.9) {            /* report */
             S1_TELEMETRY_PKT tl; s1_get_telemetry(&tl);
             int n = 0, peak_mm = 0, len_mm = 0, max_mm = 0; sscanf(csv_hump_details, "n=%d,peak_mm=%d,len_mm=%d,max_mm=%d", &n, &peak_mm, &len_mm, &max_mm);
-            int tol_mm = S4_USE_ENCODER_DISTANCE ? 6 : 12;
+            int side = (g_hump_kind == 1 || g_hump_kind == -1);
+            int true_mm = side ? (int)(SIDE_H * 10.0 + 0.5) : 30;                  /* the real height of the hump */
+            int tol_mm  = side ? 3 : (S4_USE_ENCODER_DISTANCE ? 6 : 12);            /* +/-20 % */
+            int expect_hump = (!side) || S4_SIDE_ENABLE;                            /* S4_SIDE_ENABLE 0 = the control run: the old detector must see NOTHING */
             printf("\n--- results (%s) ---\n", mode);
             printf("samples %u, S1 pitch updates %d (max %d, min %d deg), humps %d, run max %d mm, turn peak %d dps\n",
                    (unsigned)s4_samples, s1_pitch_updates, s1_pitch_max, s1_pitch_min, s4_get_hump_count(), s4_get_max_hump_mm(), peak_turn);
             CHECK_SIM(s4_is_calibrated(), "calibration succeeded (offsets removed, car still)");
             CHECK_SIM(s4_samples > 400, "sensor read about 50 times a second");
             CHECK_SIM(seen_stationary && seen_moving, "STATIONARY while standing still, MOVING while cruising");
+            if (side) {
+                printf("  -- a hump under ONE rear wheel (%s): the front wheel stays down, the nose does not go up --\n", g_hump_kind == 1 ? "right" : "left");
+                CHECK_SIM(s1_pitch_max < 6, "the pitch never went up: the old pitch-only detector could not have seen this hump");
+            }
+            if (!expect_hump) {
+                CHECK_SIM(s4_get_hump_count() == 0 && csv_hump == 0, "CONTROL run (S4_SIDE_ENABLE 0): the pitch detector alone sees NO hump, as before");
+            } else if (side) {
+                CHECK_SIM(s4_get_hump_count() == 1, "exactly one hump detected (not two: the detectors are merged)");
+                CHECK_SIM(abs(s4_get_max_hump_mm() - true_mm) <= tol_mm, "peak height within +/-20% of the true 15 mm (track width x sin(roll), no distance needed)");
+                CHECK_SIM(csv_hump == 1 && abs(peak_mm - true_mm) <= tol_mm && max_mm == s4_get_max_hump_mm(), "hump logged once through s1_csv_log_event(\"HUMP\"), in mm");
+            } else {
             CHECK_SIM(s4_get_hump_count() == 1, "exactly one hump detected");
-            CHECK_SIM(abs(s4_get_max_hump_mm() - 30) <= tol_mm, S4_USE_ENCODER_DISTANCE ? "peak height within +/-20% of the true 30 mm (distance from subsystem 2's get_distance_traveled_mm)" : "peak height within 12 mm of the true 30 mm (fixed-speed assumption)");
-            CHECK_SIM(csv_hump == 1 && abs(peak_mm - 30) <= tol_mm && max_mm == s4_get_max_hump_mm(), "hump logged once through s1_csv_log_event(\"HUMP\"), in mm");
+            CHECK_SIM(abs(s4_get_max_hump_mm() - true_mm) <= tol_mm, S4_USE_ENCODER_DISTANCE ? "peak height within +/-20% of the true 30 mm (distance from subsystem 2's get_distance_traveled_mm)" : "peak height within 12 mm of the true 30 mm (fixed-speed assumption)");
+            CHECK_SIM(csv_hump == 1 && abs(peak_mm - true_mm) <= tol_mm && max_mm == s4_get_max_hump_mm(), "hump logged once through s1_csv_log_event(\"HUMP\"), in mm");
+            }
             printf("  -- subsystem 1: telemetry (IF-01) --\n");
             CHECK_SIM(s1_pitch_updates >= 50, "pitch pushed through s1_set_pitch() regularly");
-            CHECK_SIM(s1_pitch_max >= 10 && s1_pitch_min <= -10, "nose up gives POSITIVE pitch, nose down NEGATIVE, in the telemetry");
+            if (!side) CHECK_SIM(s1_pitch_max >= 10 && s1_pitch_min <= -10, "nose up gives POSITIVE pitch, nose down NEGATIVE, in the telemetry");
             CHECK_SIM(tl.speed_mm_s == 123 && tl.obstacle_cm == 45 && tl.barcode_id == 7, "speed, obstacle and barcode set by others are NOT overwritten");
+            if (expect_hump) {
             CHECK_SIM((s1_hump_states_seen & 6u) == 6u, "hump_state reported both 1 (going up) and 2 (going down)");
             CHECK_SIM((s1_car_states_seen & ((1u<<S4_STATIONARY)|(1u<<S4_MOVING)|(1u<<S4_TURNING)|(1u<<S4_CLIMBING_HUMP)|(1u<<S4_DESCENDING_HUMP))) ==
                       ((1u<<S4_STATIONARY)|(1u<<S4_MOVING)|(1u<<S4_TURNING)|(1u<<S4_CLIMBING_HUMP)|(1u<<S4_DESCENDING_HUMP)), "car_state reported every motion state we went through (3-bit values)");
+            }
             printf("  -- the 1.8 g knock at 5.0 s: collision detection is GONE, so it must stop nothing --\n");
             CHECK_SIM(!knock_fired, "after the knock: no fault, no lift state, no PICKED_UP / OVERTURNED motion state, no halt");
             CHECK_SIM(halt_calls == 0, "the motors were never halted during the whole drive");
