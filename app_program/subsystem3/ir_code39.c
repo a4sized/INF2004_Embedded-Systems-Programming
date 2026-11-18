@@ -31,63 +31,75 @@ static uint32_t edge_duration (ir_barcode_window_t const * p_window,
            p_window->edges[index].time_us;
 }
 
+/* A-Z and * all have two wide bars and one wide space. The other Code 39
+ * symbols are outside this single-letter decoder's contract. Rank within
+ * each colour: comparator thresholds can shorten black and lengthen white.
+ */
+static void sort_widths (uint32_t * widths, uint32_t count)
+{
+    for (uint32_t i = 1u; i < count; ++i)
+    {
+        uint32_t const value = widths[i];
+        uint32_t j = i;
+        while ((j > 0u) && (widths[j - 1u] > value))
+        {
+            widths[j] = widths[j - 1u];
+            --j;
+        }
+        widths[j] = value;
+    }
+}
+
 static bool decode_character (ir_barcode_window_t const * p_window,
                               uint32_t edge_count, uint32_t start,
                               bool b_reverse,
                               uint16_t * p_pattern,
-                              uint32_t * p_narrow_us)
+                              uint32_t * p_white_narrow_us)
 {
-    uint32_t sorted[CODE39_CHARACTER_ELEMENTS] = {0};
     uint32_t durations[CODE39_CHARACTER_ELEMENTS] = {0};
-
+    uint32_t bars[5] = {0};
+    uint32_t spaces[4] = {0};
     for (uint32_t i = 0u; i < CODE39_CHARACTER_ELEMENTS; ++i)
     {
         uint32_t const duration =
             edge_duration(p_window, edge_count, start + i, b_reverse);
-        if (0u == duration)
-        {
-            return false;
-        }
+        if (0u == duration) return false;
         durations[i] = duration;
-        uint32_t j = i;
-        while ((j > 0u) && (sorted[j - 1u] > duration))
-        {
-            sorted[j] = sorted[j - 1u];
-            --j;
-        }
-        sorted[j] = duration;
+        if (0u == (i & 1u)) bars[i / 2u] = duration;
+        else spaces[i / 2u] = duration;
     }
+    sort_widths(bars, 5u);
+    sort_widths(spaces, 4u);
 
-    /* Six narrow elements must be clearly separated from three wide ones.
-     * These bounds are provisional until GP6 scans the actual printouts.
+    /* Preserve 1.4 minimum separation within each colour, not across
+     * black/white. Two wide bars must remain within 4x of each other.
+     * With only one wide space there is no wide-space peer: cap it at
+     * 6x the largest narrow space. This accepts the measured 275/60 ms
+     * correction but still rejects the existing 500/60 ms outlier.
      */
-    /* A brief steering correction can lengthen one wide element without
-     * changing its wide/narrow ordering. A measured moving Z had wide
-     * elements of 90, 105 and 275 ms. Keep a finite outlier bound while
-     * allowing that complete *Z* frame to be recognized.
-     */
-    if (((uint64_t)sorted[6] * 5u) < ((uint64_t)sorted[5] * 7u) ||
-        ((uint64_t)sorted[8]) > ((uint64_t)sorted[6] * 4u))
+    if (((uint64_t)bars[3] * 5u < (uint64_t)bars[2] * 7u) ||
+        ((uint64_t)spaces[3] * 5u < (uint64_t)spaces[2] * 7u) ||
+        ((uint64_t)bars[4] > (uint64_t)bars[3] * 4u) ||
+        ((uint64_t)spaces[3] > (uint64_t)spaces[2] * 6u))
     {
         return false;
     }
-
     uint16_t pattern = 0u;
-    uint32_t wide_count = 0u;
+    uint32_t wide_bars = 0u;
+    uint32_t wide_spaces = 0u;
     for (uint32_t i = 0u; i < CODE39_CHARACTER_ELEMENTS; ++i)
     {
-        if (durations[i] >= sorted[6])
+        bool const bar = (0u == (i & 1u));
+        if (durations[i] >= (bar ? bars[3] : spaces[3]))
         {
             pattern |= (uint16_t)(1u << (8u - i));
-            ++wide_count;
+            if (bar) ++wide_bars;
+            else ++wide_spaces;
         }
     }
-    if (3u != wide_count)
-    {
-        return false;
-    }
+    if ((2u != wide_bars) || (1u != wide_spaces)) return false;
     *p_pattern = pattern;
-    *p_narrow_us = sorted[5];
+    *p_white_narrow_us = spaces[2];
     return true;
 }
 
@@ -113,7 +125,7 @@ static bool decode_direction (ir_barcode_window_t const * p_window,
         return false;
     }
 
-    /* The intercharacter gaps are white and near the narrow width.
+    /* The intercharacter gaps are white and near the narrow WHITE width.
      * A long blank interval inside the symbol is not a valid letter.
      */
     uint32_t const gap1 = edge_duration(p_window, CODE39_EDGE_COUNT,

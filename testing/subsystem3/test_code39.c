@@ -216,8 +216,11 @@ int main (void)
         30,220,20,95,150,95,165,90,25
     };
     ir_barcode_window_t overlap = make_window(overlap_widths, false);
-    assert(0 == strcmp("DATA_WIDTH", ir_code39_frame_reason(&overlap, false)));
-    assert(!ir_code39_frame_single_with_direction(&overlap, &letter, &direction));
+    /* Cross-colour overlap is now allowed when each colour separates. */
+    assert(0 == strcmp("VALID", ir_code39_frame_reason(&overlap, false)));
+    assert(ir_code39_frame_single_with_direction(&overlap, &letter, &direction));
+    assert('Z' == letter);
+    assert(IR_CODE39_FORWARD == direction);
     overlap.edges[1].time_us = overlap.edges[0].time_us;
     assert(0 == strcmp("START_WIDTH", ir_code39_frame_reason(&overlap, false)));
     assert(IR_BARCODE_U_TURN == ir_barcode_action_for('F'));

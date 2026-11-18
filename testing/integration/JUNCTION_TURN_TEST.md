@@ -90,45 +90,52 @@ trying the printed junction. Stop via MQTTX if the car points away from the
 track. Save the USB event trail and note which UF2 was flashed. Host tests
 and ARM compilation do not establish physical turn accuracy or reacquisition.
 
-## Encoder comparison trial (18 November 2026)
+## Timestamp decoder with separate bar/gap widths (18 November 2026)
 
-Flash the newly built networked team UF2. Use the existing hotspot/MQTT
-START workflow and save the entire USB serial session. Test W and Z, each
-in the small and large print sizes and both scan directions. Include smooth
-passes and passes with an ordinary steering correction. Record which print,
-size and direction belongs to each pass; do not move the paper by hand for
-this moving-car comparison.
+The active build uses normal 5 ms GPIO polling and timestamp widths. The
+user removed the encoder-distance barcode proposal. Barcode edge/sample
+logs now contain B/L/R/n/t, without EL/ER; wheel encoders still support the
+calibrated U-turn in the separate motion controller. Earlier paired logs
+are historical evidence, not the current output contract.
 
-`IR_BARCODE_EDGE` retains `B`, `L`, `R`, `n` and millisecond `t`, and adds
-signed cumulative `EL` and `ER` encoder ticks. The encoder getters are read
-beside the GPIO sample before decoding/logging, with no GPIO interrupt
-changes. They are sequential reads, not an atomic wheel pair. For adjacent
-edges in the SAME capture, compare elapsed time with signed wheel tick
-differences; `(delta_EL + delta_ER) / 2` estimates wheel-midpoint travel.
-Keep each wheel's delta too: unequal or opposite deltas identify steering
-where the midpoint estimate may differ from GP6 travel. Avoid interpreting
-counter resets, zero movement or wheel slip as valid barcode distances.
+For each A-Z character and each * marker, the decoder ranks the five black
+bars and four white spaces independently. A-Z and * each have two wide
+bars and one wide space. Narrow/wide separation must be at least 1.4 within
+each colour. Wide black bars retain a 4x spread limit; the single wide white
+gap is capped at 6x the largest narrow white gap to reject extreme outliers
+while allowing the measured 275/60 ms correction. Intercharacter gaps and
+legacy quiet-zone checks use narrow WHITE widths. The integrated path
+still accepts immediately at a valid closing * without waiting for quiet.
+Exactly 30 alternating edges, both markers and a supported single letter
+remain mandatory. The decoder recognises A-Z only; it is not a decoder for
+arbitrary digits/punctuation or strings.
 
-Rejected `IR_BARCODE_WINDOW` lines now include `reasonF` and `reasonR` for
-the forward and reverse pattern order. `INCOMPLETE` means fewer than 30
-edges; `START_MARKER_REJECTED` identifies rejection at the first ten edges.
-`START_WIDTH`, `DATA_WIDTH` and `STOP_WIDTH` identify character width
-classification failure (zero widths, narrow/wide overlap, excessive wide
-spread or tied wide elements). `START_PATTERN`, `STOP_PATTERN`,
-`DATA_PATTERN`, `CHARACTER_GAP`, `EDGE_LEVEL`, `INVALID_CAPTURE`, and
-`EXTRA_EDGES` identify the other checks. A frame may fail at different
-stages in each orientation. `VALID` here excludes the optional trailing
-quiet-zone check; normal integrated decoding accepts a valid complete frame
-at the final black-to-white edge.
+The two manually moved small-print recordings from 18 November now pass
+host replay as reverse A and forward Z, including opening and closing
+markers. Synthetic coverage checks all letters in both directions at
+multiple scales and opposite black/white biases; ambiguous widths,
+unsupported patterns, missing/wrong stops, zero durations and extreme
+outliers remain rejected. Earlier A/Z/W fixtures and the 5 ms polling
+pipeline also pass. These are host results, not new physical scans.
 
-The existing timestamp decoder still determines `BARCODE_DECODED` and
-junction turns. Encoder-based decoding, separate black/white width
-classification, and revised steering during capture are pending analysis of
-these paired measurements. Keep complete *LETTER* validation enabled.
+Flash the current normal networked UF2. First repeat the same stationary
+manual small-print pass and save the full log. Expect BARCODE_DECODED for
+A or Z if the waveform repeats. A is unmapped by default, so it can decode
+without requesting a turn; W/Z/F defaults and Ray's dashboard mapping still
+apply. Then test actual car-driven small and large prints at the same
+height/lighting. Keep the paper-motion and moving-car results labelled
+separately. Save IR_BARCODE_EDGE, IR_BARCODE_WINDOW and BARCODE_DECODED.
+
+Window reasonF/reasonR still identify START/DATA/STOP_WIDTH failures,
+marker pattern failures, unsupported data, bad gaps and invalid/incomplete
+capture. At ten edges a rejected start is START_MARKER_REJECTED. The
+reason describes the attempted pattern order; it does not establish a
+physical missed bar. The 1 ms profile is suspended at the user's request.
 
 ## F immediate encoder half-turn (18 November 2026)
 
-Mapping: W LEFT, Z RIGHT, F UTURN. A fresh F decode starts an immediate
+Default mapping: W LEFT, Z RIGHT, F UTURN. Ray's merged dashboard/MQTT
+mapping can assign different letters before a run. A fresh F decode starts an immediate
 left pivot through Subsystem 2 (-64/+64, 25% duty), without a junction cue.
 Neither GP6 nor either line sensor determines U-turn completion.
 Subsystem 2's signed encoder totals are sampled at start and on each
@@ -139,12 +146,13 @@ requested for 200 ms to settle; then normal following resumes, or SEARCH
 starts if both line sensors are white. Permission, stale IR and obstacle
 handoffs still apply throughout.
 
-The provisional target uses the same parameters as S5's pivot calculation:
-2050 ticks/revolution, 207 mm wheel circumference, and 220 mm effective
-track. The physical track is 110 mm; S5's doubled value compensates for
-observed front-wheel drag and slip. This is an encoder estimate of 180
-degrees, not a measured absolute heading. Check the physical angle in the
-first trial. Adjust `IR_UTURN_EFFECTIVE_TRACK_MM` in `ir_junction.h`: raise
+The integrated target now uses the user's accepted 129 mm effective track,
+2050 ticks/revolution and 207 mm wheel circumference: 2007 average wheel
+ticks, 4014 differential ticks. The user confirmed the separate 129 mm
+one-shot build produced the desired half-turn after trials at 147, 136 and
+132 mm. This replaces the earlier 220 mm value borrowed from S5; S5's own
+geometry is unchanged. It remains an encoder estimate, not absolute heading.
+Check the first full integrated run for stopping and post-turn search. Adjust `IR_UTURN_EFFECTIVE_TRACK_MM` in `ir_junction.h`: raise
 it if the turn falls short, lower it if it overshoots. Do not change the
 barcode letter patterns or encoder tick totals to tune rotation.
 

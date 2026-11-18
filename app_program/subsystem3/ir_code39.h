@@ -42,7 +42,8 @@ bool ir_code39_decode_single_with_direction (
     char * p_letter, ir_code39_direction_t * p_direction);
 
 /** Explain a frame rejection in one pattern order; returned text is static.
- * Width failures include insufficient narrow/wide separation or wide spread.
+ * Width failures include insufficient separation within black bars/white
+ * gaps, excessive wide-bar spread or an extreme wide-gap outlier.
  */
 char const * ir_code39_frame_reason (
     ir_barcode_window_t const * p_window, bool b_reverse);

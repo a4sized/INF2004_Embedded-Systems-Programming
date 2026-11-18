@@ -68,6 +68,9 @@ extern UW tm_usb_state (void);
 #endif
 #if defined(BUDDY3_FORCE_MOTOR_TEST)
 #include "motor_force_test.h"
+#if defined(BUDDY3_UTURN_CALIBRATION)
+ER ir_uturn_calibration_start (void);
+#endif
 #endif
 
 /*
@@ -177,7 +180,11 @@ EXPORT INT usermain(void)
 	CHECK(subsystem1_start(), "subsystem1_start");
 	CHECK(subsystem2_start(), "subsystem2_start");
 #if defined(BUDDY3_FORCE_MOTOR_TEST)
+#if defined(BUDDY3_UTURN_CALIBRATION)
+    CHECK(ir_uturn_calibration_start(), "ir_uturn_calibration_start");
+#else
 	CHECK(motor_force_test_start(), "motor_force_test_start");
+#endif
 #else
 	CHECK(subsystem3_start(), "subsystem3_start");
     

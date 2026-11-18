@@ -53,10 +53,12 @@ typedef struct
 #define IR_JUNCTION_TIMEOUT_MS 3000u
 #define IR_JUNCTION_CROSSING_TIMEOUT_MS 3000u
 
-/* Match S5's effective pivot geometry: 220 mm includes measured slip;
- * physical track is 110 mm. Tune effective track after the on-car trial.
+/* User-accepted 180-degree pivot calibration after 147/136/132 mm trials.
+ * Effective track models slip/drag; it is not the physical wheel spacing.
  */
-#define IR_UTURN_EFFECTIVE_TRACK_MM 220u
+#ifndef IR_UTURN_EFFECTIVE_TRACK_MM
+#define IR_UTURN_EFFECTIVE_TRACK_MM 129u
+#endif
 #define IR_UTURN_TICKS_PER_REV 2050u
 #define IR_UTURN_WHEEL_CIRCUM_MM 207u
 #define IR_UTURN_WHEEL_TICKS ((IR_UTURN_EFFECTIVE_TRACK_MM * 355u * \
