@@ -64,6 +64,8 @@
     barcodeGlyph: document.getElementById("barcode-glyph"),
     barcodeActionBadge: document.getElementById("barcode-action-badge"),
     barcodeHistory: document.getElementById("barcode-history"),
+    barcodeCountBadge: document.getElementById("barcode-count-badge"),
+    barcodeTerminal: document.getElementById("barcode-terminal"),
 
     mapForm: document.getElementById("barcode-map-form"),
     mapLeft: document.getElementById("map-left"),
@@ -498,18 +500,35 @@
 
   function renderBarcodes() {
     ui.barcodeHistory.replaceChildren();
-    if (!store.barcodes || store.barcodes.length === 0) {
+    const list = store.barcodes || [];
+    ui.barcodeCountBadge.textContent = `${list.length} scan${list.length === 1 ? "" : "s"}`;
+
+    if (list.length === 0) {
       const empty = document.createElement("span");
       empty.className = "chip muted";
       empty.textContent = "No scans";
       ui.barcodeHistory.appendChild(empty);
+      ui.barcodeTerminal.textContent = "No barcodes scanned yet...";
       return;
     }
-    for (const b of store.barcodes.slice(-6).reverse()) {
+
+    for (const b of list.slice(-6).reverse()) {
       const chip = document.createElement("span");
       chip.className = "chip";
-      chip.textContent = `'${b.char}' #${pad3(b.seq)}`;
+      const act = b.action || actionForBarcodeChar(b.char);
+      chip.textContent = `${b.char} - ${act}`;
       ui.barcodeHistory.appendChild(chip);
+    }
+
+    const lines = list.map((b) => {
+      const act = b.action || actionForBarcodeChar(b.char);
+      const ts = b.time ? `[${b.time}] ` : "";
+      const seqTag = b.seq !== undefined ? `#${pad3(b.seq)}  ` : "";
+      return `${ts}${seqTag}${b.char} - ${act}`;
+    });
+    ui.barcodeTerminal.textContent = lines.join("\n");
+    if (!ui.pauseScroll.checked) {
+      ui.barcodeTerminal.scrollTop = ui.barcodeTerminal.scrollHeight;
     }
   }
 
@@ -986,6 +1005,7 @@
       if (!ui.pauseScroll.checked) {
         ui.terminalOutput.scrollTop = ui.terminalOutput.scrollHeight;
         ui.eventList.scrollTop = ui.eventList.scrollHeight;
+        ui.barcodeTerminal.scrollTop = ui.barcodeTerminal.scrollHeight;
       }
     });
 

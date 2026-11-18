@@ -223,6 +223,22 @@ def encode_barcode_map_payload(mapping: dict[str, Any]) -> tuple[dict[str, str],
     return normalized, wire_str, wire_str.encode("ascii")
 
 
+def resolve_barcode_action(char: str, mapping: dict[str, str]) -> str:
+    """Resolve a decoded barcode letter into a human-readable movement label."""
+    upper = char.strip().upper()
+    if len(upper) != 1:
+        return "Straight"
+    if mapping.get("straight") and upper == mapping["straight"]:
+        return "Straight"
+    if mapping.get("left") and upper == mapping["left"]:
+        return "Left Turn"
+    if mapping.get("right") and upper == mapping["right"]:
+        return "Right Turn"
+    if mapping.get("uturn") and upper == mapping["uturn"]:
+        return "U-Turn"
+    return "Straight"
+
+
 @dataclass
 class DashboardState:
     broker_ip: str = BROKER_IP_DEFAULT
@@ -339,7 +355,7 @@ class TelemetryHub:
                 "history": list(self._state.packets)[-90:],
                 "events": list(self._state.events)[-80:],
                 "commands": list(self._state.commands)[-25:],
-                "barcodes": list(self._state.barcodes)[-15:],
+                "barcodes": list(self._state.barcodes)[-40:],
                 "barcode_map": dict(self._state.barcode_map),
                 "barcode_map_payload": self._state.barcode_map_payload,
                 "barcode_map_applied_at": self._state.barcode_map_applied_at,
@@ -453,22 +469,28 @@ class TelemetryHub:
             barcode_id = decoded["barcode_id"]
             if barcode_id != 0 and barcode_id != self._last_barcode_id:
                 label = decoded["barcode_display"]
+                action = resolve_barcode_action(label, self._state.barcode_map)
                 self._state.barcodes.append(
                     {
                         "seq": decoded["seq"],
                         "time": ts_str,
                         "id": barcode_id,
                         "char": label,
+                        "action": action,
                     }
                 )
                 new_events.append(
-                    self._push_event_locked("BARCODE", f"Decoded barcode '{label}' (seq #{decoded['seq']:03d})", "ok")
+                    self._push_event_locked(
+                        "BARCODE",
+                        f"Decoded barcode '{label}' - {action} (seq #{decoded['seq']:03d})",
+                        "ok",
+                    )
                 )
             self._last_barcode_id = barcode_id
 
             self._state.packets.append(decoded)
             meta = self._meta_dict_locked()
-            barcodes = list(self._state.barcodes)[-15:]
+            barcodes = list(self._state.barcodes)[-40:]
 
         self._broadcast(
             "telemetry",

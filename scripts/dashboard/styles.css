@@ -305,6 +305,7 @@ select {
 .card-charts { grid-column: span 12; }
 .card-cmd { grid-column: span 4; }
 .card-terminal { grid-column: span 8; }
+.card-barcode-log { grid-column: span 12; }
 
 .card-header {
   display: flex;
@@ -873,6 +874,13 @@ select {
   line-height: 1.45;
   color: #d8e6f7;
   white-space: pre;
+}
+
+.barcode-log-pre {
+  height: 185px;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: #bae6fd;
 }
 
 .table-wrap {

@@ -245,6 +245,22 @@ class TelemetryDashboardHttpTests(unittest.TestCase):
         self.assertEqual(code_state, 200)
         self.assertEqual(json.loads(state_raw)["barcode_map_payload"], "MAP:AQSF")
 
+        self.hub.ingest_payload(
+            telemetry_dashboard.encode_telemetry_payload(seq=100, barcode_id=ord("A")),
+            source="mqtt",
+        )
+        self.hub.ingest_payload(
+            telemetry_dashboard.encode_telemetry_payload(seq=101, barcode_id=ord("F")),
+            source="mqtt",
+        )
+        code_state2, state_raw2 = self._request("GET", "/api/state")
+        self.assertEqual(code_state2, 200)
+        barcodes = json.loads(state_raw2)["barcodes"]
+        self.assertEqual(barcodes[-2]["char"], "A")
+        self.assertEqual(barcodes[-2]["action"], "Left Turn")
+        self.assertEqual(barcodes[-1]["char"], "F")
+        self.assertEqual(barcodes[-1]["action"], "U-Turn")
+
         code_bad, _ = self._request("POST", "/api/cmd", {"command": "NOPE", "mode": "binary"})
         self.assertEqual(code_bad, 400)
 
