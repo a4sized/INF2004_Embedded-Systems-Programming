@@ -112,7 +112,15 @@ def decode_telemetry_payload(payload: bytes) -> dict[str, Any]:
     if unknown:
         active_faults.append({"bit": unknown, "hex": f"0x{unknown:03X}", "name": f"UNKNOWN(0x{unknown:X})", "tier": "tier1"})
 
+    barcode_err = BARCODE_ERROR_LABELS.get(barcode_id)
     barcode_char = chr(barcode_id) if 32 <= barcode_id <= 126 else ""
+    barcode_rejected = barcode_err is not None
+    barcode_reason = barcode_err[1] if barcode_err else ""
+    barcode_display = (
+        barcode_err[0]
+        if barcode_err
+        else (barcode_char if barcode_char else ("NONE" if barcode_id == 0 else str(barcode_id)))
+    )
 
     return {
         "seq": seq,
@@ -134,7 +142,9 @@ def decode_telemetry_payload(payload: bytes) -> dict[str, Any]:
         "line_bits": [(obstacle_width_cm >> i) & 1 for i in range(4, -1, -1)],
         "barcode_id": barcode_id,
         "barcode_char": barcode_char,
-        "barcode_display": barcode_char if barcode_char else ("NONE" if barcode_id == 0 else str(barcode_id)),
+        "barcode_display": barcode_display,
+        "barcode_rejected": barcode_rejected,
+        "barcode_reason": barcode_reason,
         "fault_mask": fault_mask,
         "fault_hex": f"0x{fault_mask:03X}",
         "fault_summary": fault_str,
@@ -193,6 +203,15 @@ def encode_command_payload(command: str, mode: str = "ascii") -> tuple[bytes, st
 
     return cleaned.encode("utf-8"), f"ASCII '{cleaned}'"
 
+
+BARCODE_ERROR_LABELS: dict[int, tuple[str, str]] = {
+    1: ("REJECTED", "Start '*' Marker"),
+    2: ("REJECTED", "Width Ratio"),
+    3: ("REJECTED", "Invalid Pattern"),
+    4: ("REJECTED", "Character Gap"),
+    5: ("FAILED", "Incomplete Scan"),
+    6: ("FAILED", "Invalid Capture"),
+}
 
 BARCODE_MAP_DEFAULTS: dict[str, str] = {
     "left": "W",
@@ -472,24 +491,45 @@ class TelemetryHub:
 
             barcode_id = decoded["barcode_id"]
             if barcode_id != 0 and barcode_id != self._last_barcode_id:
-                label = decoded["barcode_display"]
-                action = resolve_barcode_action(label, self._state.barcode_map)
-                self._state.barcodes.append(
-                    {
-                        "seq": decoded["seq"],
-                        "time": ts_str,
-                        "id": barcode_id,
-                        "char": label,
-                        "action": action,
-                    }
-                )
-                new_events.append(
-                    self._push_event_locked(
-                        "BARCODE",
-                        f"Decoded barcode '{label}' - {action} (seq #{decoded['seq']:03d})",
-                        "ok",
+                if barcode_id in BARCODE_ERROR_LABELS:
+                    tag, reason = BARCODE_ERROR_LABELS[barcode_id]
+                    self._state.barcodes.append(
+                        {
+                            "seq": decoded["seq"],
+                            "time": ts_str,
+                            "id": barcode_id,
+                            "char": tag,
+                            "action": reason,
+                            "rejected": True,
+                        }
                     )
-                )
+                    new_events.append(
+                        self._push_event_locked(
+                            "BARCODE_REJECT",
+                            f"Barcode {tag.lower()}: {reason} (seq #{decoded['seq']:03d})",
+                            "warn",
+                        )
+                    )
+                else:
+                    label = decoded["barcode_display"]
+                    action = resolve_barcode_action(label, self._state.barcode_map)
+                    self._state.barcodes.append(
+                        {
+                            "seq": decoded["seq"],
+                            "time": ts_str,
+                            "id": barcode_id,
+                            "char": label,
+                            "action": action,
+                            "rejected": False,
+                        }
+                    )
+                    new_events.append(
+                        self._push_event_locked(
+                            "BARCODE",
+                            f"Decoded barcode '{label}' - {action} (seq #{decoded['seq']:03d})",
+                            "ok",
+                        )
+                    )
             self._last_barcode_id = barcode_id
 
             self._state.packets.append(decoded)

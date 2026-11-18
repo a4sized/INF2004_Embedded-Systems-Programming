@@ -21,10 +21,11 @@ the line. List **every** video in the table at the bottom of this page.
 |---|---|---|---|---|
 | 1 | S1 | `S1-U12` | GP19 heartbeat LED (2 Hz) | Commit hash + Pico GP19 LED blinking evenly at 250 ms intervals (with `S1-U01`–`S1-U10` `[TEST] PASS` console if running `TEST=1`) |
 | 2 | S1 | `S1-U13` | Wi-Fi join + 1 Hz telemetry decode | Commit hash + Mosquitto `-v` window + `python scripts/telemetry_decoder.py` printing `[SEQ #...]` every 1 s cleanly (`FAULT=NONE`) |
-| 3 | S1 | `S1-U14` | MQTT RX commands (`PING`, `INVALID`, `CLEAR`, `ESTOP`) | MQTTX / `mosquitto_pub` sending valid + invalid payloads + decoder showing `FAULT_CMD_REJECTED` / `FAULT_ESTOP` set & cleared |
-| 4 | INT | `INT-06` / `INT-07` | Barcode decode + VC state transitions (`INIT->READY->FOLLOWING`) | Sweeping barcode across GP6 showing decoder `Barcode` char update, plus MQTT `START`/`STOP`/`ESTOP`/`CLEAR` transitions |
-| 5 | INT | `INT-09` / `INT-10` | Fault halt / Wi-Fi resilience + S5 obstacle handoff | Chassis propped or on track showing Tier-1 motor cutoff (`ESTOP`/collision), S5 `VC_AVOIDING` transition, or AP drop continue |
-| 6 | SYS | `SYS-02`–`SYS-08` | End-to-end track circuit & Ground Station | Full car navigating track (line + hump + obstacle + barcode) with `telemetry_decoder.py` / MQTTX live in corner or split-screen |
+| 3 | S1 | `S1-U14` | MQTT RX commands (`PING`, `INVALID`, `CLEAR`, `ESTOP`) | Web Dashboard / MQTTX / `mosquitto_pub` sending valid + invalid payloads + decoder/dashboard showing `FAULT_CMD_REJECTED` / `FAULT_ESTOP` set & cleared |
+| 4 | S1 | `S1-U16` | Runtime barcode map (`MAP:LRSU`), scan history & S5 width | Web Dashboard (`http://127.0.0.1:8080/`) applying custom `MAP:LRSU`, USB logging `CMD_MAP`, barcode scan appearing in Barcode Scan History, and S5 obstacle width bar updating |
+| 5 | INT | `INT-06` / `INT-07` | Barcode decode + VC state transitions (`INIT->READY->FOLLOWING`) | Sweeping barcode across GP6 showing decoder `Barcode` char update, plus MQTT `START`/`STOP`/`ESTOP`/`CLEAR` transitions |
+| 6 | INT | `INT-09` / `INT-10` | Fault halt / Wi-Fi resilience + S5 obstacle handoff | Chassis propped or on track showing Tier-1 motor cutoff (`ESTOP`/collision), S5 `VC_AVOIDING` transition, or AP drop continue |
+| 7 | SYS | `SYS-02`–`SYS-08` | End-to-end track circuit & Ground Station | Full car navigating track (line + hump + obstacle + barcode) with `telemetry_decoder.py` / Web Dashboard live in corner or split-screen |
 
 ## How to share it: unlisted YouTube only
 

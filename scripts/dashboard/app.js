@@ -129,9 +129,11 @@
   }
 
   function formatDecoderBlock(pkt, includeTime) {
-    const barcodeText = pkt.barcode_char
-      ? pkt.barcode_char
-      : String(pkt.barcode_id);
+    const barcodeText = pkt.barcode_rejected
+      ? `${pkt.barcode_display} (${pkt.barcode_reason})`
+      : pkt.barcode_char
+        ? pkt.barcode_char
+        : String(pkt.barcode_id);
     const pitchText = formatSignedDeg(pkt.pitch_deg, 3);
     const obsText = String(pkt.obstacle_cm).padStart(3, " ");
     const widthVal = pkt.obstacle_width_cm !== undefined ? pkt.obstacle_width_cm : pkt.line_mask;
@@ -297,7 +299,7 @@
       ui.obstacleWidthBar.style.width = "0%";
       ui.barcodeRawId.textContent = "id=0";
       ui.barcodeGlyph.textContent = "NONE";
-      ui.barcodeGlyph.classList.remove("active");
+      ui.barcodeGlyph.classList.remove("active", "rejected");
       ui.barcodeActionBadge.textContent = "--";
       return;
     }
@@ -374,8 +376,11 @@
 
     ui.barcodeRawId.textContent = `id=${pkt.barcode_id}`;
     ui.barcodeGlyph.textContent = pkt.barcode_display;
-    ui.barcodeGlyph.classList.toggle("active", pkt.barcode_id !== 0);
-    ui.barcodeActionBadge.textContent = actionForBarcodeChar(pkt.barcode_char);
+    ui.barcodeGlyph.classList.toggle("active", pkt.barcode_id !== 0 && !pkt.barcode_rejected);
+    ui.barcodeGlyph.classList.toggle("rejected", Boolean(pkt.barcode_rejected));
+    ui.barcodeActionBadge.textContent = pkt.barcode_rejected
+      ? (pkt.barcode_reason || "REJECTED")
+      : actionForBarcodeChar(pkt.barcode_char);
   }
 
   function actionForBarcodeChar(ch) {
@@ -475,7 +480,9 @@
 
     const latest = store.packets[store.packets.length - 1];
     if (latest) {
-      ui.barcodeActionBadge.textContent = actionForBarcodeChar(latest.barcode_char);
+      ui.barcodeActionBadge.textContent = latest.barcode_rejected
+        ? (latest.barcode_reason || "REJECTED")
+        : actionForBarcodeChar(latest.barcode_char);
     }
   }
 
@@ -517,7 +524,9 @@
   function renderBarcodes() {
     ui.barcodeHistory.replaceChildren();
     const list = store.barcodes || [];
-    ui.barcodeCountBadge.textContent = `${list.length} scan${list.length === 1 ? "" : "s"}`;
+    const failedCount = list.filter((b) => Boolean(b.rejected)).length;
+    const baseCount = `${list.length} scan${list.length === 1 ? "" : "s"}`;
+    ui.barcodeCountBadge.textContent = failedCount > 0 ? `${baseCount} (${failedCount} failed)` : baseCount;
 
     if (list.length === 0) {
       const empty = document.createElement("span");
@@ -530,19 +539,23 @@
 
     for (const b of list.slice(-6).reverse()) {
       const chip = document.createElement("span");
-      chip.className = "chip";
+      chip.className = b.rejected ? "chip rejected" : "chip";
       const act = b.action || actionForBarcodeChar(b.char);
       chip.textContent = `${b.char} - ${act}`;
       ui.barcodeHistory.appendChild(chip);
     }
 
-    const lines = list.map((b) => {
+    ui.barcodeTerminal.replaceChildren();
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
       const act = b.action || actionForBarcodeChar(b.char);
       const ts = b.time ? `[${b.time}] ` : "";
       const seqTag = b.seq !== undefined ? `#${pad3(b.seq)}  ` : "";
-      return `${ts}${seqTag}${b.char} - ${act}`;
-    });
-    ui.barcodeTerminal.textContent = lines.join("\n");
+      const span = document.createElement("span");
+      span.className = b.rejected ? "barcode-line rejected" : "barcode-line ok";
+      span.textContent = `${ts}${seqTag}${b.char} - ${act}${i + 1 < list.length ? "\n" : ""}`;
+      ui.barcodeTerminal.appendChild(span);
+    }
     if (!ui.pauseScroll.checked) {
       ui.barcodeTerminal.scrollTop = ui.barcodeTerminal.scrollHeight;
     }
@@ -745,7 +758,7 @@
         `${formatSignedDeg(pkt.pitch_deg, 0)}°`,
         pkt.obstacle_clear ? "511 (CLR)" : `${pkt.obstacle_cm} cm`,
         pkt.obstacle_width_cm > 0 ? `${pkt.obstacle_width_cm} cm` : "--",
-        pkt.barcode_display,
+        pkt.barcode_rejected ? `${pkt.barcode_display} (${pkt.barcode_reason})` : pkt.barcode_display,
         pkt.fault_mask === 0 ? "0x000 CLEAR" : `${pkt.fault_hex} ${pkt.fault_summary}`,
       ];
       for (const val of cells) {

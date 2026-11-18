@@ -255,13 +255,28 @@ class TelemetryDashboardHttpTests(unittest.TestCase):
             telemetry_dashboard.encode_telemetry_payload(seq=101, barcode_id=ord("F")),
             source="mqtt",
         )
+        self.hub.ingest_payload(
+            telemetry_dashboard.encode_telemetry_payload(seq=102, barcode_id=1),
+            source="mqtt",
+        )
+        self.hub.ingest_payload(
+            telemetry_dashboard.encode_telemetry_payload(seq=103, barcode_id=5),
+            source="mqtt",
+        )
         code_state2, state_raw2 = self._request("GET", "/api/state")
         self.assertEqual(code_state2, 200)
         barcodes = json.loads(state_raw2)["barcodes"]
-        self.assertEqual(barcodes[-2]["char"], "A")
-        self.assertEqual(barcodes[-2]["action"], "Left Turn")
-        self.assertEqual(barcodes[-1]["char"], "F")
-        self.assertEqual(barcodes[-1]["action"], "U-Turn")
+        self.assertEqual(barcodes[-4]["char"], "A")
+        self.assertEqual(barcodes[-4]["action"], "Left Turn")
+        self.assertFalse(barcodes[-4]["rejected"])
+        self.assertEqual(barcodes[-3]["char"], "F")
+        self.assertEqual(barcodes[-3]["action"], "U-Turn")
+        self.assertEqual(barcodes[-2]["char"], "REJECTED")
+        self.assertEqual(barcodes[-2]["action"], "Start '*' Marker")
+        self.assertTrue(barcodes[-2]["rejected"])
+        self.assertEqual(barcodes[-1]["char"], "FAILED")
+        self.assertEqual(barcodes[-1]["action"], "Incomplete Scan")
+        self.assertTrue(barcodes[-1]["rejected"])
 
         code_bad, _ = self._request("POST", "/api/cmd", {"command": "NOPE", "mode": "binary"})
         self.assertEqual(code_bad, 400)

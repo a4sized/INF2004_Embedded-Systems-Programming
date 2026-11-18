@@ -59,6 +59,7 @@ extern UW tm_usb_state (void);
 static void sensing_task (INT start_code, void * p_extra);
 static void sensing_tick (void * p_extra);
 static void print_capture (ir_barcode_window_t const * p_window);
+static void report_barcode_reject (ir_barcode_window_t const * p_window);
 static void halt_task (void);
 #if defined(BUDDY3_BARCODE_DEBUG)
 static char * barcode_debug_u32 (char * p_out, uint32_t value);
@@ -327,6 +328,7 @@ static void sensing_task (INT start_code, void * p_extra)
             if ((IR_BARCODE_COMPLETE_EDGES == window.count) ||
                 ir_barcode_window_expired(&window, edge.time_us))
             {
+                report_barcode_reject(&window);
                 print_capture(&window);
                 ir_barcode_window_reset(&window);
             }
@@ -341,6 +343,7 @@ static void sensing_task (INT start_code, void * p_extra)
             {
                 if (!ir_code39_start_marker_seen(&window))
                 {
+                    report_barcode_reject(&window);
                     print_capture(&window);
                     ir_barcode_window_reset(&window);
                 }
@@ -350,6 +353,7 @@ static void sensing_task (INT start_code, void * p_extra)
                 if (!ir_code39_frame_single_with_direction(
                         &window, &decoded_letter, &scan_direction))
                 {
+                    report_barcode_reject(&window);
                     print_capture(&window);
                     ir_barcode_window_reset(&window);
                 }
@@ -416,6 +420,7 @@ static void sensing_task (INT start_code, void * p_extra)
 
         if (ir_barcode_window_expired(&window, ir_time_us()))
         {
+            report_barcode_reject(&window);
             print_capture(&window);
             ir_barcode_window_reset(&window);
         }
@@ -579,6 +584,66 @@ static void sensing_tick (void * p_extra)
 {
     (void)p_extra;
     (void)tk_wup_tsk(sensing_task_id);
+}
+
+static bool barcode_str_eq (char const * p_a, char const * p_b)
+{
+    while (('\0' != *p_a) && (*p_a == *p_b))
+    {
+        ++p_a;
+        ++p_b;
+    }
+    return *p_a == *p_b;
+}
+
+/* Report rejected or failed barcode windows to Subsystem 1 telemetry so they
+ * appear in the Ground Station Barcode Scan History terminal. Short fragments
+ * (< 6 edges, e.g. a 2-edge junction bar) are ignored to avoid false alerts.
+ */
+static void report_barcode_reject (ir_barcode_window_t const * p_window)
+{
+    if ((NULL == p_window) || (0u == p_window->count))
+    {
+        return;
+    }
+    if (p_window->b_invalid)
+    {
+        s1_report_barcode_reject((UB)S1_BARCODE_ERR_INVALID);
+        return;
+    }
+    if ((10u == p_window->count) && !ir_code39_start_marker_seen(p_window))
+    {
+        s1_report_barcode_reject((UB)S1_BARCODE_ERR_START);
+        return;
+    }
+    if (IR_BARCODE_COMPLETE_EDGES == p_window->count)
+    {
+        char const * const fwd = ir_code39_frame_reason(p_window, false);
+        char const * const rev = ir_code39_frame_reason(p_window, true);
+        if (barcode_str_eq(fwd, "CHARACTER_GAP") ||
+            barcode_str_eq(rev, "CHARACTER_GAP"))
+        {
+            s1_report_barcode_reject((UB)S1_BARCODE_ERR_GAP);
+        }
+        else if (barcode_str_eq(fwd, "START_PATTERN") ||
+                 barcode_str_eq(fwd, "STOP_PATTERN") ||
+                 barcode_str_eq(fwd, "DATA_PATTERN") ||
+                 barcode_str_eq(rev, "START_PATTERN") ||
+                 barcode_str_eq(rev, "STOP_PATTERN") ||
+                 barcode_str_eq(rev, "DATA_PATTERN"))
+        {
+            s1_report_barcode_reject((UB)S1_BARCODE_ERR_PATTERN);
+        }
+        else
+        {
+            s1_report_barcode_reject((UB)S1_BARCODE_ERR_WIDTH);
+        }
+        return;
+    }
+    if (p_window->count >= 6u)
+    {
+        s1_report_barcode_reject((UB)S1_BARCODE_ERR_INCOMPLETE);
+    }
 }
 
 static void print_capture (ir_barcode_window_t const * p_window)

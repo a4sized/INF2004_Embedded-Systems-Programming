@@ -142,6 +142,14 @@ class TelemetryDecoderTests(unittest.TestCase):
         self.assertIn("Barcode = '0'", out)
         self.assertIn("NONE (ALL CLEAR)", out)
 
+    def test_decode_rejected_barcode_status_code(self):
+        payload = pack_telemetry(seq=9, obstacle_cm=511, barcode_id=2, fault_mask=0)
+        msg = types.SimpleNamespace(payload=payload)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            telemetry_decoder.on_message(None, None, msg)
+        self.assertIn("Barcode = 'REJECTED (Width Ratio)'", buf.getvalue())
+
     def test_reject_non_8_byte_payload(self):
         msg = types.SimpleNamespace(payload=b"\x01\x02\x03")
         buf = io.StringIO()

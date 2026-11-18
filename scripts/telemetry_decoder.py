@@ -49,6 +49,16 @@ HUMP_NAMES = {
     3: "HUMP_PEAK",
 }
 
+# Special non-ASCII barcode_id status codes (1..6) matching subsystem1.h
+BARCODE_ERROR_NAMES = {
+    1: "REJECTED (Start '*' Marker)",
+    2: "REJECTED (Width Ratio)",
+    3: "REJECTED (Invalid Pattern)",
+    4: "REJECTED (Character Gap)",
+    5: "FAILED (Incomplete Scan)",
+    6: "FAILED (Invalid Capture)",
+}
+
 def decode_faults(mask):
     if mask == 0:
         return "NONE (ALL CLEAR)"
@@ -112,10 +122,17 @@ def on_message(client, userdata, msg):
     hump_str  = HUMP_NAMES.get(hump_state, f"HUMP_{hump_state}")
     fault_str = decode_faults(fault_mask)
 
+    if barcode_id in BARCODE_ERROR_NAMES:
+        barcode_str = BARCODE_ERROR_NAMES[barcode_id]
+    elif 32 <= barcode_id <= 126:
+        barcode_str = chr(barcode_id)
+    else:
+        barcode_str = str(barcode_id)
+
     print(f"[SEQ #{seq:03d}] Raw HEX: [{raw_hex}] (8 bytes)")
     print(f"  ├─ State:     {state_str} ({car_state})")
     print(f"  ├─ Terrain:   {hump_str} ({hump_state}) | Peak Hump Height = {hump_height_mm} mm | Pitch = {pitch_deg:+3d}°")
-    print(f"  ├─ Sensors:   Obstacle = {obstacle_cm:3d} cm | Width = {obstacle_width_cm:2d} cm | Barcode = '{chr(barcode_id) if 32 <= barcode_id <= 126 else barcode_id}'")
+    print(f"  ├─ Sensors:   Obstacle = {obstacle_cm:3d} cm | Width = {obstacle_width_cm:2d} cm | Barcode = '{barcode_str}'")
     print(f"  └─ Faults:    [0x{fault_mask:03X}] -> {fault_str}")
     print("-" * 80)
 

@@ -741,6 +741,19 @@ select {
   background: var(--info-bg);
 }
 
+.barcode-glyph.rejected {
+  color: var(--alert);
+  border-color: var(--alert);
+  background: var(--alert-bg);
+  font-size: 0.95rem;
+}
+
+.chip.rejected {
+  color: #fca5a5;
+  border-color: var(--alert);
+  background: var(--alert-bg);
+}
+
 .barcode-chips {
   display: flex;
   flex-wrap: wrap;
@@ -901,6 +914,14 @@ select {
   font-size: 0.88rem;
   line-height: 1.55;
   color: #bae6fd;
+}
+
+.barcode-line.ok {
+  color: #86efac;
+}
+
+.barcode-line.rejected {
+  color: #fca5a5;
 }
 
 .table-wrap {

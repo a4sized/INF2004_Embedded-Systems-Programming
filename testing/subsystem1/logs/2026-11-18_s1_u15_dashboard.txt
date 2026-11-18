@@ -1,0 +1,13 @@
+test_api_endpoints_and_live_sse_stream (__main__.TelemetryDashboardHttpTests.test_api_endpoints_and_live_sse_stream) ... ok
+test_live_demo_thread_and_reset_endpoint (__main__.TelemetryDashboardHttpTests.test_live_demo_thread_and_reset_endpoint) ... ok
+test_static_assets_and_path_traversal_guard (__main__.TelemetryDashboardHttpTests.test_static_assets_and_path_traversal_guard) ... ok
+test_decode_matches_telemetry_decoder_on_negative_pitch_and_faults (__main__.TelemetryDashboardUnitTests.test_decode_matches_telemetry_decoder_on_negative_pitch_and_faults) ... ok
+test_decode_zero_barcode_and_invalid_length (__main__.TelemetryDashboardUnitTests.test_decode_zero_barcode_and_invalid_length) ... ok
+test_encode_barcode_map_payload_validation (__main__.TelemetryDashboardUnitTests.test_encode_barcode_map_payload_validation) ... ok
+test_encode_command_payload_modes (__main__.TelemetryDashboardUnitTests.test_encode_command_payload_modes) ... ok
+test_hub_tracks_drops_max_hump_demo_overrides_and_reset (__main__.TelemetryDashboardUnitTests.test_hub_tracks_drops_max_hump_demo_overrides_and_reset) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 1.876s
+
+OK

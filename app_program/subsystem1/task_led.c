@@ -55,6 +55,16 @@ EXPORT void s1_set_barcode_id(UB barcode_id) {
     tk_unl_mtx(mtx_telemetry);
 }
 
+EXPORT void s1_report_barcode_reject(UB err_code) {
+    if (err_code < 1u || err_code > 31u) return;
+    tk_loc_mtx(mtx_telemetry, TMO_FEVR);
+    /* Preserve an active decoded letter ('A'..'Z') still awaiting its junction */
+    if (s1_telemetry.barcode_id < 'A' || s1_telemetry.barcode_id > 'Z') {
+        s1_telemetry.barcode_id = err_code;
+    }
+    tk_unl_mtx(mtx_telemetry);
+}
+
 EXPORT void s1_set_car_state(UW state, UW hump) {
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
     s1_telemetry.car_state = state;
@@ -292,6 +302,11 @@ EXPORT void led_task(INT stacd, void *exinf) {
             s1_telemetry.seq++;
             s1_telemetry.hump_height_mm = (uint32_t)s4_get_max_hump_mm();
             snap = s1_telemetry;
+            /* Auto-clear one-shot rejected-scan codes (1..31) after one TX
+             * so consecutive failures each appear distinctly on the dashboard. */
+            if (s1_telemetry.barcode_id >= 1u && s1_telemetry.barcode_id <= 31u) {
+                s1_telemetry.barcode_id = S1_BARCODE_NONE;
+            }
             tk_unl_mtx(mtx_telemetry);
 
             if (tk_snd_mbf(mbf_mqtt_tx, (UB*)&snap, sizeof(S1_TELEMETRY_PKT), TMO_POL) == E_OK) {
