@@ -298,6 +298,8 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
             {
                 b_barcode_white_hold = false;
             }
+            ir_junction_note_odometry(&junction, get_left_encoder_ticks(),
+                                       get_right_encoder_ticks());
             if (ir_junction_update(&junction,
                                    b_time_valid ? &snapshot : (void *)0,
                                    now.lo,
@@ -311,9 +313,17 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
             }
             else
             {
-                if (IR_JUNCTION_TURN_DONE == junction_event)
+                if ((IR_JUNCTION_TURN_DONE == junction_event) ||
+                    (IR_JUNCTION_UTURN_DONE == junction_event))
                 {
                     ir_follow_controller_reset(&follow);
+                    if ((IR_JUNCTION_UTURN_DONE == junction_event) &&
+                        (IR_LINE_BOTH_WHITE == snapshot.position))
+                    {
+                        follow.mode = IR_FOLLOW_SEARCH;
+                        follow.last_side = IR_SEARCH_LEFT;
+                        follow.b_last_side_valid = true;
+                    }
                 }
                 if (!b_barcode_white_hold ||
                     ((uint32_t)(now.lo - barcode_white_started_ms) >=
@@ -352,11 +362,14 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
                                      "UTURN" : "RIGHT");
                 break;
             case IR_JUNCTION_TURN_STARTED:
-                /* The letter has become a turn request. Clear the visible
-                 * telemetry value so the next decode is a new instruction.
-                 * The junction sequence number prevents stale rearming.
+                /* The sequence consumes each instruction once. F begins
+                 * immediately, so retain it through the pivot for MQTT to
+                 * publish; W/Z were visible while awaiting their junction.
                  */
-                s1_set_barcode_id(0u);
+                if (IR_BARCODE_U_TURN != junction.action)
+                {
+                    s1_set_barcode_id(0u);
+                }
                 s1_csv_log_event("JUNCTION_TURN",
                                  (IR_BARCODE_TURN_LEFT == junction.action) ?
                                      "LEFT" :
@@ -366,13 +379,17 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
             case IR_JUNCTION_CROSSING:
                 s1_csv_log_event("JUNCTION_CROSSING", "FORWARD");
                 break;
+            case IR_JUNCTION_UTURN_DONE:
+                s1_set_barcode_id(0u);
+                s1_csv_log_event("JUNCTION_DONE", "UTURN_180_ENCODER");
+                break;
             case IR_JUNCTION_TURN_DONE:
                 s1_csv_log_event("JUNCTION_DONE", "LINE_FOUND");
                 break;
             case IR_JUNCTION_TURN_TIMEOUT:
                 s1_csv_log_event("JUNCTION_TIMEOUT",
                     (IR_BARCODE_U_TURN == junction.action) ?
-                        "UTURN_NOT_CONFIRMED" : "LINE_NOT_FOUND");
+                        "UTURN_ENCODER_TIMEOUT" : "LINE_NOT_FOUND");
                 s1_report_fault(FAULT_IR_NAV);
                 break;
             case IR_JUNCTION_CROSSING_TIMEOUT:

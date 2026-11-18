@@ -247,10 +247,20 @@ Encoder/GPIO alignment, logging load, small/large W/Z capture in both
 directions, and movement during corrections remain untested on the car.
 Distance-based acceptance is not enabled by this diagnostic change.
 
-F U-turn trial (18 November 2026): F now triggers an immediate left pivot
+Superseded F sensor U-turn trial (18 November 2026): F now triggers an immediate left pivot
 (-64/+64) without GP6 junction gating. Completion uses a line sensor's
 white-to-black transition and 40 ms stable black, with an 8 s fault timeout.
 Host tests and the networked build passed. Actual pivot direction, reverse
 motor torque, early reacquisition, correct return heading, repeat scanning,
 and fault/obstacle takeover on the car remain untested. No 180-degree gate
 is used, at the user's explicit request.
+
+Encoder half-turn follow-up (18 November 2026): the user reports improved
+scan consistency; F was absent from the dashboard, and small-print tests
+remain pending. F now completes from signed differential encoder travel
+for an estimated 180-degree pivot, then settles for 200 ms and resumes
+following/search. No line/GP6 completion gate remains. F is retained in
+telemetry during the pivot instead of cleared immediately. Actual angle,
+slip/drag calibration, dashboard delivery, takeover on the car, and
+small/large W/Z/F decode coverage remain untested. Host tests and a
+networked UF2 build cover software paths only.

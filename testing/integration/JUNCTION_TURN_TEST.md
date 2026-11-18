@@ -126,32 +126,46 @@ junction turns. Encoder-based decoding, separate black/white width
 classification, and revised steering during capture are pending analysis of
 these paired measurements. Keep complete *LETTER* validation enabled.
 
-## F immediate sensor-confirmed U-turn (18 November 2026)
+## F immediate encoder half-turn (18 November 2026)
 
-Mapping in `ir_barcode_action_for`: W LEFT, Z RIGHT, F UTURN. F starts
-immediately after a fresh decode while following is permitted; it does not
-wait for GP6 junction white/black/white. It requests -64/+64 (left backward,
-right forward) through Subsystem 2, whose reversal delay still applies.
-The consumed telemetry letter clears on turn start as for the other turns.
+Mapping: W LEFT, Z RIGHT, F UTURN. A fresh F decode starts an immediate
+left pivot through Subsystem 2 (-64/+64, 25% duty), without a junction cue.
+Neither GP6 nor either line sensor determines U-turn completion.
+Subsystem 2's signed encoder totals are sampled at start and on each
+consumer cycle, without resets. Differential travel must reach the
+half-turn target with left backward and right forward. Straight movement
+and wrong-direction rotation cannot satisfy it. At the target, zero is
+requested for 200 ms to settle; then normal following resumes, or SEARCH
+starts if both line sensors are white. Permission, stale IR and obstacle
+handoffs still apply throughout.
 
-A line sensor must be observed white after the pivot starts, then that
-sensor must see black. Either line sensor can satisfy this sequence. At
-reacquisition the controller requests zero while checking for 40 ms of
-stable black in distinct fresh publications; a white flicker resumes the
-pivot. Completion resets ordinary following and resumes its requests.
-There is no angle or encoder-distance gate. This can finish on an earlier
-branch or the original line if it is encountered again; the user explicitly
-chose sensor confirmation rather than an approximately 180-degree gate.
+The provisional target uses the same parameters as S5's pivot calculation:
+2050 ticks/revolution, 207 mm wheel circumference, and 220 mm effective
+track. The physical track is 110 mm; S5's doubled value compensates for
+observed front-wheel drag and slip. This is an encoder estimate of 180
+degrees, not a measured absolute heading. Check the physical angle in the
+first trial. Adjust `IR_UTURN_EFFECTIVE_TRACK_MM` in `ir_junction.h`: raise
+it if the turn falls short, lower it if it overshoots. Do not change the
+barcode letter patterns or encoder tick totals to tune rotation.
 
-Flash the networked UF2 and START through the existing MQTT workflow. On a
-clear line, scan F and observe `BARCODE_DECODED,letter=F`, then
-`JUNCTION_TURN,UTURN` without a junction cue. Check that the wheels rotate
-in opposite directions, that black present before the turn does not end it,
-and that white then stable black yields `JUNCTION_DONE,LINE_FOUND` followed
-by normal following. Save the full USB log and note whether the car actually
-faces back along the track. A turn with no confirmed line stops at 8 s,
-logs `JUNCTION_TIMEOUT,UTURN_NOT_CONFIRMED`, and reports FAULT_IR_NAV through
-Subsystem 1. Permission/stale-IR/obstacle handoffs still apply. Repeat W and
-Z afterwards to check the unchanged junction behavior. This U-turn has host
-coverage and compiles; on-car torque, geometry, confirmation and timeout
-behavior are untested.
+Flash the current networked UF2 and use the normal MQTT START workflow.
+Scan F on a clear section. Look for `BARCODE_DECODED,letter=F`,
+`JUNCTION_TURN,UTURN`, then `JUNCTION_DONE,UTURN_180_ENCODER`. Verify a
+complete half-turn despite early black/white transitions, followed by a
+brief stop and following/search. Record whether it is short or overshoots,
+its approximate angle and the full serial trace. If encoder travel does
+not reach the target within 8 s, it latches zero, logs
+`JUNCTION_TIMEOUT,UTURN_ENCODER_TIMEOUT`, and reports FAULT_IR_NAV to S1.
+A timeout does not claim successful rotation.
+
+F telemetry is retained during its immediate pivot so MQTT has a chance
+to publish it; it clears on completion. Previously it was cleared within
+one consumer cycle of decoding and could disappear before a 1 Hz publish.
+The public telemetry parser already accepts ASCII F. No new dashboard
+source is present in this checkout, so any additional dashboard mapping
+still needs checking in that application if F remains absent.
+
+Host junction tests cover straight-motion rejection, early line transition
+rejection, target boundaries, stop/settle timing, timeout, cancellation,
+missing odometry and encoder rollover. Physical pivot angle/torque,
+post-turn search, F dashboard visibility, and small-print scans are pending.

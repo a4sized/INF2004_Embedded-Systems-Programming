@@ -13,7 +13,8 @@ typedef enum
     IR_JUNCTION_WAIT_EXIT,
     IR_JUNCTION_TURNING,
     IR_JUNCTION_FAILED,
-    IR_JUNCTION_UTURNING
+    IR_JUNCTION_UTURNING,
+    IR_JUNCTION_UTURN_SETTLING
 } ir_junction_mode_t;
 
 typedef enum
@@ -24,7 +25,8 @@ typedef enum
     IR_JUNCTION_TURN_STARTED,
     IR_JUNCTION_TURN_DONE,
     IR_JUNCTION_TURN_TIMEOUT,
-    IR_JUNCTION_CROSSING_TIMEOUT
+    IR_JUNCTION_CROSSING_TIMEOUT,
+    IR_JUNCTION_UTURN_DONE
 } ir_junction_event_t;
 
 typedef struct
@@ -39,18 +41,33 @@ typedef struct
     uint8_t barcode_phase;
     bool b_seen_decode_sequence;
     bool b_line_confirmed;
-    bool b_uturn_line_timing;
-    uint32_t uturn_line_since_ms;
-    uint32_t uturn_last_sample_ms;
+    bool b_odometry_ready;
+    int32_t left_ticks;
+    int32_t right_ticks;
+    int32_t start_left_ticks;
+    int32_t start_right_ticks;
+    uint32_t uturn_stop_ms;
 } ir_junction_t;
 
 #define IR_JUNCTION_LEVEL_SAMPLES 2u
 #define IR_JUNCTION_TIMEOUT_MS 3000u
 #define IR_JUNCTION_CROSSING_TIMEOUT_MS 3000u
 
-/* Sensor-confirmed U-turn: no angle, encoder-distance or GP6 gate. */
-#define IR_UTURN_LINE_STABLE_MS 40u
+/* Match S5's effective pivot geometry: 220 mm includes measured slip;
+ * physical track is 110 mm. Tune effective track after the on-car trial.
+ */
+#define IR_UTURN_EFFECTIVE_TRACK_MM 220u
+#define IR_UTURN_TICKS_PER_REV 2050u
+#define IR_UTURN_WHEEL_CIRCUM_MM 207u
+#define IR_UTURN_WHEEL_TICKS ((IR_UTURN_EFFECTIVE_TRACK_MM * 355u * \
+    IR_UTURN_TICKS_PER_REV + (2u * 113u * IR_UTURN_WHEEL_CIRCUM_MM - 1u)) / \
+    (2u * 113u * IR_UTURN_WHEEL_CIRCUM_MM))
+#define IR_UTURN_SETTLE_MS 200u
 #define IR_UTURN_TIMEOUT_MS 8000u
+
+/** Supply S2 signed totals before update. Does not reset encoders. */
+void ir_junction_note_odometry (ir_junction_t * p_junction,
+                                int32_t left_ticks, int32_t right_ticks);
 
 /** Returns true while the junction policy owns the motion request. */
 bool ir_junction_update (ir_junction_t * p_junction,
