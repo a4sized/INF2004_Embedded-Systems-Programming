@@ -140,7 +140,7 @@
       <section class="card card-sensors">
         <div class="card-header">
           <h2>Onboard Sensors (S5 / S3)</h2>
-          <span class="badge mono" id="line-bin-badge">0b00000</span>
+          <span class="badge mono" id="width-badge">Width: --</span>
         </div>
 
         <div class="sensor-block">
@@ -164,15 +164,22 @@
         <div class="sensor-split">
           <div class="sensor-subbox">
             <div class="sensor-row-head">
-              <span>Line IR Mask (5-bit)</span>
-              <span class="mono muted" id="line-hex-val">0x00</span>
+              <span>Obstacle Width (S5)</span>
+              <span class="mono muted" id="obstacle-width-tag">0..31 cm</span>
             </div>
-            <div class="ir-leds" id="ir-leds">
-              <div class="ir-bit"><span class="led"></span><small>B4</small></div>
-              <div class="ir-bit"><span class="led"></span><small>B3</small></div>
-              <div class="ir-bit"><span class="led"></span><small>B2</small></div>
-              <div class="ir-bit"><span class="led"></span><small>B1</small></div>
-              <div class="ir-bit"><span class="led"></span><small>B0</small></div>
+            <div class="width-readout">
+              <strong class="width-value mono" id="obstacle-width-value">NOT SCANNED</strong>
+              <div class="bar-track">
+                <div class="bar-fill width-fill" id="obstacle-width-bar" style="width: 0%"></div>
+                <div class="bar-marker detect" style="left: 32.3%" title="10 cm min expected width"></div>
+                <div class="bar-marker detect" style="left: 64.5%" title="20 cm max expected width"></div>
+              </div>
+              <div class="bar-legend mono">
+                <span>0</span>
+                <span>10 cm</span>
+                <span>20 cm</span>
+                <span>31 cm</span>
+              </div>
             </div>
           </div>
 
@@ -309,7 +316,7 @@
                   <th>Hump</th>
                   <th>Pitch</th>
                   <th>Obstacle</th>
-                  <th>IR</th>
+                  <th>Width</th>
                   <th>Barcode</th>
                   <th>Faults</th>
                 </tr>

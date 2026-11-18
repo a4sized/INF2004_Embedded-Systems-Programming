@@ -133,3 +133,9 @@ void s5_report_distance (const uint16_t distance_mm)
     /* 0..511 always fits in INT. */
     s1_set_obstacle((INT)s5_report_mm_to_cm(distance_mm));
 }
+
+void s5_report_obstacle_width (const uint16_t width_cm)
+{
+    /* Clipped to 5-bit 0..31 cm inside Subsystem 1. */
+    s1_set_obstacle_width((INT)width_cm);
+}

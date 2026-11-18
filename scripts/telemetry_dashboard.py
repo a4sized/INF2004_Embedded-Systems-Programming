@@ -93,7 +93,7 @@ def decode_telemetry_payload(payload: bytes) -> dict[str, Any]:
 
     pitch_raw = w1 & 0xFF
     pitch_deg = pitch_raw if pitch_raw < 128 else pitch_raw - 256
-    line_mask = (w1 >> 8) & 0x1F
+    obstacle_width_cm = (w1 >> 8) & 0x1F
     barcode_id = (w1 >> 13) & 0x7F
     fault_mask = (w1 >> 20) & 0xFFF
 
@@ -127,9 +127,11 @@ def decode_telemetry_payload(payload: bytes) -> dict[str, Any]:
         "pitch_deg": pitch_deg,
         "obstacle_cm": obstacle_cm,
         "obstacle_clear": obstacle_cm == 511,
-        "line_mask": line_mask,
-        "line_bin": f"0b{line_mask:05b}",
-        "line_bits": [(line_mask >> i) & 1 for i in range(4, -1, -1)],
+        "obstacle_width_cm": obstacle_width_cm,
+        "obstacle_width_display": f"{obstacle_width_cm} cm" if obstacle_width_cm > 0 else "NOT SCANNED",
+        "line_mask": obstacle_width_cm,
+        "line_bin": f"0b{obstacle_width_cm:05b}",
+        "line_bits": [(obstacle_width_cm >> i) & 1 for i in range(4, -1, -1)],
         "barcode_id": barcode_id,
         "barcode_char": barcode_char,
         "barcode_display": barcode_char if barcode_char else ("NONE" if barcode_id == 0 else str(barcode_id)),
@@ -150,11 +152,13 @@ def encode_telemetry_payload(
     car_state: int = 0,
     hump_state: int = 0,
     pitch_deg: int = 0,
+    obstacle_width_cm: int | None = None,
     line_mask: int = 0,
     barcode_id: int = 0,
     fault_mask: int = 0,
 ) -> bytes:
     """Pack telemetry fields into 8 little-endian bytes matching S1_TELEMETRY_PKT."""
+    width_field = line_mask if obstacle_width_cm is None else obstacle_width_cm
     w0 = (
         (seq & 0xFF)
         | ((hump_height_mm & 0x3FF) << 8)
@@ -164,7 +168,7 @@ def encode_telemetry_payload(
     )
     w1 = (
         (pitch_deg & 0xFF)
-        | ((line_mask & 0x1F) << 8)
+        | ((width_field & 0x1F) << 8)
         | ((barcode_id & 0x7F) << 13)
         | ((fault_mask & 0xFFF) << 20)
     )
@@ -804,27 +808,27 @@ class TelemetryHub:
                 self._demo_override_fault = 1 << 6
 
     _DEMO_TIMELINE = [
-        # (car_state, hump_state, hump_mm, pitch_deg, obstacle_cm, line_mask, barcode_id, fault_mask)
-        (0, 0, 0, 0, 511, 0b01100, 0, 0),
-        (1, 0, 0, 2, 511, 0b01100, 0, 0),
-        (2, 0, 0, 1, 48, 0b01100, 0, 0),
-        (2, 1, 14, 11, 511, 0b01100, 0, 0),
-        (2, 3, 36, 3, 511, 0b01100, 0, 0),
-        (5, 2, 36, -12, 511, 0b01100, 0, 0),
-        (2, 0, 36, 0, 511, 0b01100, ord("W"), 0),
-        (2, 0, 36, -1, 511, 0b10000, 0, 0),
-        (2, 0, 36, 0, 28, 0b01100, 0, 0),
-        (0, 0, 36, 0, 10, 0b00000, 0, 0),
-        (2, 0, 36, 1, 22, 0b00110, ord("Z"), 0),
-        (6, 0, 36, 24, 511, 0b00000, 0, 1 << 4),
-        (0, 0, 36, 0, 511, 0b01100, 0, 0),
+        # (car_state, hump_state, hump_mm, pitch_deg, obstacle_cm, obstacle_width_cm, barcode_id, fault_mask)
+        (0, 0, 0, 0, 511, 0, 0, 0),
+        (1, 0, 0, 2, 511, 0, 0, 0),
+        (2, 0, 0, 1, 48, 0, 0, 0),
+        (2, 1, 14, 11, 511, 0, 0, 0),
+        (2, 3, 36, 3, 511, 0, 0, 0),
+        (5, 2, 36, -12, 511, 0, 0, 0),
+        (2, 0, 36, 0, 511, 0, ord("W"), 0),
+        (2, 0, 36, -1, 511, 0, 0, 0),
+        (2, 0, 36, 0, 28, 0, 0, 0),
+        (0, 0, 36, 0, 10, 16, 0, 0),
+        (2, 0, 36, 1, 22, 16, ord("Z"), 0),
+        (6, 0, 36, 24, 511, 16, 0, 1 << 4),
+        (0, 0, 36, 0, 511, 16, 0, 0),
     ]
 
     def emit_demo_step(self) -> dict[str, Any] | None:
         with self._lock:
             step = self._demo_step
             row = self._DEMO_TIMELINE[step % len(self._DEMO_TIMELINE)]
-            car_state, hump_state, hump_mm, pitch_deg, obstacle_cm, line_mask, barcode_id, fault_mask = row
+            car_state, hump_state, hump_mm, pitch_deg, obstacle_cm, obstacle_width_cm, barcode_id, fault_mask = row
             if self._demo_override_state is not None:
                 car_state = self._demo_override_state
             if self._demo_override_fault:
@@ -838,7 +842,7 @@ class TelemetryHub:
             car_state=car_state,
             hump_state=hump_state,
             pitch_deg=pitch_deg,
-            line_mask=line_mask,
+            obstacle_width_cm=obstacle_width_cm,
             barcode_id=barcode_id,
             fault_mask=fault_mask,
         )

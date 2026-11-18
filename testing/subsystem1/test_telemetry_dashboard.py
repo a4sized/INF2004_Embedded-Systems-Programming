@@ -45,6 +45,8 @@ class TelemetryDashboardUnitTests(unittest.TestCase):
         self.assertEqual(decoded["hump_state"], 3)
         self.assertEqual(decoded["hump_state_name"], "HUMP_PEAK")
         self.assertEqual(decoded["pitch_deg"], -18)
+        self.assertEqual(decoded["obstacle_width_cm"], 22)
+        self.assertEqual(decoded["obstacle_width_display"], "22 cm")
         self.assertEqual(decoded["line_mask"], 0b10110)
         self.assertEqual(decoded["line_bin"], "0b10110")
         self.assertEqual(decoded["line_bits"], [1, 0, 1, 1, 0])

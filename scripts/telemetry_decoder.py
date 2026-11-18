@@ -99,14 +99,14 @@ def on_message(client, userdata, msg):
 
     # Word 1 Bitfields:
     # Bits  0..7  ( 8 bits): pitch_deg signed (-128..+127)
-    # Bits  8..12 ( 5 bits): line_mask (5-bit IR sensor)
+    # Bits  8..12 ( 5 bits): obstacle_width_cm (0..31 cm S5 measured obstacle width)
     # Bits 13..19 ( 7 bits): barcode_id (0..127)
     # Bits 20..31 (12 bits): fault_mask (0..4095)
-    pitch_raw   = w1 & 0xFF
-    pitch_deg   = pitch_raw if pitch_raw < 128 else pitch_raw - 256
-    line_mask   = (w1 >> 8) & 0x1F
-    barcode_id  = (w1 >> 13) & 0x7F
-    fault_mask  = (w1 >> 20) & 0xFFF
+    pitch_raw         = w1 & 0xFF
+    pitch_deg         = pitch_raw if pitch_raw < 128 else pitch_raw - 256
+    obstacle_width_cm = (w1 >> 8) & 0x1F
+    barcode_id        = (w1 >> 13) & 0x7F
+    fault_mask        = (w1 >> 20) & 0xFFF
 
     state_str = STATE_NAMES.get(car_state, f"STATE_{car_state}")
     hump_str  = HUMP_NAMES.get(hump_state, f"HUMP_{hump_state}")
@@ -115,7 +115,7 @@ def on_message(client, userdata, msg):
     print(f"[SEQ #{seq:03d}] Raw HEX: [{raw_hex}] (8 bytes)")
     print(f"  ├─ State:     {state_str} ({car_state})")
     print(f"  ├─ Terrain:   {hump_str} ({hump_state}) | Peak Hump Height = {hump_height_mm} mm | Pitch = {pitch_deg:+3d}°")
-    print(f"  ├─ Sensors:   Obstacle = {obstacle_cm:3d} cm | Line IR = [0b{line_mask:05b}] | Barcode = '{chr(barcode_id) if 32 <= barcode_id <= 126 else barcode_id}'")
+    print(f"  ├─ Sensors:   Obstacle = {obstacle_cm:3d} cm | Width = {obstacle_width_cm:2d} cm | Barcode = '{chr(barcode_id) if 32 <= barcode_id <= 126 else barcode_id}'")
     print(f"  └─ Faults:    [0x{fault_mask:03X}] -> {fault_str}")
     print("-" * 80)
 

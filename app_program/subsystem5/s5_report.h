@@ -31,6 +31,10 @@ void s5_report_scanner_failed (void);
  * seen) to telemetry. Never call it for a failed reading. */
 void s5_report_distance (const uint16_t distance_mm);
 
+/* Send the latest measured obstacle width (cm, clipped to 0..31 cm in S1)
+ * to telemetry after a completed fine scan. */
+void s5_report_obstacle_width (const uint16_t width_cm);
+
 /* Convert a reading in mm (NO_OBSTACLE = nothing seen) to the 9-bit cm
  * scale: 0..510 cm, S5_OBSTACLE_NONE_CM = nothing seen. */
 uint16_t s5_report_mm_to_cm (const uint16_t distance_mm);

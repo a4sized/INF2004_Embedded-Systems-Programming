@@ -81,7 +81,7 @@ class TelemetryDecoderTests(unittest.TestCase):
             ("car_state", "3"),
             ("hump_state", "2"),
             ("pitch_deg", "8"),
-            ("line_mask", "5"),
+            ("obstacle_width_cm", "5"),
             ("barcode_id", "7"),
             ("fault_mask", "12"),
         ]
@@ -127,7 +127,7 @@ class TelemetryDecoderTests(unittest.TestCase):
         self.assertIn("Peak Hump Height = 320 mm", out)
         self.assertIn("Pitch = -18°", out)
         self.assertIn("Obstacle = 511 cm", out)
-        self.assertIn("Line IR = [0b10110]", out)
+        self.assertIn("Width = 22 cm", out)
         self.assertIn("Barcode = 'A'", out)
         self.assertIn("FAULT_ESTOP | FAULT_WIFI", out)
 
@@ -218,7 +218,7 @@ int main(void) {
         self.assertIn("Peak Hump Height = 789 mm", decoded)
         self.assertIn("Pitch = -45°", decoded)
         self.assertIn("Obstacle = 511 cm", decoded)
-        self.assertIn("Line IR = [0b11010]", decoded)
+        self.assertIn("Width = 26 cm", decoded)
         self.assertIn("Barcode = 'Z'", decoded)
         self.assertIn("FAULT_IR_SENS | FAULT_CMD_REJECTED", decoded)
 

@@ -30,6 +30,7 @@
 #include "s5_guard.h"
 #include "s5_profile.h"
 #include "s5_avoid.h"
+#include "s5_report.h"
 #include "s5_sense.h"
 #include "s5_scan.h"
 
@@ -416,6 +417,11 @@ s5_bypass_t s5_scan_obstacle (s5_profile_t * const p_profile)
 
     s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
     s5_profile_finish(b_scan_ok, p_profile);
+    if (0u != p_profile->b_valid)
+    {
+        s5_report_obstacle_width((uint16_t)(p_profile->left_extent_cm +
+                                            p_profile->right_extent_cm));
+    }
     s5_scan_print_centring(p_profile);
     s5_log_event("S5_FINE_SCAN", b_scan_ok ? "DONE" : "FAILED");
 

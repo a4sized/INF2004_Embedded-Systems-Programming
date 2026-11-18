@@ -62,9 +62,23 @@ EXPORT void s1_set_car_state(UW state, UW hump) {
     tk_unl_mtx(mtx_telemetry);
 }
 
+EXPORT void s1_set_obstacle_width(INT width_cm) {
+    UW clipped;
+    if (width_cm < 0) {
+        clipped = 0u;
+    } else if (width_cm > 31) {
+        clipped = 31u;
+    } else {
+        clipped = (UW)width_cm;
+    }
+    tk_loc_mtx(mtx_telemetry, TMO_FEVR);
+    s1_telemetry.obstacle_width_cm = clipped;
+    tk_unl_mtx(mtx_telemetry);
+}
+
 EXPORT void s1_set_line_mask(UW mask) {
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
-    s1_telemetry.line_mask = mask;
+    s1_telemetry.obstacle_width_cm = mask & 0x1Fu;
     tk_unl_mtx(mtx_telemetry);
 }
 

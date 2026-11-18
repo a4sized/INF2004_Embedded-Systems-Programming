@@ -52,7 +52,8 @@ typedef struct __attribute__((packed)){
 
     /* Word 1 (32 bits) */
     int32_t  pitch_deg   : 8;   /* -128..+127 deg signed IMU pitch angle */
-    uint32_t line_mask   : 5;   /* 5-bit line tracker IR sensor pattern */
+    uint32_t obstacle_width_cm : 5; /* 0..31 cm measured S5 obstacle width (0 = not scanned) */
+#define line_mask obstacle_width_cm
     uint32_t barcode_id  : 7;   /* 7-bit ASCII barcode character or ID */
     uint32_t fault_mask  : 12;  /* 12-bit consolidated fault bitmask */
 } S1_TELEMETRY_PKT;
@@ -85,6 +86,7 @@ IMPORT void     s1_set_obstacle(INT obstacle_cm);
 IMPORT void     s1_set_pitch(INT pitch_deg);
 IMPORT void     s1_set_barcode_id(UB barcode_id);
 IMPORT void     s1_set_car_state(UW state, UW hump);
+IMPORT void     s1_set_obstacle_width(INT width_cm);
 IMPORT void     s1_set_line_mask(UW mask);
 
 /* Centralized Fault Management */

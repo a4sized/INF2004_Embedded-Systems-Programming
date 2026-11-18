@@ -55,11 +55,12 @@
     humpHeightValue: document.getElementById("hump-height-value"),
     humpStateValue: document.getElementById("hump-state-value"),
 
-    lineBinBadge: document.getElementById("line-bin-badge"),
+    widthBadge: document.getElementById("width-badge"),
     obstacleValue: document.getElementById("obstacle-value"),
     obstacleBar: document.getElementById("obstacle-bar"),
-    lineHexVal: document.getElementById("line-hex-val"),
-    irLeds: Array.from(document.querySelectorAll("#ir-leds .ir-bit")),
+    obstacleWidthTag: document.getElementById("obstacle-width-tag"),
+    obstacleWidthValue: document.getElementById("obstacle-width-value"),
+    obstacleWidthBar: document.getElementById("obstacle-width-bar"),
     barcodeRawId: document.getElementById("barcode-raw-id"),
     barcodeGlyph: document.getElementById("barcode-glyph"),
     barcodeActionBadge: document.getElementById("barcode-action-badge"),
@@ -133,12 +134,14 @@
       : String(pkt.barcode_id);
     const pitchText = formatSignedDeg(pkt.pitch_deg, 3);
     const obsText = String(pkt.obstacle_cm).padStart(3, " ");
+    const widthVal = pkt.obstacle_width_cm !== undefined ? pkt.obstacle_width_cm : pkt.line_mask;
+    const widthText = String(widthVal).padStart(2, " ");
     const timeSuffix = includeTime && pkt.rx_time ? `  @ ${pkt.rx_time}` : "";
     return [
       `[SEQ #${pad3(pkt.seq)}] Raw HEX: [${pkt.raw_hex}] (8 bytes)${timeSuffix}`,
       `  ├─ State:     ${pkt.car_state_name} (${pkt.car_state})`,
       `  ├─ Terrain:   ${pkt.hump_state_name} (${pkt.hump_state}) | Peak Hump Height = ${pkt.hump_height_mm} mm | Pitch = ${pitchText}°`,
-      `  ├─ Sensors:   Obstacle = ${obsText} cm | Line IR = [${pkt.line_bin}] | Barcode = '${barcodeText}'`,
+      `  ├─ Sensors:   Obstacle = ${obsText} cm | Width = ${widthText} cm | Barcode = '${barcodeText}'`,
       `  └─ Faults:    [${pkt.fault_hex}] -> ${pkt.fault_summary}`,
       "-".repeat(80),
     ].join("\n");
@@ -284,12 +287,14 @@
       ui.pitchValue.textContent = "+0°";
       ui.humpHeightValue.textContent = "0 mm";
       ui.humpStateValue.textContent = "FLAT (0)";
-      ui.lineBinBadge.textContent = "0b00000";
+      ui.widthBadge.textContent = "Width: --";
       ui.obstacleValue.textContent = "511 cm (CLEAR)";
       ui.obstacleBar.style.width = "0%";
       ui.obstacleBar.className = "bar-fill";
-      ui.lineHexVal.textContent = "0x00";
-      for (const bitEl of ui.irLeds) bitEl.classList.remove("on");
+      ui.obstacleWidthTag.textContent = "0..31 cm";
+      ui.obstacleWidthValue.textContent = "NOT SCANNED";
+      ui.obstacleWidthValue.classList.remove("active");
+      ui.obstacleWidthBar.style.width = "0%";
       ui.barcodeRawId.textContent = "id=0";
       ui.barcodeGlyph.textContent = "NONE";
       ui.barcodeGlyph.classList.remove("active");
@@ -349,12 +354,23 @@
         pkt.obstacle_cm <= 10 ? "bar-fill stop" : pkt.obstacle_cm <= 35 ? "bar-fill near" : "bar-fill";
     }
 
-    ui.lineBinBadge.textContent = pkt.line_bin;
-    ui.lineHexVal.textContent = `0x${pkt.line_mask.toString(16).toUpperCase().padStart(2, "0")}`;
-    const bits = pkt.line_bits || [0, 0, 0, 0, 0];
-    ui.irLeds.forEach((el, idx) => {
-      el.classList.toggle("on", Boolean(bits[idx]));
-    });
+    const widthCm = pkt.obstacle_width_cm !== undefined ? pkt.obstacle_width_cm : pkt.line_mask;
+    if (widthCm > 0) {
+      const capLabel = widthCm >= 31 ? "31+ cm" : `${widthCm} cm`;
+      ui.widthBadge.textContent = `Width: ${capLabel}`;
+      ui.obstacleWidthValue.textContent = capLabel;
+      ui.obstacleWidthValue.classList.add("active");
+      ui.obstacleWidthTag.textContent =
+        widthCm >= 10 && widthCm <= 20 ? "expected 10-20 cm" : widthCm >= 31 ? "clipped >= 31 cm" : "outside 10-20 cm";
+      const widthPct = Math.min(100, (widthCm / 31) * 100);
+      ui.obstacleWidthBar.style.width = `${widthPct.toFixed(1)}%`;
+    } else {
+      ui.widthBadge.textContent = "Width: --";
+      ui.obstacleWidthValue.textContent = "NOT SCANNED";
+      ui.obstacleWidthValue.classList.remove("active");
+      ui.obstacleWidthTag.textContent = "0..31 cm";
+      ui.obstacleWidthBar.style.width = "0%";
+    }
 
     ui.barcodeRawId.textContent = `id=${pkt.barcode_id}`;
     ui.barcodeGlyph.textContent = pkt.barcode_display;
@@ -728,7 +744,7 @@
         `${pkt.hump_height_mm} mm`,
         `${formatSignedDeg(pkt.pitch_deg, 0)}°`,
         pkt.obstacle_clear ? "511 (CLR)" : `${pkt.obstacle_cm} cm`,
-        pkt.line_bin,
+        pkt.obstacle_width_cm > 0 ? `${pkt.obstacle_width_cm} cm` : "--",
         pkt.barcode_display,
         pkt.fault_mask === 0 ? "0x000 CLEAR" : `${pkt.fault_hex} ${pkt.fault_summary}`,
       ];
@@ -954,14 +970,14 @@
       const header = [
         "rx_time", "seq", "raw_hex", "car_state", "car_state_name",
         "hump_state", "hump_state_name", "hump_height_mm", "pitch_deg",
-        "obstacle_cm", "line_mask", "line_bin", "barcode_id",
+        "obstacle_cm", "obstacle_width_cm", "barcode_id",
         "barcode_display", "fault_hex", "fault_summary",
       ].join(",");
       const lines = store.packets.map((p) =>
         [
           p.rx_time, p.seq, p.raw_hex, p.car_state, p.car_state_name,
           p.hump_state, p.hump_state_name, p.hump_height_mm, p.pitch_deg,
-          p.obstacle_cm, p.line_mask, p.line_bin, p.barcode_id,
+          p.obstacle_cm, p.obstacle_width_cm, p.barcode_id,
           p.barcode_display, p.fault_hex, p.fault_summary,
         ].map(csvCell).join(",")
       );

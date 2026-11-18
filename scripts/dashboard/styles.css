@@ -648,6 +648,26 @@ select {
   gap: 8px;
 }
 
+.width-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.width-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.width-value.active {
+  color: var(--info);
+}
+
+.bar-fill.width-fill {
+  background: var(--info);
+}
+
 .barcode-top {
   display: flex;
   align-items: center;
