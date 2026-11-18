@@ -2,6 +2,11 @@
 
 Date: 13 October 2026, Asia/Singapore.
 
+Archive note (11 November 2026): The historical bench source and its build
+outputs moved to `../integration_archive_2026-11-11/bench/ir_calibration/`
+relative to the repository root. The commands and paths below record the
+original test configuration; they are not current in-repository commands.
+
 ## Scope and configuration
 
 New code in `bench/ir_calibration/`, built against the fresh professor
