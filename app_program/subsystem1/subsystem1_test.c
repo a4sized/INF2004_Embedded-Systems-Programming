@@ -107,26 +107,26 @@ EXPORT void subsystem1_test(void)
         s1_clear_fault(FAULT_WIFI);
         TEST_CHECK("S1-U06", 1, "CSV logger called safely");
 
-        /* S1-U07: Extended telemetry setters (car_state, line_mask, barcode_id) & fault isolation */
+        /* S1-U07: Extended telemetry setters (car_state, obstacle_width_cm, barcode_id) & fault isolation */
         {
                 BOOL ok_fields, ok_fault_iso, ok_cleanup;
 
                 s1_set_car_state(3u, 2u);
-                s1_set_line_mask(0x15u);
+                s1_set_obstacle_width(21);
                 s1_set_barcode_id('A');
                 s1_report_fault(FAULT_WIFI | FAULT_CMD_REJECTED);
                 s1_clear_fault(FAULT_WIFI);
                 s1_get_telemetry(&snap);
 
                 ok_fields = (snap.car_state == 3u && snap.hump_state == 2u &&
-                             snap.line_mask == 0x15u && snap.barcode_id == 'A');
+                             snap.obstacle_width_cm == 21u && snap.barcode_id == 'A');
                 ok_fault_iso = ((snap.fault_mask & FAULT_WIFI) == 0U &&
                                 (snap.fault_mask & FAULT_CMD_REJECTED) != 0U);
 
                 s1_get_telemetry(NULL); /* Must ignore NULL pointer safely */
                 s1_clear_fault(FAULT_CMD_REJECTED);
                 s1_set_barcode_id(0u);
-                s1_set_line_mask(0u);
+                s1_set_obstacle_width(0);
                 s1_set_car_state(0u, 0u);
                 s1_get_telemetry(&snap);
                 ok_cleanup = ((snap.fault_mask & FAULT_CMD_REJECTED) == 0U &&

@@ -42,7 +42,7 @@ def pack_telemetry(
     car_state: int = 0,
     hump_state: int = 0,
     pitch_deg: int = 0,
-    line_mask: int = 0,
+    obstacle_width_cm: int = 0,
     barcode_id: int = 0,
     fault_mask: int = 0,
 ) -> bytes:
@@ -55,7 +55,7 @@ def pack_telemetry(
     )
     w1 = (
         (pitch_deg & 0xFF)
-        | ((line_mask & 0x1F) << 8)
+        | ((obstacle_width_cm & 0x1F) << 8)
         | ((barcode_id & 0x7F) << 13)
         | ((fault_mask & 0xFFF) << 20)
     )
@@ -111,7 +111,7 @@ class TelemetryDecoderTests(unittest.TestCase):
             car_state=2,
             hump_state=3,
             pitch_deg=-18,
-            line_mask=0b10110,
+            obstacle_width_cm=0b10110,
             barcode_id=ord("A"),
             fault_mask=(1 << 0) | (1 << 5),
         )
@@ -167,7 +167,7 @@ int main(void) {
     pkt.car_state = 4;
     pkt.hump_state = 1;
     pkt.pitch_deg = -45;
-    pkt.line_mask = 0x1A;
+    pkt.obstacle_width_cm = 0x1A;
     pkt.barcode_id = 'Z';
     pkt.fault_mask = (1u << 2) | (1u << 6);
 

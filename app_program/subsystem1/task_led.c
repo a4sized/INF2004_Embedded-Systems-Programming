@@ -25,7 +25,7 @@ LOCAL S1_TELEMETRY_PKT  s1_telemetry = {
         .car_state   = 0,
         .hump_state  = 0,
         .pitch_deg   = 0,
-        .line_mask   = 0,
+        .obstacle_width_cm = 0,
         .barcode_id  = 0,
         .fault_mask  = 0
 };
@@ -73,12 +73,6 @@ EXPORT void s1_set_obstacle_width(INT width_cm) {
     }
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
     s1_telemetry.obstacle_width_cm = clipped;
-    tk_unl_mtx(mtx_telemetry);
-}
-
-EXPORT void s1_set_line_mask(UW mask) {
-    tk_loc_mtx(mtx_telemetry, TMO_FEVR);
-    s1_telemetry.obstacle_width_cm = mask & 0x1Fu;
     tk_unl_mtx(mtx_telemetry);
 }
 
