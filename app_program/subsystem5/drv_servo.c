@@ -96,18 +96,14 @@ static ER release_pwm_from_reset(void)
     return (loops_left > 0u) ? E_OK : E_TMOUT;
 }
 
+/* = 125. The divider register only holds 1..255. */
+#define PWM_CLOCK_DIVIDER       (SYSTEM_CLOCK_HZ / PWM_CLOCK_HZ)
+_Static_assert((PWM_CLOCK_DIVIDER >= 1u) && (PWM_CLOCK_DIVIDER <= 255u),
+               "PWM clock divider must be 1..255");
+
 ER drv_servo_init(void)
 {
-    ER       result;
-    uint32_t clock_divider = SYSTEM_CLOCK_HZ / PWM_CLOCK_HZ;   /* = 125 */
-
-    /* The divider register only holds 1..255. */
-    if ((clock_divider == 0u) || (clock_divider > 255u))
-    {
-        return E_PAR;
-    }
-
-    result = release_pwm_from_reset();
+    ER result = release_pwm_from_reset();
     if (result < E_OK)
     {
         return result;
@@ -127,7 +123,7 @@ ER drv_servo_init(void)
 
     /* Slow the PWM clock to 1 MHz. The register has 8 whole-number bits
      * followed by 4 fraction bits, hence the shift by 4. */
-    out_w(SERVO_CLOCK_DIVIDER_REGISTER, clock_divider << 4u);
+    out_w(SERVO_CLOCK_DIVIDER_REGISTER, PWM_CLOCK_DIVIDER << 4u);
 
     /* Count 0..19999 then restart: one 20 ms cycle. */
     result = pwm_set_wrap(S5_PIN_SERVO, PWM_PERIOD_US - 1u);

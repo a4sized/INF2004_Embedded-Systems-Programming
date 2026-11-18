@@ -236,20 +236,17 @@ void s5_drive_print_result (const s5_move_t move, const uint16_t amount,
     static const char * const names[] = { "FORWARD mm", "BACK mm",
                                           "TURN LEFT deg", "TURN RIGHT deg" };
 
+    /* One line per move (printing is slow): the turn speed only matters
+     * for a turn, but printing it always keeps it to one call. */
     S5_LOG((UB *)"S5 leg %s %u: %s after %u ms, wheels turned "
-           "L=%d R=%d ticks (needed %u)\n",
+           "L=%d R=%d ticks (needed %u, stopped %u early for coasting, "
+           "turn speed %d)\n",
            names[(unsigned int)move], (unsigned int)amount,
            b_done ? "DONE" : "NOT DONE", (unsigned int)elapsed_ms,
            (int)(get_left_encoder_ticks() - g_move.start_left),
            (int)(get_right_encoder_ticks() - g_move.start_right),
-           (unsigned int)g_move.target_ticks);
-    S5_LOG((UB *)"S5 move: stopped %u ticks early to allow for coasting"
-           "%s\n", (unsigned int)g_coast_ticks,
-           s5_drive_is_turn(move) ? " (turn speed shown below)" : "");
-    if (s5_drive_is_turn(move))
-    {
-        S5_LOG((UB *)"S5 turn: speed %d\n", (int)g_turn_speed);
-    }
+           (unsigned int)g_move.target_ticks, (unsigned int)g_coast_ticks,
+           (int)g_turn_speed);
 }
 
 uint16_t s5_drive_mm_for_ticks (const uint32_t ticks)
