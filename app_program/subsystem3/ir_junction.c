@@ -24,6 +24,7 @@ bool ir_junction_update (ir_junction_t * p_junction,
         return false;
     }
     *p_event = IR_JUNCTION_NO_EVENT;
+    *p_target = (ir_motion_target_t){0};
 
     /* Remember each decode even if the car is stopped, so a previous
      * letter cannot arm a turn on a later START command.
@@ -48,6 +49,20 @@ bool ir_junction_update (ir_junction_t * p_junction,
                 p_junction->mode = IR_JUNCTION_WAIT_CLEAR;
                 p_junction->level_samples = 0u;
                 *p_event = IR_JUNCTION_ARMED;
+                if (IR_BARCODE_U_TURN == action)
+                {
+                    p_junction->mode = IR_JUNCTION_UTURNING;
+                    p_junction->turn_started_ms = now_ms;
+                    p_junction->white_seen_mask = 0u;
+                    p_junction->b_uturn_line_timing = false;
+                    if ((uint32_t)(p_snapshot->sampled_at_ms -
+                     p_junction->uturn_last_sample_ms) > max_age_ms)
+                {
+                    p_junction->b_uturn_line_timing = false;
+                }
+                p_junction->uturn_last_sample_ms = p_snapshot->sampled_at_ms;
+                    *p_event = IR_JUNCTION_TURN_STARTED;
+                }
             }
         }
     }
@@ -96,6 +111,55 @@ bool ir_junction_update (ir_junction_t * p_junction,
                 *p_event = IR_JUNCTION_CROSSING;
             }
             break;
+        case IR_JUNCTION_UTURNING:
+        {
+            if ((uint32_t)(now_ms - p_junction->turn_started_ms) >=
+                IR_UTURN_TIMEOUT_MS)
+            {
+                p_junction->mode = IR_JUNCTION_FAILED;
+                *p_event = IR_JUNCTION_TURN_TIMEOUT;
+                break;
+            }
+            if (p_snapshot->sampled_at_ms != p_junction->uturn_last_sample_ms)
+            {
+                if ((uint32_t)(p_snapshot->sampled_at_ms -
+                     p_junction->uturn_last_sample_ms) > max_age_ms)
+                {
+                    p_junction->b_uturn_line_timing = false;
+                }
+                p_junction->uturn_last_sample_ms = p_snapshot->sampled_at_ms;
+                bool const lb = IR_SURFACE_BLACK == p_snapshot->left_surface;
+                bool const rb = IR_SURFACE_BLACK == p_snapshot->right_surface;
+                bool const reacquired =
+                    (lb && (0u != (p_junction->white_seen_mask & 1u))) ||
+                    (rb && (0u != (p_junction->white_seen_mask & 2u)));
+                if (!lb) p_junction->white_seen_mask |= 1u;
+                if (!rb) p_junction->white_seen_mask |= 2u;
+                if (reacquired)
+                {
+                    if (!p_junction->b_uturn_line_timing)
+                    {
+                        p_junction->b_uturn_line_timing = true;
+                        p_junction->uturn_line_since_ms =
+                            p_snapshot->sampled_at_ms;
+                    }
+                    if ((uint32_t)(p_snapshot->sampled_at_ms -
+                          p_junction->uturn_line_since_ms) >=
+                        IR_UTURN_LINE_STABLE_MS)
+                    {
+                        p_junction->mode = IR_JUNCTION_IDLE;
+                        p_junction->action = IR_BARCODE_NO_ACTION;
+                        *p_event = IR_JUNCTION_TURN_DONE;
+                        return false; /* Consumer resets ordinary following. */
+                    }
+                }
+                else
+                {
+                    p_junction->b_uturn_line_timing = false;
+                }
+            }
+            break;
+        }
         case IR_JUNCTION_TURNING:
         {
             bool const b_left_black =
@@ -172,6 +236,20 @@ bool ir_junction_update (ir_junction_t * p_junction,
             };
             return true;
         }
+    }
+
+    if (IR_JUNCTION_UTURNING == p_junction->mode)
+    {
+        *p_target = (ir_motion_target_t){ .status = IR_STEERING_AVAILABLE };
+        /* Pause on reacquisition while checking stable black. A flicker
+         * back to white resumes the pivot until the overall timeout.
+         */
+        if (!p_junction->b_uturn_line_timing)
+        {
+            p_target->left = -(int16_t)turn_speed;
+            p_target->right = (int16_t)turn_speed;
+        }
+        return true;
     }
 
     if ((IR_JUNCTION_TURNING == p_junction->mode) ||

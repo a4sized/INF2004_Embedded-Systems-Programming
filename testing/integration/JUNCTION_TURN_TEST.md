@@ -89,3 +89,69 @@ Start with the wheels lifted to confirm the W/Z requested direction before
 trying the printed junction. Stop via MQTTX if the car points away from the
 track. Save the USB event trail and note which UF2 was flashed. Host tests
 and ARM compilation do not establish physical turn accuracy or reacquisition.
+
+## Encoder comparison trial (18 November 2026)
+
+Flash the newly built networked team UF2. Use the existing hotspot/MQTT
+START workflow and save the entire USB serial session. Test W and Z, each
+in the small and large print sizes and both scan directions. Include smooth
+passes and passes with an ordinary steering correction. Record which print,
+size and direction belongs to each pass; do not move the paper by hand for
+this moving-car comparison.
+
+`IR_BARCODE_EDGE` retains `B`, `L`, `R`, `n` and millisecond `t`, and adds
+signed cumulative `EL` and `ER` encoder ticks. The encoder getters are read
+beside the GPIO sample before decoding/logging, with no GPIO interrupt
+changes. They are sequential reads, not an atomic wheel pair. For adjacent
+edges in the SAME capture, compare elapsed time with signed wheel tick
+differences; `(delta_EL + delta_ER) / 2` estimates wheel-midpoint travel.
+Keep each wheel's delta too: unequal or opposite deltas identify steering
+where the midpoint estimate may differ from GP6 travel. Avoid interpreting
+counter resets, zero movement or wheel slip as valid barcode distances.
+
+Rejected `IR_BARCODE_WINDOW` lines now include `reasonF` and `reasonR` for
+the forward and reverse pattern order. `INCOMPLETE` means fewer than 30
+edges; `START_MARKER_REJECTED` identifies rejection at the first ten edges.
+`START_WIDTH`, `DATA_WIDTH` and `STOP_WIDTH` identify character width
+classification failure (zero widths, narrow/wide overlap, excessive wide
+spread or tied wide elements). `START_PATTERN`, `STOP_PATTERN`,
+`DATA_PATTERN`, `CHARACTER_GAP`, `EDGE_LEVEL`, `INVALID_CAPTURE`, and
+`EXTRA_EDGES` identify the other checks. A frame may fail at different
+stages in each orientation. `VALID` here excludes the optional trailing
+quiet-zone check; normal integrated decoding accepts a valid complete frame
+at the final black-to-white edge.
+
+The existing timestamp decoder still determines `BARCODE_DECODED` and
+junction turns. Encoder-based decoding, separate black/white width
+classification, and revised steering during capture are pending analysis of
+these paired measurements. Keep complete *LETTER* validation enabled.
+
+## F immediate sensor-confirmed U-turn (18 November 2026)
+
+Mapping in `ir_barcode_action_for`: W LEFT, Z RIGHT, F UTURN. F starts
+immediately after a fresh decode while following is permitted; it does not
+wait for GP6 junction white/black/white. It requests -64/+64 (left backward,
+right forward) through Subsystem 2, whose reversal delay still applies.
+The consumed telemetry letter clears on turn start as for the other turns.
+
+A line sensor must be observed white after the pivot starts, then that
+sensor must see black. Either line sensor can satisfy this sequence. At
+reacquisition the controller requests zero while checking for 40 ms of
+stable black in distinct fresh publications; a white flicker resumes the
+pivot. Completion resets ordinary following and resumes its requests.
+There is no angle or encoder-distance gate. This can finish on an earlier
+branch or the original line if it is encountered again; the user explicitly
+chose sensor confirmation rather than an approximately 180-degree gate.
+
+Flash the networked UF2 and START through the existing MQTT workflow. On a
+clear line, scan F and observe `BARCODE_DECODED,letter=F`, then
+`JUNCTION_TURN,UTURN` without a junction cue. Check that the wheels rotate
+in opposite directions, that black present before the turn does not end it,
+and that white then stable black yields `JUNCTION_DONE,LINE_FOUND` followed
+by normal following. Save the full USB log and note whether the car actually
+faces back along the track. A turn with no confirmed line stops at 8 s,
+logs `JUNCTION_TIMEOUT,UTURN_NOT_CONFIRMED`, and reports FAULT_IR_NAV through
+Subsystem 1. Permission/stale-IR/obstacle handoffs still apply. Repeat W and
+Z afterwards to check the unchanged junction behavior. This U-turn has host
+coverage and compiles; on-car torque, geometry, confirmation and timeout
+behavior are untested.

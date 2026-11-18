@@ -8,7 +8,8 @@ typedef enum
 {
     IR_BARCODE_NO_ACTION = 0,
     IR_BARCODE_TURN_LEFT,
-    IR_BARCODE_TURN_RIGHT
+    IR_BARCODE_TURN_RIGHT,
+    IR_BARCODE_U_TURN
 } ir_barcode_action_t;
 
 typedef enum
@@ -40,7 +41,13 @@ bool ir_code39_decode_single_with_direction (
     ir_barcode_window_t const * p_window, uint32_t now_us,
     char * p_letter, ir_code39_direction_t * p_direction);
 
-/** Fixed course trial mapping; all letters other than A and Z are unmapped. */
+/** Explain a frame rejection in one pattern order; returned text is static.
+ * Width failures include insufficient narrow/wide separation or wide spread.
+ */
+char const * ir_code39_frame_reason (
+    ir_barcode_window_t const * p_window, bool b_reverse);
+
+/** Fixed course trial mapping; W is left, Z is right, F is U-turn. */
 ir_barcode_action_t ir_barcode_action_for (char letter);
 
 #endif

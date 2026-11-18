@@ -5,6 +5,7 @@
 
 #include <assert.h>
 #include <stddef.h>
+#include <string.h>
 
 static uint32_t const a_widths[29] =
 {
@@ -198,5 +199,27 @@ int main (void)
     a.b_invalid = false;
     a.count = 31u;
     assert(!ir_code39_decode_single(&a, a.edges[29].time_us + 300u, &letter));
+    assert(0 == strcmp("EXTRA_EDGES", ir_code39_frame_reason(&a, false)));
+    a.count = 28u;
+    assert(0 == strcmp("INCOMPLETE", ir_code39_frame_reason(&a, false)));
+    a.b_invalid = true;
+    assert(0 == strcmp("INVALID_CAPTURE", ir_code39_frame_reason(&a, false)));
+    assert(0 == strcmp("VALID", ir_code39_frame_reason(&z, false)));
+    assert(0 == strcmp("VALID", ir_code39_frame_reason(&z_reverse, true)));
+    /* Complete on-car *Z* rejected on 9 November: the letter's narrow
+     * 139 ms gap overlaps its smallest wide element at 156 ms.
+     */
+    uint32_t const overlap_widths[29] =
+    {
+        15,205,20,85,185,95,170,100,30,95,
+        20,240,156,139,170,96,24,95,20,100,
+        30,220,20,95,150,95,165,90,25
+    };
+    ir_barcode_window_t overlap = make_window(overlap_widths, false);
+    assert(0 == strcmp("DATA_WIDTH", ir_code39_frame_reason(&overlap, false)));
+    assert(!ir_code39_frame_single_with_direction(&overlap, &letter, &direction));
+    overlap.edges[1].time_us = overlap.edges[0].time_us;
+    assert(0 == strcmp("START_WIDTH", ir_code39_frame_reason(&overlap, false)));
+    assert(IR_BARCODE_U_TURN == ir_barcode_action_for('F'));
     return 0;
 }

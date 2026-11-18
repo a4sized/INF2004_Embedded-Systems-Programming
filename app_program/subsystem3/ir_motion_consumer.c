@@ -347,7 +347,9 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
             case IR_JUNCTION_ARMED:
                 s1_csv_log_event("JUNCTION_ARMED",
                                  (IR_BARCODE_TURN_LEFT == junction.action) ?
-                                     "LEFT" : "RIGHT");
+                                     "LEFT" :
+                                 (IR_BARCODE_U_TURN == junction.action) ?
+                                     "UTURN" : "RIGHT");
                 break;
             case IR_JUNCTION_TURN_STARTED:
                 /* The letter has become a turn request. Clear the visible
@@ -357,7 +359,9 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
                 s1_set_barcode_id(0u);
                 s1_csv_log_event("JUNCTION_TURN",
                                  (IR_BARCODE_TURN_LEFT == junction.action) ?
-                                     "LEFT" : "RIGHT");
+                                     "LEFT" :
+                                 (IR_BARCODE_U_TURN == junction.action) ?
+                                     "UTURN" : "RIGHT");
                 break;
             case IR_JUNCTION_CROSSING:
                 s1_csv_log_event("JUNCTION_CROSSING", "FORWARD");
@@ -366,7 +370,9 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
                 s1_csv_log_event("JUNCTION_DONE", "LINE_FOUND");
                 break;
             case IR_JUNCTION_TURN_TIMEOUT:
-                s1_csv_log_event("JUNCTION_TIMEOUT", "LINE_NOT_FOUND");
+                s1_csv_log_event("JUNCTION_TIMEOUT",
+                    (IR_BARCODE_U_TURN == junction.action) ?
+                        "UTURN_NOT_CONFIRMED" : "LINE_NOT_FOUND");
                 s1_report_fault(FAULT_IR_NAV);
                 break;
             case IR_JUNCTION_CROSSING_TIMEOUT:
