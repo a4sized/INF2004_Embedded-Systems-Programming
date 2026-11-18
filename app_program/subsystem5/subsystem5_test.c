@@ -26,9 +26,9 @@
  *   S5-U31..33 Planned edge from the 10..20 cm width range (pure): a lower
  *              bound is planned at the widest the range allows, a measured
  *              edge at least as far as the narrowest allows.
+ *   S5-U35     ... also when the other side reads wide (S5_EDGE_SPREAD_CM).
  *
- * Lateral checks assume S5_EDGE_TRIM_DEG = 0 and S5_SENSOR_PIVOT_CM = 0
- * (sin 30 deg = 0.5 exactly).
+ * Lateral checks assume S5_SENSOR_PIVOT_CM = 0 (sin 30 deg = 0.5 exactly).
  */
 #include <stdint.h>
 #include <stdbool.h>
@@ -156,14 +156,14 @@ EXPORT void subsystem5_test (void)
                                          S5_BYPASS_MAX_REVERSES),
                "no edge found at all, reverses used up: stop");
 
-    /* Too big to get round (S5_BYPASS_TURN_DEG = 45, S5_OUT_LEG_MIN_CM =
+    /* Too big to get round (S5_BYPASS_TURN_DEG = 35, S5_OUT_LEG_MIN_CM =
      * 12, sensor 9 cm ahead of the axle: from 25 cm away, edges up to
-     * about 21 cm to the side fit). */
+     * 15 cm to the side fit; a 30 cm edge from 46 cm). */
     TEST_CHECK("S5-U23", s5_avoid_side_fits(15u, 25u) &&
                          (!s5_avoid_side_fits(30u, 25u)),
                "from 25 cm: a 15 cm edge fits, a 30 cm edge does not");
-    TEST_CHECK("S5-U24", s5_avoid_side_fits(30u, 45u),
-               "further back (45 cm) the 30 cm edge fits");
+    TEST_CHECK("S5-U24", s5_avoid_side_fits(30u, 55u),
+               "further back (55 cm) the 30 cm edge fits");
 
     profile.b_left_edge     = 1u;
     profile.b_right_edge    = 1u;
@@ -176,20 +176,20 @@ EXPORT void subsystem5_test (void)
     profile.right_extent_cm = 35u;
     TEST_CHECK("S5-U26", (S5_BYPASS_LEFT ==
                           s5_avoid_choose(&profile, true, 0u)) &&
-                         (82u == s5_avoid_plan_backup_mm(&profile, true)),
+                         (210u == s5_avoid_plan_backup_mm(&profile, true)),
                "too wide on both sides from here: go round the narrower "
-               "(left), reversing 82 mm first, no new scan");
+               "(left), reversing 210 mm first, no new scan");
 
-    profile.left_extent_cm  = 40u;
-    profile.right_extent_cm = 45u;
+    profile.left_extent_cm  = 50u;   /* both far over the 250 mm max */
+    profile.right_extent_cm = 55u;
     TEST_CHECK("S5-U27", S5_BYPASS_STOP ==
                          s5_avoid_choose(&profile, true, 0u),
                "both sides need more than S5_BYPASS_MAX_BACKUP_MM of "
                "reversing: stop and wait");
     TEST_CHECK("S5-U34", (0u == s5_avoid_backup_mm(5u, 10u)) &&
-                         (132u == s5_avoid_backup_mm(20u, 10u)),
+                         (217u == s5_avoid_backup_mm(20u, 10u)),
                "from 10 cm a 5 cm edge needs no reversing, a 20 cm edge "
-               "132 mm");
+               "217 mm");
 
     profile.left_extent_cm  = 10u;
     profile.right_extent_cm = 6u;
@@ -198,18 +198,28 @@ EXPORT void subsystem5_test (void)
     TEST_CHECK("S5-U29", S5_BYPASS_LEFT ==
                          s5_avoid_choose(&profile, true, 0u),
                "left measured at 10 cm beats right only known to be at "
-               "least 6 cm (planned at 20 - 10 = 10 cm: a tie, measured "
-               "wins)");
+               "least 6 cm (planned at 20 - (10 - 3) = 13 cm)");
 
     /* Planned edges (S5_OBSTACLE_MIN/MAX_WIDTH_CM = 10 / 20). */
     profile.left_extent_cm  = 5u;
     profile.b_left_exact    = 0u;
     profile.right_extent_cm = 8u;
     profile.b_right_exact   = 1u;
-    TEST_CHECK("S5-U31", (12u == s5_avoid_plan_extent(&profile, true)) &&
+    TEST_CHECK("S5-U31", (15u == s5_avoid_plan_extent(&profile, true)) &&
                          (8u == s5_avoid_plan_extent(&profile, false)),
-               "left lower bound 5 cm is planned at 20 - 8 = 12 cm; right "
-               "measured 8 cm stays 8 cm");
+               "left lower bound 5 cm is planned at 20 - (8 - spread 3) = "
+               "15 cm; right measured 8 cm stays 8 cm");
+
+    /* A 20 cm box, 12 cm left / 8 cm right of the centre line: the right
+     * edge measured but reading 2 cm wide (beam spread), the left only a
+     * lower bound at 9 cm. The left must be planned at least 12 cm out. */
+    profile.left_extent_cm  = 9u;
+    profile.b_left_exact    = 0u;
+    profile.right_extent_cm = 10u;
+    profile.b_right_exact   = 1u;
+    TEST_CHECK("S5-U35", s5_avoid_plan_extent(&profile, true) >= 12u,
+               "a lower-bound side is not planned short of its real edge "
+               "when the other side reads wide");
 
     profile.left_extent_cm  = 4u;
     profile.b_left_exact    = 1u;
