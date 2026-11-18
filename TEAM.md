@@ -50,22 +50,22 @@ fixed.
 | GP23, GP24, GP25, GP29 | *reserved* | Pico W radio |
 | GP0 | | (taken whenever the team builds with `CRASH_REPORT=1`) |
 | GP1 | | (taken whenever the team builds with `CRASH_REPORT=1`) |
-| GP2 | | |
-| GP3 | | |
-| GP4 | | |
-| GP5 | | |
-| GP6 | | |
-| GP7 | | |
+| GP2 | Buddy 3 (2501107) | Right IR sensor DO per current `PINLAYOUT.md` |
+| GP3 | Buddy 3 (2501107) | Right IR sensor AO in pin layout; firmware does not sample AO |
+| GP4 | Buddy 2 (2501820) | Motor 2 encoder B input |
+| GP5 | Buddy 2 (2501820) | Motor 2 encoder A input |
+| GP6 | Buddy 3 (2501107) | Barcode IR sensor DO; current pin layout places it on Grove 4 |
+| GP7 | Buddy 3 (2501107) | Left IR sensor DO; GP6 bench is separate |
 | GP8 | | |
 | GP9 | | |
 | GP10 | | |
 | GP11 | | |
 | GP12 | | |
 | GP13 | | |
-| GP14 | | |
-| GP15 | | |
-| GP16 | | |
-| GP17 | | |
+| GP14 | | Former motor 1 encoder A input |
+| GP15 | | Former motor 1 encoder B input |
+| GP16 | Buddy 2 (2501820) | Motor 1 encoder B input |
+| GP17 | Buddy 2 (2501820) | Motor 1 encoder A input |
 | GP18 | | |
 | GP19 |S1| Heartbeat status LED (LED + 330 Ω to GND) |
 | GP20 | S4 | I2C0 SDA, parked and unused: the kernel configures I2C0 at boot when `DEVCNF_USE_IIC` = 1, and the default GP8/GP9 are the motor 1 pins |
@@ -199,3 +199,166 @@ limit there. The numbers below are the example's usage.
 | Alarm handler | 12 | 0 | | | 0 | |
 
 (The kernel's USB and WiFi service tasks also use a few of these.)
+
+## 7. Standalone Buddy 3 calibration bench (13 October 2026)
+
+`bench/ir_calibration/` is a separate one-sensor application for Buddy 3
+(2501107). Its isolated build replaces the example application only inside
+an ignored build staging tree; the example code and its tables above remain
+unchanged. The user confirmed DO on GP6 through Grove 4 of a Maker Pi Pico
+carrier with the Pico W seated on it. The current bench reads GP6; GP7
+remains the intended robot left IR allocation. AO is disconnected; no ADC
+is used.
+
+| Bench task | Priority | Core | Stack | Kernel objects |
+|---|---|---|---|---|
+| `ir_bench_task` | 16 | core 0 (`TP_PRC1`) | 2048 bytes | One task |
+
+Only that task reads/configures GP6. It uses the existing kernel USB console
+service and creates no subsystem communication objects. The bench profile
+disables Wi-Fi/MQTT and example tasks. These choices do not settle robot
+priorities or cross-buddy interfaces. See `testing/subsystem3/IR_CALIBRATION_TEST_LOG.md` for evidence and
+pending hardware checks.
+
+## 8. Buddy 3 three-sensor digital readout (13 October 2026)
+
+Historical implementation record; Section 10 gives the current pins and
+normal team build. The GP4/GP16 values below describe earlier work.
+
+`app_program/subsystem3/` contains a sensing-only application for GP7 left,
+GP4 right and GP16 barcode DO. `build_sensing.py` stages Buddy 3 sensing and
+Buddy 1 Gatekeeper sources in a temporary build tree; it does not start the
+example consumer, producer or monitor. The output UF2 is placed in
+`build_make/`. The profile has a USB
+console and builds the Pico SDK GPIO interrupt implementation through
+`WIFI=cyw43`, with `NET=none` and MQTT disabled. The sensing code makes no
+network calls.
+
+The standalone sensing build stages a 5 ms kernel tick and wakes the
+sensing task with a 5 ms cyclic handler. It prints raw GPIO levels about
+every 40 samples while a USB terminal is open. The project-wide
+`config/config.h` remains at 10 ms. Compilation does not prove the design's
+5 ms sampling and jitter target on hardware. The USB line includes min/max
+sample gaps in microseconds, count within 4000–6000 us, and count above
+10 ms over a rolling window of up to 12,000 intervals. On 21 October 2026, the user
+reported black=1 and white=0 on GP7, GP4 and GP16, so the standalone image
+maps a high level to BLACK on each channel.
+See `testing/subsystem3/IR_SENSING_TEST_LOG.md`.
+
+On 21 October 2026, Buddy 3 added a time-qualified filter to the two line
+levels in this standalone readout. It accepts a changed level only after a
+second observation at least 10 ms later; the barcode level remains raw.
+The USB line now shows each line sensor as `raw>stable`. This bench value is
+not a calibrated moving-robot filter setting. No motion request is sent.
+The snapshot supplies the latest correction, but the Motion Control handoff
+and controller permission contract are still unfinished. Buddy 2 now has a
+20 ms Motion State loop; this isolated image does not call it. The earlier
+GP16 encoder-power output was
+removed on this local branch; GP16 belongs to Buddy 3's barcode input.
+The isolated Buddy 3 UF2 still excludes Buddy 2 code.
+
+The sensing task now publishes one latest timestamped IR snapshot through
+`ir_line_snapshot_shared_read()`. A mutex protects the whole copy for readers
+on either core. The snapshot includes raw and filtered levels, interpreted
+surfaces, line position, latest correction, loss state and readiness flags.
+GPIO configuration alone does not establish mounted-sensor readiness, so
+the isolated image keeps `b_ready=false`. A future motion consumer must use
+`ir_line_snapshot_steering_status()` with a controller-supplied following
+permission and agreed maximum age before applying a correction. The current
+normal team image still runs the example consumer and does not initialize or
+publish this IR snapshot.
+
+`python3 app_program/subsystem3/build_team_ir.py` builds an opt-in team
+image with a staged 5 ms kernel tick. In that image, Subsystem 3 starts the
+IR sensing service and a 20 ms reader. The reader sends zero velocity
+intent through Buddy 2's `s2_set_ir_velocity()` until Vehicle Controller
+permission, mounted-sensor readiness, speed tuning and freshness limits
+are agreed. A pure handoff function produces bounded wheel targets from
+fresh, valid snapshots for host tests. This opt-in image has only been
+compiled, not run on the Pico or car. The normal 10 ms team build and its
+example startup are unchanged.
+
+The opt-in consumer now exposes task-context
+`ir_motion_consumer_set_following()` for the future Vehicle Controller. A
+follow request includes permission, base speed, correction and maximum
+snapshot age. Its provisional starting values are 50/15 in Buddy 2's
+0..255 units and 20 ms; the setter rejects larger values while these
+limits are provisional, and permission still starts false. Left-black/right-white
+requests left=35, right=65; right-black/left-white requests left=65,
+right=35; both black requests 50/50. The consumer requires a new snapshot
+sequence each 20 ms cycle. Revoking permission writes zero to Buddy 2 while
+holding the consumer's settings mutex, so a pending consumer write cannot
+restore the previous target afterward. Physical wheel direction, usable
+minimum PWM and correction strength still require car testing.
+
+For a temporary moving demonstration only,
+`python3 app_program/subsystem3/build_line_follow_demo.py` creates a separate
+UF2. It uses the previously observed black=1 polarity, treats successful
+GPIO setup as provisional readiness, sends zero during a 3-second boot wait,
+then enables the provisional 50/15 steering targets. Both-white, lost,
+stale or duplicate samples still request zero, and Buddy 1 faults still
+reach Buddy 2's fault gate. This profile bypasses FR11's startup polarity
+calibration and has not been run on the car. The user plans to flash, power
+off, place the untethered car on the track, then switch it on; this starts
+the Pico's three-second delay from that switch-on.
+
+The user found a narrow sweet spot with both line sensors black when centered.
+Left black/right white points to a left correction; right black/left white
+points to a right correction. Both black is centered/no correction. Both
+white for 30 ms confirms potential loss; a lost state clears after both
+black persists for 20 ms. The isolated readout updates this latest decision
+every 5 ms and prints it over USB. The intended handoff is one latest
+decision at each future Motion State cycle, without queueing every sample.
+Moving-robot validation of the narrow centered margin remains outstanding.
+
+## 9. Barcode IR wiring update (1 November 2026)
+
+Historical wiring report; Section 10 records the current main pin layout.
+
+The user reports that the barcode IR sensor has moved to **GP6 on Grove 5**.
+Current Buddy 3 sensing and direct-motor demo builds use GP6 for barcode DO;
+GP7 left and GP4 right were unchanged at that time. The earlier GP16 readings and tests
+above are historical. The separate calibration bench also uses GP6 but was
+reported on Grove 4; verify the physical Grove 5 DO-to-GP6 mapping on the
+robot before treating current builds as physically validated. GP16 is no
+longer reserved for Buddy 3 barcode input.
+
+## 10. Current main pin layout and integrated line policy (1 November 2026)
+
+The user chose `PINLAYOUT.md` on current `main` as the target allocation.
+Buddy 3 now reads GP7 left, GP2 right, and GP6 barcode. Buddy 2 owns
+GP16/GP17 left encoder and GP4/GP5 right encoder. The line sensor's
+previous GP4 measurements are historical; GP2 contrast, polarity and
+combined motor/encoder operation require a new car test. Current main's
+diagram calls the GP6 connection Grove 4, while the user's prior wiring
+report said Grove 5; confirm the connector on the robot. The temporary
+standalone direct-motor and line-follow demo files were moved outside
+the repository. Integrated junction turning remains disabled until a
+real decoded barcode instruction exists. Motion permission remains closed
+until a startup controller grants it.
+
+## 11. Vehicle Controller startup contract (3 November 2026)
+
+`app_program/vehicle_controller.c` is the application-level mission gate.
+It starts after the five subsystem task groups. Its INIT state waits for
+the existing `s4_is_calibrated()` getter, Buddy 5's new
+`subsystem5_startup_scan_ready()` getter, a fresh Buddy 3 snapshot with
+`b_ready=true`, and an initial Wi-Fi connection reported by Buddy 1 through
+`vehicle_controller_set_wifi_connected()`. Buddy 1's command flag supplies
+START, STOP, ESTOP and CLEAR. The controller alone calls
+`ir_motion_consumer_set_following()`; Buddy 2 still owns motor output and
+the safety halt. START is accepted from READY, not from INIT. Wi-Fi loss
+after following begins does not revoke permission.
+
+The Wi-Fi status callback is connected for networked builds, but the
+current team IR image has `NET=none MQTT=0`, so it still cannot grant
+movement through the required Wi-Fi and START gates. Buddy 3 publishes
+`b_ready=true`
+after successful GPIO setup based on the user's reported mounted demo
+result. The fixed-polarity GP7/GP2/GP6 configuration still needs a saved
+current-pin trace; the earlier recorded successful demo used GP7/GP4/GP16.
+The pure state policy has a host test in
+`testing/integration/vehicle_controller_policy_test.c`. See
+`testing/integration/VEHICLE_CONTROLLER_TEST_LOG.md` for evidence and the
+remaining team handoffs. Obstacle bypass and post-bypass recovery modes
+still need a separate permission contract.

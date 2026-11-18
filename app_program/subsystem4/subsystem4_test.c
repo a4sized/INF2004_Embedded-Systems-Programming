@@ -2,8 +2,8 @@
  *  subsystem4_test.c  --  on-target tests, built with "make TEST=1".
  *
  *  Keep the robot STILL and LEVEL and do not touch it for about 8 seconds.
- *  Hump heights and collisions can not be tested like this: they need the
- *  car driven (see testing/subsystem4/TEST_LOG.md).
+ *  Hump heights, picking the car up and overturning it can not be tested like
+ *  this: they need the car driven or handled (see testing/subsystem4/TEST_LOG.md).
  */
 
 #include "subsystem4.h"
@@ -49,11 +49,12 @@ void subsystem4_test(void)
     /* S4-U05: a still robot is STATIONARY. */
     TEST_CHECK("S4-U05", s4_get_motion() == S4_STATIONARY, "still robot is STATIONARY");
 
-    /* S4-U06: no hump and no collision while sitting still. */
+    /* S4-U06: no hump, and not "picked up" or "overturned", while sitting still. */
     TEST_CHECK("S4-U06",
                s4_get_hump_count() == 0 &&
-               (s4_get_faults() & S4_FAULT_COLLISION) == 0U,
-               "no false hump and no false collision");
+               s4_get_lift() == S4_LIFT_NONE &&
+               (s4_get_faults() & S4_FAULT_LIFTED) == 0U,
+               "no false hump and no false picked-up / overturned");
 
     /* S4-U07: the pitch reaches Subsystem 1 (IF-01) and the fields that
      * Subsystem 2 and 5 set are left alone. */
@@ -73,10 +74,10 @@ void subsystem4_test(void)
         BOOL set_ok, clear_ok, other_ok;
 
         s1_report_fault(FAULT_WIFI);            /* somebody else's fault */
-        s4_fault_set(S4_FAULT_COLLISION);
+        s4_fault_set(S4_FAULT_LIFTED);
         s1_get_telemetry(&pkt);
         set_ok   = ((pkt.fault_mask & FAULT_IMU_SENS) != 0U);
-        s4_fault_clear(S4_FAULT_COLLISION);
+        s4_fault_clear(S4_FAULT_LIFTED);
         s1_get_telemetry(&pkt);
         clear_ok = ((pkt.fault_mask & FAULT_IMU_SENS) == 0U);
         other_ok = ((pkt.fault_mask & FAULT_WIFI) != 0U);
@@ -85,16 +86,16 @@ void subsystem4_test(void)
                    "FAULT_IMU_SENS set/cleared through subsystem 1, other bits kept");
     }
 
-    /* S4-U17: our two conditions share the ONE IMU bit.  It stays on until
-     * both are over. */
+    /* S4-U17: our two conditions (sensor not answering, picked up / overturned)
+     * share the ONE IMU bit.  It stays on until both are over. */
     {
         BOOL on_both, on_after_one, off_after_both;
 
         s4_fault_set(S4_FAULT_COMM);
-        s4_fault_set(S4_FAULT_COLLISION);
+        s4_fault_set(S4_FAULT_LIFTED);
         s1_get_telemetry(&pkt);
         on_both = ((pkt.fault_mask & FAULT_IMU_SENS) != 0U);
-        s4_fault_clear(S4_FAULT_COLLISION);
+        s4_fault_clear(S4_FAULT_LIFTED);
         s1_get_telemetry(&pkt);
         on_after_one = ((pkt.fault_mask & FAULT_IMU_SENS) != 0U);
         s4_fault_clear(S4_FAULT_COMM);
@@ -128,6 +129,19 @@ void subsystem4_test(void)
     TEST_CHECK("S4-U19",
                pkt.car_state == (UINT)S4_STATIONARY && pkt.hump_state == 0U,
                "telemetry car_state/hump_state show STATIONARY and flat");
+
+    /* S4-U25: the picked-up / overturned limits are in a sensible order: the
+     * car must tilt further to count as overturned (60 deg) than to leave
+     * overturned (45 deg), than as carried (35 deg), and be more upright than
+     * any of them to count as put down (all are cos^2 of the angle, so a
+     * SMALLER number is a bigger tilt); and the two new motion states are
+     * different and fit the 3-bit car_state field. */
+    TEST_CHECK("S4-U25",
+               S4_OVERTURN_COS2 < S4_RIGHTED_COS2 && S4_RIGHTED_COS2 < S4_CARRY_COS2 &&
+               S4_CARRY_COS2 < S4_PUTDOWN_COS2 &&
+               S4_PICKED_UP != S4_OVERTURNED && (UINT)S4_OVERTURNED <= 7U &&
+               S4_LIFT_G > 0.0f && S4_LIFT_G < 0.5f && S4_PUTDOWN_MS > 0,
+               "lift / overturn limits are in order");
 
     TEST_SUMMARY("subsystem4");
 }

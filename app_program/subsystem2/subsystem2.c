@@ -46,6 +46,80 @@ LOCAL int32_t current_left_velocity = 0;
 LOCAL int32_t current_right_velocity = 0;
 LOCAL int32_t sync_error_integral = 0;
 
+#if defined(BUDDY3_IR_MOVING_TEST)
+static char * s2_diag_text(char * out, const char * value) {
+    while ('\0' != *value) *out++ = *value++;
+    return out;
+}
+
+static char * s2_diag_u16(char * out, uint16_t value) {
+    char digits[5];
+    uint32_t count = 0u;
+    do {
+        digits[count++] = (char)('0' + (value % 10u));
+        value = (uint16_t)(value / 10u);
+    } while (0u != value);
+    while (0u != count) *out++ = digits[--count];
+    return out;
+}
+
+static char * s2_diag_i16(char * out, int16_t value) {
+    if (value < 0) {
+        *out++ = '-';
+        value = (int16_t)(-value); /* Motor targets are limited to -255..255. */
+    }
+    return s2_diag_u16(out, (uint16_t)value);
+}
+
+/* Readback is deliberately outside the motor mutex and only in the USB
+ * moving test. It shows the arbitration result and actual PWM registers.
+ */
+static void s2_log_motion_path(void) {
+    MotorControl_t snapshot;
+    UW pwm_left;
+    UW pwm_right;
+    UW enable_left;
+    UW enable_right;
+    char details[128];
+    char * out;
+
+    if (E_OK != tk_loc_mtx(mtx_motor_intent, TMO_FEVR)) return;
+    snapshot = motor_ctrl;
+    (void)tk_unl_mtx(mtx_motor_intent);
+
+    pwm_left = in_w(PWM_BASE + PWM_CHx_CC + (4u * 0x14u));
+    pwm_right = in_w(PWM_BASE + PWM_CHx_CC + (5u * 0x14u));
+    enable_left = in_w(PWM_BASE + PWM_CHx_CSR + (4u * 0x14u)) & PWM_CH_CSR_EN;
+    enable_right = in_w(PWM_BASE + PWM_CHx_CSR + (5u * 0x14u)) & PWM_CH_CSR_EN;
+
+    out = s2_diag_text(details, "req=");
+    out = s2_diag_i16(out, (int16_t)snapshot.ir_left_target);
+    *out++ = '/';
+    out = s2_diag_i16(out, (int16_t)snapshot.ir_right_target);
+    out = s2_diag_text(out, ";cap=");
+    out = s2_diag_u16(out, (uint16_t)snapshot.us_speed_cap);
+    out = s2_diag_text(out, ";state=");
+    out = s2_diag_u16(out, (uint16_t)snapshot.current_state);
+    out = s2_diag_text(out, ";active=");
+    out = s2_diag_i16(out, (int16_t)snapshot.active_left_speed);
+    *out++ = '/';
+    out = s2_diag_i16(out, (int16_t)snapshot.active_right_speed);
+    out = s2_diag_text(out, ";pwm=");
+    out = s2_diag_u16(out, (uint16_t)(pwm_left & 0xffffu));
+    *out++ = '/';
+    out = s2_diag_u16(out, (uint16_t)(pwm_left >> 16u));
+    *out++ = '/';
+    out = s2_diag_u16(out, (uint16_t)(pwm_right & 0xffffu));
+    *out++ = '/';
+    out = s2_diag_u16(out, (uint16_t)(pwm_right >> 16u));
+    out = s2_diag_text(out, ";en=");
+    *out++ = enable_left ? '1' : '0';
+    *out++ = enable_right ? '1' : '0';
+    *out = '\0';
+    s1_csv_log_event("S2_PATH", details);
+}
+#endif
+
 /* --------------------------------------------------------------------------
  * PUBLIC ARBITRATOR SETTERS (Thread-Safe via Priority-Inheritance Mutex)
  * -------------------------------------------------------------------------- */
@@ -90,18 +164,117 @@ EXPORT int32_t get_right_encoder_ticks(void) {
 /* --------------------------------------------------------------------------
  * PRIVATE HARDWARE DRIVERS (Encapsulated inside Subsystem 2)
  * -------------------------------------------------------------------------- */
+
+/*
+ * Motor speed control by PWM. Each motor has two pins (A = forward,
+ * B = reverse); the speed (0..255) sets the duty cycle of one pin while the
+ * other stays low. GP8/GP9 are PWM slice 4 and GP10/GP11 slice 5.
+ * The PWM counts 0..S2_PWM_TOP, so a duty value equals the speed directly.
+ * Clock: 125 MHz / S2_PWM_CLOCK_DIV / 256 = about 2 kHz.
+ */
+#define S2_PWM_TOP              (255u)
+#define S2_PWM_CLOCK_DIV        (245u)    /* 1..255 */
+#define S2_PWM_SLICE_STRIDE     (0x14u)   /* bytes between slice registers */
+#define S2_PWM_RESET_WAIT_LOOPS (100000u)
+
+#define S2_PWM_DIV_REG(pin)     (PWM_BASE + PWM_CHx_DIV + \
+                                 ((((pin) >> 1u) & 0x07u) * \
+                                  S2_PWM_SLICE_STRIDE))
+
+/* Take the PWM block out of reset if it is still held there (the board
+ * support package leaves it in reset). Never put it back into reset: the
+ * servo of Subsystem 5 shares the PWM block. */
+LOCAL ER s2_pwm_release_reset (void)
+{
+    UW loops_left = S2_PWM_RESET_WAIT_LOOPS;
+
+    if (0u == (in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM))
+    {
+        clr_w(RESETS_RESET, RESETS_RESET_PWM);
+
+        while ((0u == (in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM)) &&
+               (loops_left > 0u))
+        {
+            loops_left--;
+        }
+    }
+
+    return (loops_left > 0u) ? E_OK : E_TMOUT;
+}
+
+/* Route one motor pin to the PWM, at 0 % duty. */
+LOCAL void s2_pwm_pin_init (const UINT pin)
+{
+    (void)pwm_set_pin(pin);
+    (void)pwm_set_cc(pin, 0u);
+}
+
+/* Set up one PWM slice (both pins of a motor) and switch it on. */
+LOCAL void s2_pwm_slice_init (const UINT pin_a, const UINT pin_b)
+{
+    (void)pwm_set_enabled(pin_a, FALSE);
+    s2_pwm_pin_init(pin_a);
+    s2_pwm_pin_init(pin_b);
+    out_w(S2_PWM_DIV_REG(pin_a), S2_PWM_CLOCK_DIV << 4u);  /* 8.4 format */
+    (void)pwm_set_wrap(pin_a, S2_PWM_TOP);
+    (void)pwm_set_enabled(pin_a, TRUE);
+}
+
+/* Drive one motor: speed -255..+255, sign = direction, size = duty. */
+LOCAL void s2_motor_set (const UINT pin_forward, const UINT pin_reverse,
+                         const int16_t speed)
+{
+    UW duty = 0u;
+
+    /* Casts are safe: the size of the speed is limited to 0..255 first. */
+    if (speed > 0)
+    {
+        duty = (speed > (int16_t)S2_PWM_TOP) ? S2_PWM_TOP : (UW)speed;
+        (void)pwm_set_cc(pin_reverse, 0u);
+        (void)pwm_set_cc(pin_forward, duty);
+    }
+    else if (speed < 0)
+    {
+        duty = (speed < -(int16_t)S2_PWM_TOP) ? S2_PWM_TOP : (UW)(-speed);
+        (void)pwm_set_cc(pin_forward, 0u);
+        (void)pwm_set_cc(pin_reverse, duty);
+    }
+    else
+    {
+        (void)pwm_set_cc(pin_forward, 0u);
+        (void)pwm_set_cc(pin_reverse, 0u);
+    }
+}
+
 LOCAL void motor_init(void) {
     
-    /* Digital GPIO override for motor direction/drive pins */
-    gpio_set_pin(M1A_PIN, GPIO_MODE_OUT);
-    gpio_set_pin(M1B_PIN, GPIO_MODE_OUT);
-    gpio_set_pin(M2A_PIN, GPIO_MODE_OUT);
-    gpio_set_pin(M2B_PIN, GPIO_MODE_OUT);
+    /* Hardware PWM for smooth speed control (RP2040 PWM slices 4 & 5) */
+    pwm_set_pin(M1A_PIN);
+    pwm_set_pin(M1B_PIN);
+    pwm_set_pin(M2A_PIN);
+    pwm_set_pin(M2B_PIN);
 
-    gpio_set_val(M1A_PIN, 0);
-    gpio_set_val(M1B_PIN, 0);
-    gpio_set_val(M2A_PIN, 0);
-    gpio_set_val(M2B_PIN, 0);
+    /* Clock divider: 125 MHz / 125 = 1 MHz PWM clock (1 count = 1 us) */
+#define S2_PWM_SLICE(pin)   (((pin) >> 1u) & 0x07u)
+#define S2_PWM_DIV_REG(pin) (PWM_BASE + PWM_CHx_DIV + (S2_PWM_SLICE(pin) * 0x14u))
+    out_w(S2_PWM_DIV_REG(M1A_PIN), (125u << 4));
+    out_w(S2_PWM_DIV_REG(M2A_PIN), (125u << 4));
+
+    /* Wrap at 255: frequency = 1 MHz / 256 ≈ 3.9 kHz (optimal for MX1508) */
+    pwm_set_wrap(M1A_PIN, 255);
+    pwm_set_wrap(M1B_PIN, 255);
+    pwm_set_wrap(M2A_PIN, 255);
+    pwm_set_wrap(M2B_PIN, 255);
+
+    pwm_set_cc(M1A_PIN, 0);
+    pwm_set_cc(M1B_PIN, 0);
+    pwm_set_cc(M2A_PIN, 0);
+    pwm_set_cc(M2B_PIN, 0);
+
+    pwm_set_enabled(M1A_PIN, TRUE);
+    pwm_set_enabled(M1B_PIN, TRUE);
+    pwm_set_enabled(M2A_PIN, TRUE);
+    pwm_set_enabled(M2B_PIN, TRUE);
 
     /* Encoder inputs */
     gpio_set_pin(LEFT_ENC_A, GPIO_MODE_IN);
@@ -115,7 +288,7 @@ LOCAL void motor_init(void) {
     {
         ER enc_err = encoder_init();
         if (enc_err != E_OK) {
-            tm_printf((UB*)"[S2] encoder_init failed: %d\n", (int)enc_err);
+            APP_LOG((UB*)"[S2] encoder_init failed: %d\n", (int)enc_err);
         }
     }
 
@@ -123,30 +296,35 @@ LOCAL void motor_init(void) {
     
 }
 
+/* Speed -255..+255 per motor; the size is the PWM duty (0 = stop). */
 LOCAL void motor_speed(int16_t left_speed, int16_t right_speed) {
-    
+    if (left_speed > 255)   left_speed = 255;
+    if (left_speed < -255)  left_speed = -255;
+    if (right_speed > 255)  right_speed = 255;
+    if (right_speed < -255) right_speed = -255;
+
     /* Left Motor (M1) */
     if (left_speed > 0) {
-        gpio_set_val(M1B_PIN, 0);
-        gpio_set_val(M1A_PIN, 1);
+        pwm_set_cc(M1B_PIN, 0);
+        pwm_set_cc(M1A_PIN, (UW)left_speed);
     } else if (left_speed < 0) {
-        gpio_set_val(M1A_PIN, 0);
-        gpio_set_val(M1B_PIN, 1);
+        pwm_set_cc(M1A_PIN, 0);
+        pwm_set_cc(M1B_PIN, (UW)(-left_speed));
     } else {
-        gpio_set_val(M1A_PIN, 0);
-        gpio_set_val(M1B_PIN, 0);
+        pwm_set_cc(M1A_PIN, 0);
+        pwm_set_cc(M1B_PIN, 0);
     }
 
     /* Right Motor (M2) */
     if (right_speed > 0) {
-        gpio_set_val(M2B_PIN, 0);
-        gpio_set_val(M2A_PIN, 1);
+        pwm_set_cc(M2B_PIN, 0);
+        pwm_set_cc(M2A_PIN, (UW)right_speed);
     } else if (right_speed < 0) {
-        gpio_set_val(M2A_PIN, 0);
-        gpio_set_val(M2B_PIN, 1);
+        pwm_set_cc(M2A_PIN, 0);
+        pwm_set_cc(M2B_PIN, (UW)(-right_speed));
     } else {
-        gpio_set_val(M2A_PIN, 0);
-        gpio_set_val(M2B_PIN, 0);
+        pwm_set_cc(M2A_PIN, 0);
+        pwm_set_cc(M2B_PIN, 0);
     }
 }
 
@@ -243,11 +421,20 @@ LOCAL void handle_motor_steady_drive(int16_t left_speed, int16_t right_speed) {
         int16_t correction = (int16_t)(speed_error * 2) + (int16_t)(sync_error_integral);
 
         /* Anti-windup cap: Prevent the correction from violently jerking the robot */
-        if (correction > 80) correction = 80;
-        if (correction < -80) correction = -80;
+        if (correction > 15) correction = 15;
+        if (correction < -15) correction = -15;
 
         int16_t adj_left  = left_speed - correction;
         int16_t adj_right = right_speed + correction;
+
+        /* Keep each wheel on the side it was commanded: the correction may
+         * slow a wheel down but must never flip it the other way.  (The old
+         * "if (adj < 0) adj = 0" turned EVERY reverse command, such as the
+         * obstacle back-off at -90/-90, into 0/0: the wheels never moved.) */
+        if ((left_speed > 0)  && (adj_left < 0))   adj_left = 0;
+        if ((left_speed < 0)  && (adj_left > 0))   adj_left = 0;
+        if ((right_speed > 0) && (adj_right < 0))  adj_right = 0;
+        if ((right_speed < 0) && (adj_right > 0))  adj_right = 0;
 
         motor_speed(adj_left, adj_right);
     } else {
@@ -358,11 +545,21 @@ LOCAL void s2_motor_task(INT stacd, void *exinf) {
 #if ENC_PRINT_MS > 0
     UINT print_n = 0;
 #endif
+#if defined(BUDDY3_IR_MOVING_TEST)
+    UINT path_n = 0;
+#endif
     (void)stacd;
     (void)exinf;
 
     while (1) {
         motion_fsm_update();
+
+#if defined(BUDDY3_IR_MOVING_TEST)
+        if (++path_n >= (UINT)(500u / S2_PERIOD_MS)) {
+            path_n = 0u;
+            s2_log_motion_path();
+        }
+#endif
 
 #if ENC_PRINT_MS > 0
         /* Show the encoder counters on the serial monitor (every ENC_PRINT_MS).
@@ -370,11 +567,11 @@ LOCAL void s2_motor_task(INT stacd, void *exinf) {
          * "pins L=ab R=cd" are the live levels of the four channels. */
         if (++print_n >= (UINT)(ENC_PRINT_MS / S2_PERIOD_MS)) {
             print_n = 0;
-            tm_printf((UB*)"[S2] encoder ticks: left %d  right %d   (interrupts %d, pins L=%d%d R=%d%d)\n",
-                      (int)get_left_encoder_ticks(), (int)get_right_encoder_ticks(),
-                      (int)encoder_irq_count(),
-                      (int)gpio_get_val(LEFT_ENC_A),  (int)gpio_get_val(LEFT_ENC_B),
-                      (int)gpio_get_val(RIGHT_ENC_A), (int)gpio_get_val(RIGHT_ENC_B));
+            APP_LOG((UB*)"[S2] encoder ticks: left %d  right %d   (interrupts %d, pins L=%d%d R=%d%d)\n",
+                    (int)get_left_encoder_ticks(), (int)get_right_encoder_ticks(),
+                    (int)encoder_irq_count(),
+                    (int)gpio_get_val(LEFT_ENC_A),  (int)gpio_get_val(LEFT_ENC_B),
+                    (int)gpio_get_val(RIGHT_ENC_A), (int)gpio_get_val(RIGHT_ENC_B));
         }
 #endif
 

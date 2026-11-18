@@ -131,18 +131,39 @@ EXPORT S1_CMD_TYPE s1_parse_command(const UB *payload, INT len) {
 
 /* Logs event and telemetry state in CSV format over USB serial */
 EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
+#if defined(BUDDY3_IR_MOVING_TEST) || defined(BUDDY3_FORCE_MOTOR_TEST)
+    extern UW tm_usb_state(void);
+    if (3u != tm_usb_state()) return;
+#endif
     S1_TELEMETRY_PKT snap;
     s1_get_telemetry(&snap);
 
-    /* Output CSV log only on active faults or command events to avoid serial bus congestion */
+    /* Keep normal output sparse, but expose each decoded barcode for
+     * full-circuit USB observation as well as in the telemetry payload. */
     if (snap.fault_mask != 0 ||
-        (event_type != NULL && (event_type[0] == 'C' && event_type[1] == 'M' && event_type[2] == 'D'))) {
+#if defined(BUDDY3_IR_MOVING_TEST) || defined(BUDDY3_FORCE_MOTOR_TEST)
+        /* The dedicated USB diagnostic image needs barcode/VC events. */
+        event_type != NULL ||
+#endif
+        (event_type != NULL &&
+         ((event_type[0] == 'C' && event_type[1] == 'M' &&
+           event_type[2] == 'D') ||
+          knl_strcmp(event_type, "BARCODE_DECODED") == 0 ||
+          (event_type[0] == 'J' && event_type[1] == 'U' &&
+           event_type[2] == 'N' && event_type[3] == 'C') ||
+#if defined(BUDDY3_BARCODE_DEBUG)
+          (event_type[0] == 'I' && event_type[1] == 'R' &&
+           event_type[2] == '_' &&
+           (event_type[3] == 'B' ||
+            knl_strcmp(event_type, "IR_FOLLOW_MODE") == 0)) ||
+#endif
+          0))) {
 
-        tm_printf((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
-                  (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
-                  (INT)snap.pitch_deg, (UW)snap.fault_mask,
-                  event_type != NULL ? event_type : "NONE",
-                  details != NULL ? details : "NONE");
+        APP_LOG((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
+                (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
+                (INT)snap.pitch_deg, (UW)snap.fault_mask,
+                event_type != NULL ? event_type : "NONE",
+                details != NULL ? details : "NONE");
     }
 }
 
@@ -207,8 +228,10 @@ EXPORT void led_task(INT stacd, void *exinf) {
 
         /* Queue 8-byte telemetry packet every S1_TELEM_TICKS (1 second) */
         if (++ticks % S1_TELEM_TICKS == 0) {
+            extern INT s4_get_max_hump_mm(void);
             tk_loc_mtx(mtx_telemetry, TMO_FEVR);
             s1_telemetry.seq++;
+            s1_telemetry.hump_height_mm = (uint32_t)s4_get_max_hump_mm();
             snap = s1_telemetry;
             tk_unl_mtx(mtx_telemetry);
 

@@ -12,9 +12,9 @@
 #include <tk/tkernel.h>
 #include <tm/tmonitor.h>
 #include <bsp/libbsp.h>
-#include <stdbool.h>
 #include "drv_servo.h"
 #include "s5_config.h"
+#include "s5_log.h"
 
 /* PWM clock: divide the 125 MHz system clock down to 1 MHz. */
 #define SYSTEM_CLOCK_HZ         (125000000u)
@@ -74,20 +74,24 @@ static uint16_t angle_to_pulse_width_us(const uint16_t angle_degrees)
 /*
  * The board support package only takes the PWM hardware out of reset when
  * USE_PTMR is 1, and config.h sets it to 0. While in reset the PWM ignores
- * every register write, so we release it ourselves here.
+ * every register write, so we release it ourselves here, but only if it is
+ * still in reset: Subsystem 2's motors share the PWM block and set it up
+ * first, so resetting it again would switch the motors' PWM off.
  */
 static ER release_pwm_from_reset(void)
 {
     uint32_t loops_left = RESET_WAIT_LOOPS;
 
-    set_w(RESETS_RESET, RESETS_RESET_PWM);    /* hold in reset   */
-    clr_w(RESETS_RESET, RESETS_RESET_PWM);    /* then release it */
-
-    /* Wait until the hardware reports that the reset has finished. */
-    while (((in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM) == 0u) &&
-           (loops_left > 0u))
+    if (0u == (in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM))
     {
-        loops_left--;
+        clr_w(RESETS_RESET, RESETS_RESET_PWM);
+
+        /* Wait until the hardware reports that the reset has finished. */
+        while ((0u == (in_w(RESETS_RESET_DONE) & RESETS_RESET_PWM)) &&
+               (loops_left > 0u))
+        {
+            loops_left--;
+        }
     }
     return (loops_left > 0u) ? E_OK : E_TMOUT;
 }
@@ -146,8 +150,8 @@ ER drv_servo_init(void)
     }
 
     g_servo.b_ready = 1u;
-    tm_printf((UB*)"S5 servo ready at %u degrees\n",
-              (unsigned int)g_servo.angle_degrees);
+    S5_LOG((UB*)"S5 servo ready at %u degrees\n",
+           (unsigned int)g_servo.angle_degrees);
     return E_OK;
 }
 
@@ -170,7 +174,8 @@ ER drv_servo_set_angle(const uint16_t angle_degrees)
     result = pwm_set_cc(S5_PIN_SERVO, angle_to_pulse_width_us(new_angle));
     if (result == E_OK)
     {
-        g_servo.angle_degrees = new_angle;
+        /* Cast is safe: new_angle was clipped to 0..180 above. */
+        g_servo.angle_degrees = (uint8_t)new_angle;
     }
     return result;
 }

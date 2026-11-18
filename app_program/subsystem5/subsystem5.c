@@ -2,382 +2,405 @@
  * @file    subsystem5.c
  * @brief   Subsystem 5: servo-mounted ultrasonic obstacle scanner.
  *
- * Stage 1, coarse start-up scan (only once, when the car powers up)
- *   The car is held still (speed cap 0) while the servo sweeps 5 angles:
- *       30 -> 60 -> 90 -> 120 -> 150
- *   90 degrees is straight ahead; below 90 is one side, above 90 the other.
- *   The servo then returns to 90. Only an obstacle straight ahead within
- *   the stop distance (S5_STOP_TRIGGER_CM) holds the car. Anything further
- *   away does not: the car moves off, slows down near it, stops
- *   S5_STOP_DISTANCE_CM in front of it, and the fine scan below profiles
- *   it. Side readings go to telemetry but never stop the car (a wall
- *   beside the track must not block it). The sweep is never repeated.
+ * This file is the scanning task and Subsystem 5's public interface. The
+ * work is split over:
+ *   s5_sense.c    readings and servo moves
+ *   s5_guard.c    speed cap for Subsystem 2: slow down / stop
+ *   s5_scan.c     fine scan of a stopped-for obstacle (stages 2 to 4)
+ *   s5_profile.c  obstacle profile from the fine scan
+ *   s5_avoid.c    bypass decision from the profile
+ *   s5_bypass.c   driving round it and back to the line (stages 4 and 5)
+ *   s5_drive.c    encoder-measured moves;  s5_edge.c  where it ends
+ *   s5_report.c   telemetry and sensor faults to Subsystem 1
  *
- * Normal running
- *   The servo stays at 90 degrees and only the straight-ahead distance is
- *   used. A reading is printed every S5_FORWARD_PRINT_MS, e.g.
- *       "S5 scan 90 deg: 342 mm"   or   "S5 scan 90 deg: no obstacle"
+ * Start-up (only once, when the car powers up)
+ *   The car is held still (speed cap 0) while the servo turns to face the
+ *   front of the car (90 degrees), then the hold is released. Subsystem 5
+ *   is ready (subsystem5_startup_scan_ready) once a good straight-ahead
+ *   reading has also been taken, with no sensor fault and the path ahead
+ *   clear.
  *
- * Stages 2 and 3, fine scan and obstacle profile (each time the car stops
- * for an obstacle)
- *   The car is held still while the servo steps outward from 90 degrees,
- *   S5_FINE_STEP_DEG at a time, first to the low side, then to the high
- *   side, until it passes the obstacle's edge (plus S5_CLEAR_STEPS more
- *   readings to measure the clearance) or reaches the scan limit. The
- *   readings go to s5_profile.c, which works out the obstacle's closest
- *   point, location, width and left/right clearance. Then the servo turns
- *   back to 90 degrees. The scan runs once per stop: it re-arms when the
- *   obstacle clears.
+ * Normal running (stage 1)
+ *   The servo faces ahead and the sensor is pinged every
+ *   S5_PING_INTERVAL_MS; the guard slows the car near an obstacle and stops
+ *   it S5_STOP_DISTANCE_CM away. Readings further than S5_DETECT_RANGE_CM
+ *   count as "no obstacle". A reading is printed every S5_FORWARD_PRINT_MS.
  *
- * The sensor is pinged every S5_PING_INTERVAL_MS the whole time. Every
- * good reading counts toward sensor health (s5_report.c: repeated sensor or
- * servo failures raise FAULT_US_SENS). Coarse-scan readings also go to
- * telemetry, and only straight-ahead readings go to the obstacle guard
- * (s5_guard.c), which caps Subsystem 2's speed: slow near an obstacle, stop
- * S5_STOP_DISTANCE_CM away from it. So a side reading can neither stop the
- * car nor release a stop.
- * A failed reading is never treated as "no obstacle", so it cannot release
- * a stop.
+ * Each time the car stops for an obstacle
+ *   Subsystem 5 reports "avoiding" (subsystem5_is_avoiding); the vehicle
+ *   controller pauses the line follower and gives it the drive permission
+ *   (subsystem5_set_drive_permission). The car fine scans the obstacle from
+ *   where it stopped and decides (reversing and scanning again only while
+ *   no edge was found, REVERSE). Then (S5_DRIVE_BYPASS):
+ *     LEFT / RIGHT  reverse only as far as needed for room to swing out,
+ *                   go round it and back to the line, and hand back,
+ *                   saying which side the line is on (the line follower
+ *                   searches toward it if the IR sensors are not over
+ *                   it, subsystem5_take_line_side);
+ *     CONTINUE      the obstacle has gone: hand back;
+ *     STOP          too big to get round, or the scan failed: wait
+ *                   (held, below).
+ *   If going round shows the obstacle is too big after all (too wide or too
+ *   long), the car retraces its moves back to the line and waits there.
+ *   Losing the permission stops any move at once.
+ *
+ * Held (could not get past)
+ *   The car is held still (speed cap 0) and S5 keeps reporting "avoiding",
+ *   so the line follower stays paused. On the line it waits for the
+ *   obstacle to be removed: the hold ends once the path ahead reads clear
+ *   S5_HOLD_CLEAR_READINGS times in a row. Only if a bypass stopped
+ *   part-way (off the line: blocked, a wheel or encoder fault) does it wait
+ *   for the operator. Either way, withdrawing the drive permission
+ *   (operator STOP or a fault) also ends it.
+ *
+ * Clearance test (S5_CLEARANCE_TEST = 1)
+ *   The car stops in front of the first obstacle and fine scans it; only
+ *   the fine scan (each angle, the width and edges) and the decision are
+ *   printed. The car is then held still and nothing more is driven or
+ *   handled until reset.
  *
  * Casts in this file: (UB *) only retypes a string literal for the T-Kernel
  * tm_printf() API; (unsigned int) and (int) widen values that always fit;
- * (void) discards a return value that is not needed.
+ * (void) discards a return value that is not needed; (FP) and (ER) are
+ * explained where they are made.
  */
 #include <stdbool.h>
 #include <stdint.h>
 #include <tk/tkernel.h>
+#include <tk/smp.h>
 #include "../app.h"
-#include "../subsystem1/subsystem1.h"
 #include "subsystem5.h"
 #include "s5_config.h"
+#include "s5_log.h"
 #include "drv_servo.h"
 #include "drv_ultrasonic.h"
 #include "s5_report.h"
 #include "s5_guard.h"
 #include "s5_profile.h"
+#include "s5_avoid.h"
+#include "s5_drive.h"
+#include "s5_sense.h"
+#include "s5_scan.h"
+#include "s5_bypass.h"
 
-/* Index of S5_FORWARD_DEG (straight ahead) in g_scan_angles[]. */
-#define FORWARD_POSITION    (2u)
+_Static_assert((S5_STOP_TRIGGER_CM < S5_DETECT_RANGE_CM) &&
+               (S5_SLOW_DISTANCE_CM <= S5_DETECT_RANGE_CM) &&
+               (S5_DETECT_RANGE_CM <= S5_MAX_RANGE_CM),
+               "slow distance <= detect range <= sensor range");
 
-/* Not a coarse-scan position: the reading is from the fine scan, so it only
- * counts toward sensor health (not stored, not sent to the guard). */
-#define FINE_SCAN_POSITION  (S5_SCAN_POSITIONS)
-
-/* Servo steps between two pings while the servo is turning (rounded up). */
-#define STEPS_PER_PING      (((S5_PING_INTERVAL_MS + SERVO_STEP_DELAY_MS) - \
-                              1u) / SERVO_STEP_DELAY_MS)
-
-/* Fine-scan steps on each side of 90 degrees. */
-#define FINE_LOW_STEPS      ((S5_FORWARD_DEG - S5_FINE_MIN_ANGLE) / \
-                             S5_FINE_STEP_DEG)
-#define FINE_HIGH_STEPS     ((S5_FINE_MAX_ANGLE - S5_FORWARD_DEG) / \
-                             S5_FINE_STEP_DEG)
-
-_Static_assert((S5_FINE_MIN_ANGLE < S5_FORWARD_DEG) &&
-               (S5_FINE_MAX_ANGLE > S5_FORWARD_DEG) &&
-               (S5_FINE_MAX_ANGLE <= S5_SERVO_MAX_DEG),
-               "fine scan must cover both sides of 90 degrees");
-
-/* Minimum-bit scanner state: 2 bits. b_hardware_ready is set once in init
- * (before the scanning task exists); b_profile_done is used only by the
- * scanning task, so the two never race. */
+/* Minimum-bit scanner state: 5 bits. b_hardware_ready is set once in init
+ * (before the scanning task exists); the others are used only by the
+ * scanning task, so they never race. */
 typedef struct
 {
-    uint8_t b_hardware_ready : 1;   /* 1 = servo and sensor both started  */
-    uint8_t b_profile_done   : 1;   /* 1 = current obstacle already profiled */
+    uint8_t b_hardware_ready : 1;   /* 1 = servo and sensor both started    */
+    uint8_t b_profile_done   : 1;   /* 1 = current obstacle already handled */
+    uint8_t b_test_done      : 1;   /* 1 = clearance test over: car held    */
+    uint8_t b_held           : 1;   /* 1 = could not get past: car held     */
+    uint8_t b_held_off_line  : 1;   /* 1 = held part-way round: only the
+                                     *     operator releases it             */
 } scanner_state_t;
 
-/* Start-up sweep angles, in order. 30..150 fits in 8 bits. */
-static const uint8_t g_scan_angles[S5_SCAN_POSITIONS] =
-{
-    30u, 60u, 90u, 120u, 150u
-};
+static scanner_state_t g_scanner = { 0u, 0u, 0u, 0u, 0u };
 
-static scanner_state_t g_scanner = { 0u, 0u };
+/* While held: good straight-ahead readings in a row with the path clear.
+ * Scanning task only. */
+static uint8_t g_hold_clear_count = 0u;
 
-/* Print one good reading taken at the servo's current angle. */
-static void s5_print_reading (const uint16_t distance_mm)
+/* Read by other tasks, written only by the scanning task (and once in
+ * init, before it exists); atomic loads and stores.
+ *   gb_facing_front    start-up done: the servo faces the front of the car
+ *   gb_avoiding        handling an obstacle (or held): line follower paused
+ *   g_line_side        which side of the car the line is on after a bypass,
+ *                      waiting for the vehicle controller (LINE_SIDE_*);
+ *                      swapped whole with the kernel's atomic_xchg(), which
+ *                      works across both cores (the Cortex-M0+ has no
+ *                      atomic read-modify-write of its own) */
+#define LINE_SIDE_NONE      (0u)   /* nothing waiting */
+#define LINE_SIDE_LEFT      (1u)
+#define LINE_SIDE_RIGHT     (2u)
+
+static bool gb_facing_front = false;
+static bool gb_avoiding     = false;
+/* A good straight-ahead reading has been taken since start-up (part of
+ * subsystem5_startup_scan_ready). Written by the scanning task only. */
+static bool gb_forward_reading_seen = false;
+static UW   g_line_side     = LINE_SIDE_NONE;   /* 32-bit aligned (smp.h) */
+
+/* ------------------------------------------------------------------------
+ * Held: could not get past
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Hold the car still and keep "avoiding", so the vehicle controller does
+ * NOT hand it back to the line follower (reversing to scan again may have
+ * opened the gap past the guard's resume distance, so the line follower
+ * would otherwise drive straight back at the obstacle). b_off_line = the
+ * car is part-way round: only the operator releases it.
+ */
+static void s5_enter_held (const bool b_off_line, const char * const p_why)
 {
-    if (NO_OBSTACLE == distance_mm)
-    {
-        tm_printf((UB *)"S5 scan %u deg: no obstacle\n",
-                  (unsigned int)drv_servo_get_angle());
-    }
-    else
-    {
-        tm_printf((UB *)"S5 scan %u deg: %u mm\n",
-                  (unsigned int)drv_servo_get_angle(),
-                  (unsigned int)distance_mm);
-    }
+    s5_drive_stop();
+    s5_guard_set_hold(true);
+    g_scanner.b_held          = 1u;
+    g_scanner.b_held_off_line = b_off_line ? 1u : 0u;
+    g_hold_clear_count        = 0u;
+    S5_LOG((UB *)"S5 held: %s; %s\n", p_why, b_off_line ?
+           "part-way round, send STOP to take over" :
+           "waiting on the line for the obstacle to be removed");
+    s5_log_event("S5_HELD", b_off_line ? "OFF_LINE" : "ON_LINE");
+}
+
+/* Release the hold and hand the car back to the vehicle controller. */
+static void s5_leave_held (const char * const p_why)
+{
+    g_scanner.b_held          = 0u;
+    g_scanner.b_held_off_line = 0u;
+    g_hold_clear_count        = 0u;
+    s5_guard_set_hold(false);
+    __atomic_store_n(&gb_avoiding, false, __ATOMIC_RELEASE);
+    S5_LOG((UB *)"S5 held: released (%s), handing back\n", p_why);
+    s5_log_event("S5_HELD", "RELEASED");
 }
 
 /*
- * Take one reading and report it. A coarse-scan 'position' is also stored
- * for telemetry. Only a reading taken with the servo exactly at
- * S5_FORWARD_DEG goes to the obstacle guard: readings taken while the servo
- * is still turning toward 90 look sideways and must not stop the car.
- * FINE_SCAN_POSITION only counts toward sensor health.
- * b_print = true also prints it. If p_distance_mm is not NULL it receives
- * the distance. Returns true if a good reading (a distance or "no
- * obstacle") was taken.
+ * One pass while held, every S5_PING_INTERVAL_MS: keep the sensor facing
+ * ahead and pinging (sensor health and telemetry carry on; the speed cap
+ * stays 0), and release the hold when the operator takes over or, on the
+ * line, when the obstacle has been removed.
  */
-static bool s5_take_reading (const uint8_t position, const bool b_print,
-                             uint16_t * const p_distance_mm)
-{
-    uint16_t distance_mm    = NO_OBSTACLE;
-    bool     b_good_reading = false;
-    ER       result         = drv_ultrasonic_measure(&distance_mm);
-
-    if (E_BUSY == result)
-    {
-        /* Sensor still finishing the last ping: no reading, not a fault. */
-    }
-    else if (result < E_OK)
-    {
-        /* Keep the last good distances, so a failure never releases a stop. */
-        s5_report_sensor_error();
-        if (b_print)
-        {
-            tm_printf((UB *)"S5 scan %u deg: sensor error %d\n",
-                      (unsigned int)drv_servo_get_angle(), (int)result);
-        }
-    }
-    else
-    {
-        b_good_reading = true;
-        s5_report_sensor_ok();
-        if (position < S5_SCAN_POSITIONS)
-        {
-            s5_report_distance(position, distance_mm);
-        }
-        if ((FORWARD_POSITION == position) &&
-            (S5_FORWARD_DEG == drv_servo_get_angle()))
-        {
-            s5_guard_update(s5_report_mm_to_cm(distance_mm));
-        }
-        if (b_print)
-        {
-            s5_print_reading(distance_mm);
-        }
-    }
-
-    if (NULL != p_distance_mm)
-    {
-        *p_distance_mm = distance_mm;
-    }
-
-    return b_good_reading;
-}
-
-/* Wait duration_ms, pinging every S5_PING_INTERVAL_MS meanwhile. */
-static void s5_watch_for (const uint8_t position, const uint32_t duration_ms)
-{
-    uint32_t waited_ms = 0u;
-
-    while (waited_ms < duration_ms)
-    {
-        (void)tk_dly_tsk(S5_PING_INTERVAL_MS);
-        waited_ms += S5_PING_INTERVAL_MS;
-        (void)s5_take_reading(position, false, NULL);
-    }
-}
-
-/* One SERVO_STEP_DEGREES step from angle_now toward target_degrees,
- * without overshooting it. */
-static uint16_t s5_step_toward (const uint16_t angle_now,
-                                const uint16_t target_degrees)
-{
-    uint16_t next_angle = target_degrees;
-
-    /* Each cast below is safe: the left side of the && guarantees the
-     * difference is positive, and the result lies between the two angles
-     * (0..180), which fits in 16 bits. */
-    if ((angle_now < target_degrees) &&
-        ((uint16_t)(target_degrees - angle_now) > SERVO_STEP_DEGREES))
-    {
-        next_angle = (uint16_t)(angle_now + SERVO_STEP_DEGREES);
-    }
-    else if ((angle_now > target_degrees) &&
-             ((uint16_t)(angle_now - target_degrees) > SERVO_STEP_DEGREES))
-    {
-        next_angle = (uint16_t)(angle_now - SERVO_STEP_DEGREES);
-    }
-    else
-    {
-        /* Within one step of the target (or on it): go straight there. */
-    }
-
-    return next_angle;
-}
-
-/*
- * Turn the servo to target_degrees gently, one step at a time, instead of
- * jumping there at full speed (which jerks the sensor around). Keeps
- * pinging on the way (readings handled as for 'position'), then lets the
- * servo settle. Returns E_OK, or the servo driver's error.
- */
-static ER s5_servo_move_slowly (const uint16_t target_degrees,
-                                const uint8_t position)
-{
-    uint16_t angle_now        = drv_servo_get_angle();
-    uint8_t  steps_since_ping = 0u;
-    ER       result           = E_OK;
-
-    while ((result >= E_OK) && (angle_now != target_degrees))
-    {
-        angle_now = s5_step_toward(angle_now, target_degrees);
-        result    = drv_servo_set_angle(angle_now);
-        (void)tk_dly_tsk(SERVO_STEP_DELAY_MS);
-
-        steps_since_ping++;
-        if (steps_since_ping >= STEPS_PER_PING)
-        {
-            steps_since_ping = 0u;
-            (void)s5_take_reading(position, false, NULL);
-        }
-    }
-
-    if (result >= E_OK)
-    {
-        s5_watch_for(position, SERVO_SETTLE_MS);   /* stop wobbling */
-    }
-
-    return result;
-}
-
-/* Move to target_degrees, retrying until the servo gets there. Keeps
- * pinging, and reports the failure, while it retries. */
-static void s5_servo_move_until_done (const uint16_t target_degrees,
-                                      const uint8_t position)
-{
-    ER result = s5_servo_move_slowly(target_degrees, position);
-
-    while (result < E_OK)
-    {
-        tm_printf((UB *)"S5 servo move failed: %d\n", (int)result);
-        s5_report_sensor_error();
-        s5_watch_for(position, PAUSE_AT_EACH_ANGLE_MS);
-        result = s5_servo_move_slowly(target_degrees, position);
-    }
-}
-
-/* The start-up sweep: one printed reading at each of the
- * S5_SCAN_POSITIONS angles, 30 -> 150. */
-static void s5_startup_sweep (void)
-{
-    for (uint8_t position = 0u; position < S5_SCAN_POSITIONS; position++)
-    {
-        s5_servo_move_until_done(g_scan_angles[position], position);
-        (void)s5_take_reading(position, true, NULL);
-        s5_watch_for(position, PAUSE_AT_EACH_ANGLE_MS);
-    }
-}
-
-/*
- * One fine-scan reading at the servo's current angle, retried up to
- * S5_FINE_READ_TRIES times. On success *p_distance_cm gets the distance in
- * cm (S5_OBSTACLE_NONE_CM if nothing echoed back) and true is returned.
- */
-static bool s5_fine_reading (uint16_t * const p_distance_cm)
+static void s5_watch_held (void)
 {
     uint16_t distance_mm = NO_OBSTACLE;
-    bool     b_good      = s5_take_reading(FINE_SCAN_POSITION, true,
-                                           &distance_mm);
 
-    for (uint8_t tries = 1u; (!b_good) && (tries < S5_FINE_READ_TRIES);
-         tries++)
+    if (S5_FORWARD_DEG != drv_servo_get_angle())
     {
-        (void)tk_dly_tsk(S5_PING_INTERVAL_MS);
-        b_good = s5_take_reading(FINE_SCAN_POSITION, true, &distance_mm);
+        s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
     }
 
-    if (b_good)
+    /* A failed or busy reading says nothing: it neither counts nor resets. */
+    if (s5_sense_reading(S5_LOOK_AHEAD, false, &distance_mm))
     {
-        *p_distance_cm = s5_report_mm_to_cm(distance_mm);
-    }
+        const bool b_clear = ((NO_OBSTACLE == distance_mm) ||
+                              (distance_mm >
+                               (S5_STILL_BLOCKED_CM * S5_MM_PER_CM)));
 
-    return b_good;
-}
-
-/*
- * Fine-scan one side, stepping outward from 90 degrees until the profile
- * has what it needs for that side or the scan limit is reached.
- * Returns false if a reading failed (the profile would be incomplete).
- */
-static bool s5_fine_scan_side (const bool b_high_side)
-{
-    const uint8_t max_steps  = b_high_side ? FINE_HIGH_STEPS : FINE_LOW_STEPS;
-    bool          b_all_read = true;
-
-    for (uint8_t step = 1u;
-         (step <= max_steps) && s5_profile_wants_more(b_high_side);
-         step++)
-    {
-        /* Casts are safe: step <= max_steps keeps the angle inside
-         * S5_FINE_MIN_ANGLE..S5_FINE_MAX_ANGLE (0..180). */
-        uint16_t offset_deg  = (uint16_t)(step * S5_FINE_STEP_DEG);
-        uint16_t angle_deg   = b_high_side ?
-                               (uint16_t)(S5_FORWARD_DEG + offset_deg) :
-                               (uint16_t)(S5_FORWARD_DEG - offset_deg);
-        uint16_t distance_cm = S5_OBSTACLE_NONE_CM;
-
-        s5_servo_move_until_done(angle_deg, FINE_SCAN_POSITION);
-
-        if (s5_fine_reading(&distance_cm))
+        if (!b_clear)
         {
-            s5_profile_add(angle_deg, distance_cm);
+            g_hold_clear_count = 0u;
+        }
+        else if (g_hold_clear_count < S5_HOLD_CLEAR_READINGS)
+        {
+            g_hold_clear_count++;
         }
         else
         {
-            b_all_read = false;
+            /* Saturated: enough clear readings already. */
         }
     }
 
-    return b_all_read;
+    if (!s5_bypass_permitted())
+    {
+        /* The vehicle controller left AVOIDING (operator STOP or a fault):
+         * the car is no longer ours to hold. */
+        s5_leave_held("drive permission withdrawn");
+    }
+    else if ((0u == g_scanner.b_held_off_line) &&
+             (g_hold_clear_count >= S5_HOLD_CLEAR_READINGS))
+    {
+        s5_leave_held("obstacle removed");
+    }
+    else
+    {
+        /* Still held. */
+    }
 }
 
+/* ------------------------------------------------------------------------
+ * Handling one obstacle
+ * ------------------------------------------------------------------------ */
+
 /*
- * Stages 2 and 3: fine scan the obstacle ahead and publish its profile.
- * The car is held still the whole time, because the sensor is not looking
- * at the path while it scans sideways.
+ * Carry the decision out (S5_DRIVE_BYPASS, with the drive permission):
+ * reverse and scan again while it is REVERSE, then go round or wait.
+ * Returns the reason to hold the car, or NULL to hand it back; *p_off_line
+ * is set if the car is held part-way round.
  */
-static void s5_fine_scan (void)
+static const char * s5_carry_out (s5_bypass_t decision,
+                                  s5_profile_t * const p_profile,
+                                  bool * const p_off_line)
 {
-    uint16_t center_cm = S5_OBSTACLE_NONE_CM;
-    bool     b_scan_ok = false;
+    const char * p_hold     = NULL;
+    bool         b_reversed = false;
 
-    s5_guard_set_hold(true);
-    tm_printf((UB *)"S5 fine scan: profiling the obstacle\n");
-    s1_csv_log_event("S5_FINE_SCAN", "START");
-
-    /* Let the car come to rest (Subsystem 2 ramps down), still pinging. */
-    s5_watch_for(FORWARD_POSITION, S5_FINE_START_DELAY_MS);
-
-    if (s5_fine_reading(&center_cm))
+    while ((S5_BYPASS_REVERSE == decision) && s5_bypass_permitted())
     {
-        s5_profile_start(center_cm);
-
-        /* Both sides always run, so the servo always sweeps both ways. */
-        bool b_low_ok  = s5_fine_scan_side(false);
-        bool b_high_ok = s5_fine_scan_side(true);
-
-        b_scan_ok = (b_low_ok && b_high_ok);
+        S5_LOG((UB *)"S5 reverse: backing %u mm to scan again\n",
+               (unsigned int)S5_REVERSE_MM);
+        (void)s5_bypass_back(S5_REVERSE_MM);
+        b_reversed = true;
+        decision   = s5_scan_obstacle(p_profile);
     }
 
-    s5_servo_move_until_done(S5_FORWARD_DEG, FORWARD_POSITION);
-    s5_profile_finish(b_scan_ok);
-    s1_csv_log_event("S5_FINE_SCAN", b_scan_ok ? "DONE" : "FAILED");
-    s5_guard_set_hold(false);
+    if (!s5_bypass_permitted())
+    {
+        /* Not following the line (or stopped by the operator): decide
+         * only, never move the car on our own. */
+        S5_LOG((UB *)"S5 avoiding: no drive permission, decision only\n");
+    }
+    else if ((S5_BYPASS_LEFT == decision) || (S5_BYPASS_RIGHT == decision))
+    {
+        const bool          b_left    = (S5_BYPASS_LEFT == decision);
+        const s5_go_round_t result    = s5_bypass_go_round(
+            decision, s5_avoid_plan_extent(p_profile, b_left),
+            s5_avoid_plan_backup_mm(p_profile, b_left));
+
+        if (S5_GO_ROUND_TOO_BIG == result)
+        {
+            p_hold = "obstacle too big to get round (found going round it)";
+        }
+        else if (S5_GO_ROUND_FAILED == result)
+        {
+            p_hold      = "bypass stopped part-way";
+            *p_off_line = true;
+        }
+        else
+        {
+            /* Round it and back at the line. The car went round on
+             * b_left, so the line is on the other side: hand that on, so
+             * the line follower searches toward it if the IR sensors are
+             * not over it. Published before gb_avoiding is cleared, so the
+             * vehicle controller sees it when it takes the car back. */
+            (void)atomic_xchg(&g_line_side, b_left ? LINE_SIDE_RIGHT :
+                                                     LINE_SIDE_LEFT);
+        }
+    }
+    else if (S5_BYPASS_CONTINUE == decision)
+    {
+        if (b_reversed)
+        {
+            S5_LOG((UB *)"S5 drive: path clear after reversing\n");
+            s5_drive_resume();
+        }
+    }
+    else
+    {
+        p_hold = "no way round the obstacle (too big, or not measured)";
+    }
+
+    return p_hold;
 }
 
 /*
- * The scanning task.
- *   1. Start-up sweep, once, with the car held still (subsystem5_start()
- *      has already set the hold).
- *   2. Face straight ahead, drop the side readings from telemetry and
- *      release the hold. From here only the path ahead limits the car.
- *   3. Forever: ping straight ahead, print a reading now and then, and
- *      fine scan each obstacle the car stops for.
+ * The car has stopped for an obstacle: fine scan it from where it stopped,
+ * decide and (S5_DRIVE_BYPASS) carry the decision out. Then hand the car
+ * back, or hold it if it could not get past.
+ */
+static void s5_handle_obstacle (void)
+{
+    s5_profile_t profile    = { 0u };
+    s5_bypass_t  decision;
+    const char * p_hold     = NULL;
+    bool         b_off_line = false;
+
+    /* Tell the vehicle controller first, so it pauses the line follower
+     * and grants the drive permission while the fine scan runs. A line
+     * side left over from an earlier bypass no longer applies. */
+    (void)atomic_xchg(&g_line_side, LINE_SIDE_NONE);
+    __atomic_store_n(&gb_avoiding, true, __ATOMIC_RELEASE);
+    S5_LOG((UB *)"S5 avoiding: obstacle ahead, taking over\n");
+
+    decision = s5_scan_obstacle(&profile);
+
+    if (0u != S5_CLEARANCE_TEST)
+    {
+        /* Clearance and decision have been printed: hold the car still
+         * for good (nothing else sets the speed cap after this). */
+        s5_guard_set_hold(true);
+        g_scanner.b_test_done = 1u;
+    }
+    else if (0u != S5_DRIVE_BYPASS)
+    {
+        p_hold = s5_carry_out(decision, &profile, &b_off_line);
+    }
+    else
+    {
+        /* Decide only. */
+    }
+
+    /* The scan and the bypass both end with the servo facing ahead, so the
+     * line follower always starts with the sensor watching the path. */
+    if (0u != g_scanner.b_test_done)
+    {
+        /* Clearance test over: stays avoiding for good. */
+    }
+    else if ((NULL != p_hold) && s5_bypass_permitted())
+    {
+        s5_enter_held(b_off_line, p_hold);
+    }
+    else
+    {
+        /* The vehicle controller hands the car back to the line follower
+         * (while it is still stopped for the obstacle it stays avoiding,
+         * see subsystem5_is_avoiding). */
+        __atomic_store_n(&gb_avoiding, false, __ATOMIC_RELEASE);
+        S5_LOG((UB *)"S5 avoiding: done, handing back\n");
+    }
+}
+
+/*
+ * One pass of normal running, every S5_PING_INTERVAL_MS: ping straight
+ * ahead, print a reading now and then, and handle each obstacle the car
+ * stops for. *p_since_print_ms counts the time since the last print.
+ */
+static void s5_watch_ahead (uint32_t * const p_since_print_ms)
+{
+    *p_since_print_ms += S5_PING_INTERVAL_MS;
+
+    bool b_print = (*p_since_print_ms >= S5_FORWARD_PRINT_MS);
+
+    if (b_print)
+    {
+        *p_since_print_ms = 0u;
+    }
+
+    /* The guard ignores readings not taken at exactly 90 degrees: put the
+     * sensor back if anything left it turned. */
+    if (S5_FORWARD_DEG != drv_servo_get_angle())
+    {
+        S5_LOG((UB *)"S5 servo at %u deg, turning back to %u\n",
+               (unsigned int)drv_servo_get_angle(),
+               (unsigned int)S5_FORWARD_DEG);
+        s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
+    }
+    if (s5_sense_reading(S5_LOOK_AHEAD, b_print, NULL))
+    {
+        __atomic_store_n(&gb_forward_reading_seen, true, __ATOMIC_RELEASE);
+    }
+
+    if (!s5_guard_is_stopped())
+    {
+        if (0u != g_scanner.b_profile_done)
+        {
+            s5_avoid_new_obstacle();   /* fresh reverse count */
+        }
+        g_scanner.b_profile_done = 0u;   /* re-arm for the next one */
+    }
+    else if (0u == g_scanner.b_profile_done)
+    {
+        s5_handle_obstacle();
+        g_scanner.b_profile_done = 1u;
+    }
+    else
+    {
+        /* Still stopped for an obstacle that is already handled. */
+    }
+}
+
+/*
+ * The scanning task: face the front of the car (the car is held still
+ * until then), release the hold, then forever watch the path ahead (or,
+ * while held, wait to be released).
  */
 static void s5_sensor_task (INT start_code, void * p_extra_info)
 {
@@ -386,67 +409,88 @@ static void s5_sensor_task (INT start_code, void * p_extra_info)
     (void)start_code;     /* not used */
     (void)p_extra_info;   /* not used */
 
-    tm_printf((UB *)"S5 start-up scan: checking the path\n");
-    s5_startup_sweep();
-
-    s5_servo_move_until_done(S5_FORWARD_DEG, FORWARD_POSITION);
-    s5_report_keep_only(FORWARD_POSITION);
+    s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
     s5_guard_set_hold(false);
-
-    if (s5_guard_is_stopped())
-    {
-        tm_printf((UB *)"S5 start-up scan: obstacle ahead, car waits\n");
-        s1_csv_log_event("S5_STARTUP", "BLOCKED");
-    }
-    else
-    {
-        tm_printf((UB *)"S5 start-up scan: path clear, car may move off\n");
-        s1_csv_log_event("S5_STARTUP", "CLEAR");
-    }
+    __atomic_store_n(&gb_facing_front, true, __ATOMIC_RELEASE);
+    S5_LOG((UB *)"S5 start-up: sensor facing front, ready\n");
+    s5_log_event("S5_STARTUP", "READY");
 
     for (;;)
     {
         (void)tk_dly_tsk(S5_PING_INTERVAL_MS);
-        since_print_ms += S5_PING_INTERVAL_MS;
 
-        bool b_print = (since_print_ms >= S5_FORWARD_PRINT_MS);
-
-        if (b_print)
+        if (0u != g_scanner.b_test_done)
         {
-            since_print_ms = 0u;
+            /* Clearance test over: idle, the car stays held. */
         }
-        (void)s5_take_reading(FORWARD_POSITION, b_print, NULL);
-
-        if (!s5_guard_is_stopped())
+        else if (0u != g_scanner.b_held)
         {
-            g_scanner.b_profile_done = 0u;   /* re-arm for the next one */
-        }
-        else if (0u == g_scanner.b_profile_done)
-        {
-            s5_fine_scan();
-            g_scanner.b_profile_done = 1u;
+            s5_watch_held();
         }
         else
         {
-            /* Still stopped for an obstacle that is already profiled. */
+            s5_watch_ahead(&since_print_ms);
         }
     }
+}
+
+/* ------------------------------------------------------------------------
+ * Public interface (subsystem5.h)
+ * ------------------------------------------------------------------------ */
+
+EXPORT bool subsystem5_startup_scan_ready (void)
+{
+    return (__atomic_load_n(&gb_facing_front, __ATOMIC_ACQUIRE) &&
+            __atomic_load_n(&gb_forward_reading_seen, __ATOMIC_ACQUIRE) &&
+            (!s5_report_is_faulted()) && (!s5_guard_is_stopped()));
+}
+
+EXPORT bool subsystem5_is_avoiding (void)
+{
+    return (__atomic_load_n(&gb_avoiding, __ATOMIC_ACQUIRE) ||
+            (__atomic_load_n(&gb_facing_front, __ATOMIC_ACQUIRE) &&
+             s5_guard_is_stopped()));
+}
+
+EXPORT bool subsystem5_take_line_side (bool * const p_b_line_on_left)
+{
+    /* Take it and clear it in one step, so it is used once. */
+    const UW   side      = atomic_xchg(&g_line_side, LINE_SIDE_NONE);
+    const bool b_pending = (LINE_SIDE_NONE != side);
+
+    if (b_pending && (NULL != p_b_line_on_left))
+    {
+        *p_b_line_on_left = (LINE_SIDE_LEFT == side);
+    }
+
+    return b_pending;
+}
+
+EXPORT void subsystem5_set_drive_permission (const bool b_allowed)
+{
+    s5_bypass_set_permitted(b_allowed);
 }
 
 EXPORT ER subsystem5_init (void)
 {
     ER result = drv_servo_init();   /* also turns the servo to 90 degrees */
 
+    __atomic_store_n(&gb_facing_front, false, __ATOMIC_RELAXED);
+    __atomic_store_n(&gb_forward_reading_seen, false, __ATOMIC_RELAXED);
+    __atomic_store_n(&gb_avoiding, false, __ATOMIC_RELAXED);
+    (void)atomic_xchg(&g_line_side, LINE_SIDE_NONE);
+    s5_bypass_set_permitted(false);
+
     if (result < E_OK)
     {
-        tm_printf((UB *)"S5 servo init failed: %d\n", (int)result);
+        S5_LOG((UB *)"S5 servo init failed: %d\n", (int)result);
     }
     else
     {
         result = drv_ultrasonic_init();
         if (result < E_OK)
         {
-            tm_printf((UB *)"S5 ultrasonic init failed: %d\n", (int)result);
+            S5_LOG((UB *)"S5 ultrasonic init failed: %d\n", (int)result);
         }
         else
         {
@@ -469,8 +513,8 @@ EXPORT ER subsystem5_start (void)
     }
     else
     {
-        /* Hold the car still until the start-up scan says the path is
-         * clear (Subsystem 2 otherwise starts with no speed limit). */
+        /* Hold the car still until the servo faces the front of the car
+         * (Subsystem 2 otherwise starts with no speed limit). */
         s5_guard_set_hold(true);
 
         /* (FP) is the generic task-entry type app_start_task() expects;

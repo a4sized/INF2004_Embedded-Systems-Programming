@@ -64,6 +64,10 @@ ER drv_ultrasonic_init(void)
 {
     ER result;
 
+    /* The 1 MHz hardware timer this driver times echoes with is released
+     * from reset (hw_setting.c) and its tick set up (cpu_clock.c,
+     * WATCHDOG_TICK) by the kernel at boot, before any task runs. */
+
     /* Trigger pin is an output, starting LOW. */
     result = gpio_set_pin(S5_PIN_TRIG, GPIO_MODE_OUT);
     if (result < E_OK)

@@ -1,6 +1,13 @@
 
 Once youre done, don't forget to update the CMakeLists.txt to include your .c file.
 
+**Current target allocation (1 November 2026):** Buddy 3 firmware follows
+this table: GP7 left line, GP2 right line and GP6 barcode. Buddy 2 uses
+GP4 for right encoder B. Earlier GP4 right-line readings are historical.
+Rewire and verify GP2 before a combined motor/IR test. This table places
+the GP6 sensor on Grove 4; the user's earlier physical wiring report said
+Grove 5, so the connector position still needs checking on the robot.
+
 
 
 Miscellaneous connections:
@@ -66,5 +73,3 @@ SERVO connections: **NO CHANGE**
 | GND               | GROUND                      | BROWN          |
 | VCC               | 3.3V                        | RED            |
 | PWM Control Signal| GP12                        | ORANGE         |
-
-

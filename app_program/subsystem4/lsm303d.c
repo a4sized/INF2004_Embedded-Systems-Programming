@@ -16,6 +16,7 @@
  */
 
 #include "lsm303d.h"
+#include <tm/tmonitor.h>
 #include "s4_config.h"
 #include "../../device/include/dev_i2c.h"   /* T_I2C_EXEC, TDN_I2C_EXEC */
 
@@ -23,6 +24,7 @@
  * The address is 0011101b = 0x1D when the SA0 pin is high (the board pulls
  * it high), and 0011110b = 0x1E when SA0 is tied to ground. */
 #define LSM303D_ADDR        0x1D
+static UB g_lsm_addr = LSM303D_ADDR;
 
 /* ---- Registers (Table 16) ---------------------------------------------- */
 #define REG_OUT_X_L_M       0x08    /* magnetometer X,Y,Z: 6 bytes, low byte first */
@@ -72,7 +74,7 @@ static ER write_reg(UB reg, UB value)
 
     buf[0] = reg;
     buf[1] = value;
-    return tk_swri_dev(dd, LSM303D_ADDR, buf, 2, &actual);
+    return tk_swri_dev(dd, g_lsm_addr, buf, 2, &actual);
 }
 
 /* Read n registers, starting at reg. */
@@ -82,7 +84,7 @@ static ER read_regs(UB reg, UB *dest, SZ n)
     UB          first = reg;
     SZ          actual = 0;
 
-    ex.sadr     = LSM303D_ADDR;
+    ex.sadr     = g_lsm_addr;
     ex.snd_size = 1;            /* send one byte: the register number  */
     ex.snd_data = &first;
     ex.rcv_size = n;            /* then read n bytes back              */
@@ -95,6 +97,7 @@ static INT to_int16(const UB *p)
 {
     return (INT)(H)((UH)p[0] | ((UH)p[1] << 8));
 }
+
 
 ER lsm303d_init(void)
 {
@@ -110,8 +113,17 @@ ER lsm303d_init(void)
         }
     }
 
-    /* Is it really an LSM303D?  Nothing answering gives E_IO. */
+    /* Try address 0x1D first (SA0 high) */
+    g_lsm_addr = 0x1D;
     err = read_regs(REG_WHO_AM_I, &id, 1);
+    if ((err != E_OK) || (id != WHO_AM_I_VALUE)) {
+        /* Try address 0x1E (SA0 low) */
+        g_lsm_addr = 0x1E;
+        err = read_regs(REG_WHO_AM_I, &id, 1);
+        if ((err != E_OK) || (id != WHO_AM_I_VALUE)) {
+            g_lsm_addr = 0x1D;
+        }
+    }
     if (err != E_OK) {
         return err;
     }
