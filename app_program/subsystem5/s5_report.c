@@ -15,7 +15,8 @@
  *
  * Obstacle telemetry
  *   Every good straight-ahead reading is sent with s1_set_obstacle() (cm,
- *   S5_OBSTACLE_NONE_CM = nothing in range).
+ *   S5_OBSTACLE_NONE_CM = nothing in range), and the width each fine scan
+ *   measured with s1_set_obstacle_width() (cm, 0 = scan failed).
  *
  * Casts in this file: (UB *) only retypes a string literal for the T-Kernel
  * tm_printf() API. The other casts are commented where they are made.

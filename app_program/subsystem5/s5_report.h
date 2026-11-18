@@ -6,6 +6,7 @@
  * Subsystem 5 never writes them itself; it only calls Subsystem 1's API:
  *     s1_report_fault(FAULT_US_SENS) / s1_clear_fault(FAULT_US_SENS)
  *     s1_set_obstacle(cm)
+ *     s1_set_obstacle_width(cm)
  *
  * Call these only from the scanning task (they are not re-entrant), except
  * s5_report_scanner_failed(), which is for start-up.
@@ -31,8 +32,10 @@ void s5_report_scanner_failed (void);
  * seen) to telemetry. Never call it for a failed reading. */
 void s5_report_distance (const uint16_t distance_mm);
 
-/* Send the latest measured obstacle width (cm, clipped to 0..31 cm in S1)
- * to telemetry after a completed fine scan. */
+/* Send the obstacle width (cm) measured by the last fine scan to
+ * telemetry: left + right edge, 0 if the scan failed (S1 clips it to its
+ * 5-bit 0..31 cm field, 0 = not scanned). Sent once per fine scan and kept
+ * until the next one. */
 void s5_report_obstacle_width (const uint16_t width_cm);
 
 /* Convert a reading in mm (NO_OBSTACLE = nothing seen) to the 9-bit cm

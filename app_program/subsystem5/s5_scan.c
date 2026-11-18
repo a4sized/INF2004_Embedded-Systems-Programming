@@ -396,7 +396,14 @@ s5_bypass_t s5_scan_obstacle (s5_profile_t * const p_profile)
     /* Let the car come to rest (Subsystem 2 ramps down), still pinging. */
     s5_sense_watch_for(S5_LOOK_AHEAD, S5_FINE_START_DELAY_MS);
 
-    if (s5_sense_fine_reading(&center_cm))
+    /* The straight-ahead reading is what every other angle is compared
+     * with, so it must be a real echo: with "no echo" (511) as the last
+     * point on the obstacle, any echo at all (the floor too) would count as
+     * the obstacle, and its closest point would look far away. The car has
+     * just stopped for something within S5_STOP_TRIGGER_CM, so no echo here
+     * means it cannot be measured: the scan fails (the car waits). */
+    if (s5_sense_fine_reading(&center_cm) &&
+        (S5_OBSTACLE_NONE_CM != center_cm))
     {
         s5_scan_print_reading(S5_FORWARD_DEG, true, center_cm, MARK_NONE);
         s5_profile_start(center_cm);
@@ -414,22 +421,29 @@ s5_bypass_t s5_scan_obstacle (s5_profile_t * const p_profile)
                    (unsigned int)missed, (unsigned int)S5_FINE_MAX_MISSED);
         }
     }
+    else
+    {
+        S5_LOG((UB *)"S5 fine scan: no echo straight ahead, cannot measure "
+               "the obstacle\n");
+    }
 
     s5_sense_servo_to(S5_FORWARD_DEG, S5_LOOK_AHEAD);
     s5_profile_finish(b_scan_ok, p_profile);
-    if (0u != p_profile->b_valid)
-    {
-        s5_report_obstacle_width((uint16_t)(p_profile->left_extent_cm +
-                                            p_profile->right_extent_cm));
-    }
+    /* The width to telemetry, as printed; 0 ("not scanned") if the scan
+     * failed, so the previous obstacle's width is not left showing. The
+     * cast is safe: two 9-bit fields add up to less than 1023. */
+    s5_report_obstacle_width((0u != p_profile->b_valid) ?
+                             (uint16_t)(p_profile->left_extent_cm +
+                                        p_profile->right_extent_cm) : 0u);
     s5_scan_print_centring(p_profile);
     s5_log_event("S5_FINE_SCAN", b_scan_ok ? "DONE" : "FAILED");
 
     /* Is the obstacle still in the way? A failed reading counts as yes, and
-     * so does no echo at all: the car has just stopped for something close,
-     * and from close up the HC-SR04 often gets no echo, so "nothing seen"
-     * means "too close to measure", not "gone". Only a real echo further
-     * away than S5_STILL_BLOCKED_CM means the obstacle has moved. */
+     * so does no echo at all: one reading is not enough to say it has gone
+     * (only a real echo further away than S5_STILL_BLOCKED_CM does). If it
+     * really has been taken away, the check right before the bypass moves
+     * off (subsystem5.c, s5_obstacle_still_ahead) sees that over several
+     * readings and hands the car back instead. */
     bool b_blocked = ((!s5_sense_fine_reading(&ahead_cm)) ||
                       (S5_OBSTACLE_NONE_CM == ahead_cm) ||
                       (ahead_cm <= S5_STILL_BLOCKED_CM));
