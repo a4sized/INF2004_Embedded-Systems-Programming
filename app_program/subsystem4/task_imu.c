@@ -226,26 +226,50 @@ static void hump_reset(void)
     enter_n = exit_n = 0;
 }
 
+/* A finished hump is not published at once: both detectors may report the
+ * same hump, so it waits in "pend_*" for S4_HUMP_MERGE_MS and the larger peak
+ * wins (see hump_flush). */
+static BOOL  pend_valid;
+static float pend_peak_cm, pend_len_cm;
+static UW    pend_ms;
+
+static void hump_contribute(float peak, float len, UW t_ms)
+{
+    if (peak < S4_HUMP_MIN_CM) return;
+    if (!pend_valid) {
+        pend_valid   = TRUE;
+        pend_peak_cm = peak;
+        pend_len_cm  = len;
+    } else {
+        if (peak > pend_peak_cm) pend_peak_cm = peak;
+        if (len  > pend_len_cm)  pend_len_cm  = len;
+    }
+    pend_ms = t_ms;
+}
+
+static void hump_publish(float peak, float len, UW t_ms)
+{
+    S4_MSG m = {0};
+    INT    peak_mm = s4_round(peak * 10.0f);
+
+    /* Results are packed here, at the boundary.  The working values
+     * (height_cm, peak_cm) stay float. */
+    if (s4_hump_count < 255U) {
+        s4_hump_count++;                            /* saturates, never wraps */
+    }
+    if (peak_mm > (INT)s4_max_hump_mm) {
+        s4_max_hump_mm = (UB)s4_clip_u(peak_mm, 8);
+    }
+    m.type          = S4_MSG_HUMP;
+    m.time16        = t_ms & 0xFFFFU;
+    m.p.hump.peak   = s4_clip_u(s4_round(peak * 10.0f / (float)S4_PEAK_STEP_MM), 7) & 0x7FU;
+    m.p.hump.length = (UB)s4_clip_u(s4_round(len * 10.0f / (float)S4_LENGTH_STEP_MM), 8);
+    send_msg(&m);
+}
+
 static void hump_finished(UW t_ms)
 {
-    if (peak_cm >= S4_HUMP_MIN_CM) {
-        S4_MSG m = {0};
-        INT    peak_mm = s4_round(peak_cm * 10.0f);
-
-        /* Results are packed here, at the boundary.  The working values
-         * (height_cm, peak_cm) stay float. */
-        if (s4_hump_count < 255U) {
-            s4_hump_count++;                        /* saturates, never wraps */
-        }
-        if (peak_mm > (INT)s4_max_hump_mm) {
-            s4_max_hump_mm = (UB)s4_clip_u(peak_mm, 8);
-        }
-        m.type          = S4_MSG_HUMP;
-        m.time16        = t_ms & 0xFFFFU;
-        m.p.hump.peak   = s4_clip_u(s4_round(peak_cm * 10.0f / (float)S4_PEAK_STEP_MM), 7) & 0x7FU;
-        m.p.hump.length = (UB)s4_clip_u(s4_round(length_cm * 10.0f / (float)S4_LENGTH_STEP_MM), 8);
-        send_msg(&m);
-    }
+    hump_contribute(peak_cm, length_cm, t_ms);
     hump_reset();
 }
 
@@ -301,6 +325,146 @@ static void hump_update(float pitch_rel, float ds_cm, UW t_ms)
     if ((t_ms - hump_start_ms) > S4_HUMP_MAX_MS) {
         hump_reset();
         base_deg += pitch_rel;
+    }
+}
+
+/* ======================================================================
+ *  4b. Hump under one rear wheel (tricycle chassis): roll detector
+ *
+ *  See s4_config.h.  Same shape as the pitch detector, but on the size of the
+ *  roll (left or right does not matter):
+ *
+ *  FLAT  --(roll above 2.5 deg for 8 samples)-->  UP
+ *  UP    --(roll 1 deg below its peak)---------->  DOWN
+ *  DOWN  --(roll back within 1.2 deg of level)-->  FLAT, hump measured
+ *
+ *  height = track width * sin(largest roll), the roll read from a second,
+ *  smoother filter so that shaking does not add to the peak.
+ *  Not a hump, so ignored: while the car is picked up or overturned, when the
+ *  roll is beyond 25 degrees, and while turning.
+ * ====================================================================== */
+typedef enum { SIDE_FLAT = 0, SIDE_UP, SIDE_DOWN } SIDE_STATE;
+
+static SIDE_STATE side;
+static float      side_max_deg, side_len_cm;
+static float      side_f, side_peak_deg;    /* smoothed roll size, and its largest value */
+static UB         side_enter_n, side_exit_n, side_ok_n;
+static BOOL       side_lock;        /* tilted too far or lifted: not a hump, wait until level again */
+static UW         side_start_ms;
+static float      roll_base_deg;    /* the roll of "level ground" */
+
+static void side_reset(void)
+{
+    side = SIDE_FLAT;
+    side_max_deg = side_len_cm = side_f = side_peak_deg = 0.0f;
+    side_enter_n = side_exit_n = 0;
+}
+
+/* what Subsystem 1 shows as hump_state: 1 = going up, 2 = going down */
+static UINT hump_state_now(void)
+{
+    if (hump != HUMP_FLAT) return (UINT)hump;
+    return (UINT)side;
+}
+
+static void side_update(float roll_rel, float ds_cm, float turn_dps, BOOL lifted, UW t_ms)
+{
+#if S4_SIDE_ENABLE
+    float r = absf(roll_rel);
+
+    /* Turning: the sideways acceleration of the curve looks like a roll. */
+    if (absf(turn_dps) > S4_SIDE_TURN_MAX_DPS) {
+        side_reset();
+        return;
+    }
+
+    /* Picked up, or tilted far beyond any hump (on its side): not a hump.  Stay
+     * out until the roll is back near level for a while, so that the car being
+     * righted again is not taken for one either. */
+    if (lifted || (r > S4_SIDE_MAX_DEG)) {
+        side_reset();
+        side_lock = TRUE;
+        side_ok_n = 0;
+        return;
+    }
+    if (side_lock) {
+        if (r < S4_SIDE_EXIT_DEG) {
+            if (++side_ok_n >= S4_SIDE_EXIT_N) {
+                side_lock = FALSE;
+            }
+        } else {
+            side_ok_n = 0;
+        }
+        return;
+    }
+
+    /* The smoother roll the PEAK is read from: it never jumps, so a knock or a
+     * shove, which is over in a few samples, hardly moves it. */
+    side_f += S4_SIDE_PEAK_ALPHA * (r - side_f);
+
+    if (side == SIDE_FLAT) {
+        if (r > S4_SIDE_ARM_DEG) {
+            side_len_cm += ds_cm;           /* the climb began before it was confirmed */
+        } else {
+            side_len_cm = 0.0f;
+        }
+        if (r > S4_SIDE_ENTER_DEG) {
+            if (++side_enter_n >= S4_SIDE_ENTER_N) {
+                side = SIDE_UP;
+                side_max_deg  = r;
+                side_peak_deg = side_f;
+                side_exit_n   = 0;
+                side_start_ms = t_ms;
+            }
+        } else {
+            side_enter_n = 0;
+        }
+        return;
+    }
+
+    side_len_cm += ds_cm;
+    if (r > side_max_deg) {
+        side_max_deg = r;
+    }
+    if (side_f > side_peak_deg) {
+        side_peak_deg = side_f;
+    }
+    if ((side == SIDE_UP) && (r < (side_max_deg - S4_SIDE_DROP_DEG))) {
+        side = SIDE_DOWN;
+        side_exit_n = 0;
+    }
+    if (side == SIDE_DOWN) {
+        if (r < S4_SIDE_EXIT_DEG) {
+            if (++side_exit_n >= S4_SIDE_EXIT_N) {
+                hump_contribute(S4_TRACK_MM * 0.1f * sin_deg(side_peak_deg),
+                                side_len_cm, t_ms);
+                side_reset();
+                return;
+            }
+        } else {
+            side_exit_n = 0;
+        }
+    }
+
+    /* Too long: the floor is banked, it is not a hump.  Take the current
+     * roll as the new "level". */
+    if ((t_ms - side_start_ms) > S4_SIDE_MAX_MS) {
+        side_reset();
+        roll_base_deg += roll_rel;
+    }
+#else
+    (void)roll_rel; (void)ds_cm; (void)turn_dps; (void)lifted; (void)t_ms; (void)side_start_ms;
+#endif
+}
+
+/* Publish a pending hump once both detectors are idle and no second report
+ * has come for S4_HUMP_MERGE_MS. */
+static void hump_flush(UW t_ms)
+{
+    if (pend_valid && (hump == HUMP_FLAT) && (side == SIDE_FLAT) &&
+        ((UW)(t_ms - pend_ms) >= (UW)S4_HUMP_MERGE_MS)) {
+        pend_valid = FALSE;
+        hump_publish(pend_peak_cm, pend_len_cm, t_ms);
     }
 }
 
@@ -618,6 +782,8 @@ static void reset_filters(void)
     mag_prev_ok  = FALSE;
     turn_f       = 0.0f;
     hump_reset();
+    side_reset();
+    pend_valid = FALSE;
     lift_reset();
 }
 
@@ -626,7 +792,7 @@ static BOOL process_sample(void)
 {
     float   raw_a[3], raw_m[3];
     CAR_VEC a;
-    float   mf, ml, dist, dt, mag_dt, ds, pitch_raw, roll_raw, pitch_rel;
+    float   mf, ml, dist, dt, mag_dt, ds, pitch_raw, roll_raw, pitch_rel, roll_rel;
     UW      t_us, t_ms, mag_us;
 
     /* The time and the distance are noted back to back, so they describe the
@@ -681,6 +847,7 @@ static BOOL process_sample(void)
         pitch_f = pitch_raw;
         roll_f  = roll_raw;
         base_deg = pitch_f;                 /* assume we start on level ground */
+        roll_base_deg = roll_f;
         slow[0] = a.fwd;  slow[1] = a.left;  slow[2] = a.up;
         vibration_g = 0.0f;
         first_sample = FALSE;
@@ -689,11 +856,15 @@ static BOOL process_sample(void)
         roll_f  += S4_PITCH_ALPHA * (roll_raw  - roll_f);
     }
     pitch_rel = pitch_f - base_deg;
+    roll_rel  = roll_f  - roll_base_deg;
 
     /* Slowly re-learn "level ground" while flat and almost level, so a
      * small drift or a gentle slope does not look like a hump. */
     if ((hump == HUMP_FLAT) && (absf(pitch_rel) < S4_HUMP_ARM_DEG)) {
         base_deg += S4_BASE_ALPHA * (pitch_f - base_deg);
+    }
+    if ((side == SIDE_FLAT) && (absf(roll_rel) < S4_SIDE_ARM_DEG)) {
+        roll_base_deg += S4_BASE_ALPHA * (roll_f - roll_base_deg);
     }
 
     /* Forward acceleration change = the forward reading minus its slow average. */
@@ -706,10 +877,13 @@ static BOOL process_sample(void)
         if (tk_wai_flg(s4_flg, S4_FLG_RESET_REQ, TWF_ORW | TWF_BITCLR, &bits, TMO_POL) == E_OK) {
             s4_max_hump_mm = 0U;
             s4_hump_count  = 0U;
+            pend_valid     = FALSE;
         }
     }
 
     hump_update(pitch_rel, ds, t_ms);
+    side_update(roll_rel, ds, turn_f, (BOOL)(lift_state != S4_LIFT_NONE), t_ms);
+    hump_flush(t_ms);
     filters_update(&a);
     lift_update(&a, t_ms);
     s4_lift = lift_state;
@@ -739,7 +913,7 @@ static void send_status(void)
 
     m.type             = S4_MSG_STATUS;
     m.time16           = now_ms() & 0xFFFFU;
-    m.hump_state       = (UINT)hump & 0x3U;
+    m.hump_state       = hump_state_now() & 0x3U;
     m.vibration        = (UB)s4_clip_u(s4_round(vibration_g * 1000.0f), 8);    /* mg   */
     m.lift             = (UINT)lift_state & 0x3U;
     m.p.status.pitch   = (B)s4_clip_s(s4_round(pitch_f), 8);                  /* deg  */
