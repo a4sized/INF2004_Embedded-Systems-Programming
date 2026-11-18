@@ -124,12 +124,7 @@ uint16_t s5_profile_sin_q14 (const uint16_t angle_deg)
 uint16_t s5_profile_lateral_cm (const uint16_t distance_cm,
                                 const uint16_t angle_deg)
 {
-    uint16_t off_axis_deg = s5_profile_off_axis_deg(angle_deg);
-
-    /* Move the point inward to undo the sensor's beam spread (tuned). The
-     * cast is safe: the subtraction is guarded to be positive. */
-    off_axis_deg = (off_axis_deg > S5_EDGE_TRIM_DEG) ?
-                   (uint16_t)(off_axis_deg - S5_EDGE_TRIM_DEG) : 0u;
+    const uint16_t off_axis_deg = s5_profile_off_axis_deg(angle_deg);
 
     /* Widened to 32 bits: (511 + 255) x 16384 + 8192 fits. After the
      * rounding shift the result is at most distance + pivot (below 800), so
@@ -302,16 +297,13 @@ static uint16_t s5_profile_extent (const uint8_t side)
 
 /* True if one side's edge was MEASURED: the reading left the obstacle at an
  * angle where a flat face would still have echoed, and no reading past it
- * looked like the obstacle again, so it really ended. The beam's spread
- * lets the sensor see the face S5_EDGE_TRIM_DEG further out than its axis
- * points, so the limit applies to the trimmed angle (the same one the
- * extent is worked out from). */
+ * looked like the obstacle again, so it really ended. */
 static bool s5_profile_exact (const uint8_t side)
 {
     return ((0u != g_side[side].b_edge_found) &&
             (0u == g_side[side].b_came_back) &&
             (s5_profile_off_axis_deg(g_side[side].off_angle) <=
-             (S5_FLAT_ECHO_MAX_DEG + S5_EDGE_TRIM_DEG)));
+             S5_FLAT_ECHO_MAX_DEG));
 }
 
 /* The console note for one side's edge. */

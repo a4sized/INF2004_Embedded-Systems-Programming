@@ -27,7 +27,7 @@
  * (if they do, the jump was a missed echo). Then S5_FINE_REFINE_DEG steps
  * back through that gap (s5_profile_refine) to pin the edge down. The edge is
  * taken halfway between the last angle on the obstacle and the first angle
- * off it, corrected for the beam's spread (S5_EDGE_TRIM_DEG).
+ * off it.
  *
  * Call s5_profile_start/add/refine/finish and the edge queries only from
  * the scanning task. The pure functions (s5_profile_lateral_cm,
@@ -101,7 +101,7 @@ void s5_profile_finish (const bool b_scan_ok, s5_profile_t * const p_profile);
 
 /* Sideways distance (cm) from the car's centre line to a point seen
  * distance_cm away (from the sensor's face) at servo angle angle_deg,
- * allowing for S5_SENSOR_PIVOT_CM and S5_EDGE_TRIM_DEG. Pure function. */
+ * allowing for S5_SENSOR_PIVOT_CM. Pure function. */
 uint16_t s5_profile_lateral_cm (const uint16_t distance_cm,
                                 const uint16_t angle_deg);
 
