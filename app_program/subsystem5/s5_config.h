@@ -89,7 +89,7 @@
  * and its left and right edges from the car's centre line) and each bypass
  * decision.  1 = also every diagnostic line: room to go round, what each
  * side's scan covered, the centring check (for SERVO_TRIM_DEGREES), the
- * width check (for S5_EDGE_TRIM_DEG), stops, holds, each move of a bypass
+ * width check (a second measurement of the edge), stops, holds, each move of a bypass
  * and why it ended.  Switch it on to tune. */
 #define S5_VERBOSE                  (1u)
 
@@ -168,12 +168,12 @@
 /* A FLAT face reflects the sound away once the beam meets it more than about
  * this many degrees off square-on (seen in the fine scans: 20-30), so from
  * that angle on it gives no echo even though it carries on.  An edge found
- * up to this far off straight ahead (plus S5_EDGE_TRIM_DEG, for the beam's
- * spread) is MEASURED; one found further out, or one the readings came back
- * past after a gap too long to bridge (S5_EDGE_BRIDGE_MAX), is only a LOWER
- * BOUND (the obstacle is at least that wide).  The car still goes round a
- * lower-bound side if it fits, and checks the real width while driving
- * out, square-on to the obstacle's front (s5_bypass.c). */
+ * up to this far off straight ahead is MEASURED; one found further out, or
+ * one the readings came back past after a gap too long to bridge
+ * (S5_EDGE_BRIDGE_MAX), is only a LOWER BOUND (the obstacle is at least
+ * that wide).  The car still goes round a lower-bound side if it fits, and
+ * checks the real width while driving out, square-on to the obstacle's
+ * front (s5_bypass.c). */
 #define S5_FLAT_ECHO_MAX_DEG        (25u)
 
 /* Distance (cm) from the servo's turning axis forward to the sensor's face:
@@ -226,15 +226,6 @@
  * 0 = never bridge (the first jump is always the edge).  Max 6. */
 #define S5_EDGE_BRIDGE_MAX          (1u)
 
-/* The sensor's beam is a cone, so it still "sees" the obstacle a little
- * past its real edge and the width comes out too big.  Tune on the track
- * with a box of known width (narrow enough that both edges are MEASURED):
- * raise this, in whole degrees, until the printed "S5 obstacle width"
- * matches.  With S5_VERBOSE = 1 the "S5 width check" line printed while
- * driving out (square-on to the front) is a second measurement to compare
- * with.  0 = no correction. */
-#define S5_EDGE_TRIM_DEG            (0u)
-
 /* 1 = servo angles above 90 point to the car's left, 0 = to its right.
  * Checked on the car: with 1 the car goes round on the side where the
  * obstacle sticks out least; with 0 it chose the other.  This one setting
@@ -253,6 +244,14 @@
  * (s5_avoid_plan_extent). */
 #define S5_OBSTACLE_MIN_WIDTH_CM    (10u)
 #define S5_OBSTACLE_MAX_WIDTH_CM    (20u)
+
+/* How much (cm) a measured edge may still read too WIDE: the beam's spread
+ * keeps seeing the obstacle a little past its edge (about 2-3 cm from
+ * 10-25 cm away; the width is not corrected for it).  A lower-bound side
+ * is planned at S5_OBSTACLE_MAX_WIDTH_CM minus the other side, so a
+ * wide-reading other side would plan it too narrow: the other side is
+ * reduced by this first. */
+#define S5_EDGE_SPREAD_CM           (3u)
 
 /* Overall width of the car (widest point, wheels included): measured
  * 127.5 mm, rounded up to whole cm. Used to drive far enough out to clear
@@ -326,10 +325,11 @@
  * face.  The car's front corner nearest the obstacle is about 8 cm further
  * forward than the sensor (front overhang + half the width, turned by the
  * slant).  If the face reads this close (cm) or closer the obstacle is
- * wider than planned: the move is stopped before that corner hits it, the
- * car retraces its moves back to the line and waits there for the obstacle
- * to be removed.  The bypass decision uses the same limit to work out how
- * far to reverse first (s5_avoid_plan_backup_mm). */
+ * too wide on this side: the move is stopped before that corner hits it,
+ * the car retraces its moves back to the line and goes round the other
+ * side instead (once; if that is too wide as well it waits there for the
+ * obstacle to be removed).  The bypass decision uses the same limit to work
+ * out how far to reverse first (s5_avoid_plan_backup_mm). */
 #define S5_OUT_LEG_MIN_CM           (12u)
 
 /* When the obstacle is too big to get round (or the scan failed), the car
@@ -348,9 +348,11 @@
  * obstacle's front is still more than S5_OUT_LEG_MIN_CM away
  * (s5_avoid_plan_backup_mm); 0 if it can go round from where it stopped.
  * No further than this (mm): a side that needs more is too wide to get
- * round (the car waits).  150 is enough for a 20 cm edge from the 5 cm stop
- * (about 100 mm). */
-#define S5_BYPASS_MAX_BACKUP_MM     (150u)
+ * round (the car waits).  250: with the 35 degree turn out, from the 5 cm
+ * stop (sensor about 10-14 cm away) a 20 cm planned edge needs up to about
+ * 217 mm; 250 leaves room for the car stopping a little closer (237 mm
+ * from 8 cm away). */
+#define S5_BYPASS_MAX_BACKUP_MM     (250u)
 
 /* If no edge was found at all (the width is not known), reverse
  * S5_REVERSE_MM and scan again, up to this many times in a row: further
@@ -448,12 +450,24 @@
 #define S5_WHEEL_TRACK_MM           (220u)
 
 /* The turns of the bypass going out (out, and back to the heading), in
- * degrees.  45: quicker than 90 and enough to get round. */
-#define S5_BYPASS_TURN_DEG          (45u)
+ * degrees.  35 (was 45): a gentler slant out; the out leg is longer to
+ * move the same distance sideways (it divides by sin(turn)). */
+#define S5_BYPASS_TURN_DEG          (35u)
+
+/* The out leg (driving out on the S5_BYPASS_TURN_DEG slant) ends once the
+ * sensor has passed the obstacle's real edge (its front stops echoing),
+ * plus the distance worked out for the car's side to clear that edge by
+ * S5_BYPASS_CLEAR_MARGIN_CM; at most the distance an obstacle
+ * S5_OBSTACLE_MAX_WIDTH_CM to that side needs.  Both are this percentage
+ * of the calculated distance.  90: 10% less (100 = the full distance), so
+ * the side clears the edge by about 1.5 cm instead of the full margin (the
+ * beam still seeing the corner a little after the sensor passes it adds a
+ * little more).  The return leg follows the distance actually driven out. */
+#define S5_OUT_LEG_PERCENT          (90u)
 
 /* Coming back to the line after passing the obstacle, the car turns in
  * (and at the line back to the heading) by this percentage of
- * S5_BYPASS_TURN_DEG: 70, i.e. 30% less (45 -> 32 degrees), a gentler
+ * S5_BYPASS_TURN_DEG: 70, i.e. 30% less (35 -> 25 degrees), a gentler
  * slant back onto the line.  The return leg is then longer, to cover the
  * same sideways distance as the out leg (s5_bypass_go_round). */
 #define S5_RETURN_TURN_PERCENT      (70u)
@@ -512,6 +526,15 @@
  * 15 cm away, plus up to 3 reverses of S5_REVERSE_MM is up to about 30 cm
  * (checked when building, s5_scan.c). */
 #define S5_STILL_BLOCKED_CM         (45u)
+
+/* Right before the bypass moves off, the car checks once more that the
+ * obstacle is still in front of it (it may have been taken away during the
+ * fine scan): anything within S5_STILL_BLOCKED_CM straight ahead and it goes
+ * round; this many good readings in a row with nothing that close (5 =
+ * 0.3 s) and it hands back to line following instead.  No answer within
+ * S5_RECHECK_MAX_READINGS (the sensor keeps failing) counts as still there. */
+#define S5_RECHECK_CLEAR_READINGS   (5u)
+#define S5_RECHECK_MAX_READINGS     (20u)
 
 /* Give up on one move if it has not finished in this time (stuck wheel,
  * encoder not counting).  10000 (was 5000 at twice the speed): the longest
