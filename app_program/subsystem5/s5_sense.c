@@ -157,12 +157,14 @@ static uint16_t s5_sense_step_toward (const uint16_t angle_now,
 
 /* Turn the servo to target_degrees one step at a time (jumping there at
  * full speed jerks the sensor), pinging on the way, then let it settle.
- * Returns E_OK, or the servo driver's error. */
+ * Already there: nothing to do (no settle wait either: it settled after
+ * the move that got it there). Returns E_OK, or the servo driver's error. */
 static ER s5_sense_servo_move (const uint16_t target_degrees,
                                const s5_look_t look)
 {
     uint16_t angle_now        = drv_servo_get_angle();
     uint8_t  steps_since_ping = 0u;
+    bool     b_moved          = false;
     ER       result           = E_OK;
 
     while ((result >= E_OK) && (angle_now != target_degrees))
@@ -170,6 +172,7 @@ static ER s5_sense_servo_move (const uint16_t target_degrees,
         angle_now = s5_sense_step_toward(angle_now, target_degrees);
         result    = drv_servo_set_angle(angle_now);
         (void)tk_dly_tsk(SERVO_STEP_DELAY_MS);
+        b_moved   = true;
 
         steps_since_ping++;
         if (steps_since_ping >= STEPS_PER_PING)
@@ -179,7 +182,7 @@ static ER s5_sense_servo_move (const uint16_t target_degrees,
         }
     }
 
-    if (result >= E_OK)
+    if ((result >= E_OK) && b_moved)
     {
         s5_sense_watch_for(look, SERVO_SETTLE_MS);   /* stop wobbling */
     }

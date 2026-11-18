@@ -32,9 +32,10 @@ bool s5_sense_reading (const s5_look_t look, const bool b_print,
 void s5_sense_watch_for (const s5_look_t look, const uint32_t duration_ms);
 
 /* Turn the servo gently to target_degrees (pinging on the way), let it
- * settle, and retry until it gets there. The angle is limited to the fine
- * scan's S5_FINE_MIN_ANGLE..S5_FINE_MAX_ANGLE: the servo never turns
- * further, also while bypassing. */
+ * settle, and retry until it gets there; at once if it is already there.
+ * The angle is limited to the fine scan's S5_FINE_MIN_ANGLE ..
+ * S5_FINE_MAX_ANGLE: the servo never turns further, also while
+ * bypassing. */
 void s5_sense_servo_to (const uint16_t target_degrees, const s5_look_t look);
 
 /* S5_LOOK_AHEAD if the servo faces straight ahead, else S5_LOOK_SIDE. */
