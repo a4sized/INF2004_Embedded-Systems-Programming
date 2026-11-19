@@ -260,6 +260,13 @@
  * alone. The servo is on the car's centre line. */
 #define S5_CAR_WIDTH_CM             (13u)
 
+/* Extra width (cm) added on the car's LEFT side only, beyond the
+ * symmetric S5_CAR_WIDTH_CM (the left side now sticks out 8 cm further).
+ * Going round on the RIGHT the obstacle is on the car's left, so that out
+ * leg drives this much further sideways; going round on the left the
+ * car's right side faces the obstacle and is unchanged. */
+#define S5_CAR_LEFT_EXTRA_CM        (8u)
+
 /* PASSING IT BY FEEL.  The fine scan sees only the obstacle's front, not how
  * long it is, so after driving out (planned from the width) the car drives
  * ALONG the obstacle with the sensor turned to look straight at its side,
@@ -369,11 +376,11 @@
 #define S5_DRIVE_BYPASS             (1u)
 
 /* Wheel speeds sent to Subsystem 2 (1..255, PWM duty): for driving during
- * a bypass, and a slower one for reversing.  Halved (were 120 and 90) for
- * a slower, more careful bypass; the line follower drives at 50-55, so
- * these still move the car.  Too low and the motors will not turn. */
-#define S5_DRIVE_SPEED              (60)
-#define S5_REVERSE_SPEED            (45)
+ * a bypass, and a slower one for reversing.  1.5 x (were 60 and 45, which
+ * were half of 120 and 90) for a quicker bypass; 67.5 rounded up.  Too low
+ * and the motors will not turn. */
+#define S5_DRIVE_SPEED              (90)
+#define S5_REVERSE_SPEED            (68)
 
 /* The loop that watches the encoders runs this often. */
 #define S5_DRIVE_POLL_MS            (20u)
@@ -382,53 +389,53 @@
  * spun at roughly 360 degrees a second, so a 90 degree turn was over in a
  * quarter of a second, and Subsystem 2 then needs time to ramp the wheels
  * down while the car is still turning: a fast spin cannot be stopped on the
- * mark.  Halved (was 70) with the other bypass speeds.  A turn that does
+ * mark.  1.5 x (was 35, 52.5 rounded up) with the other bypass speeds.  A turn that does
  * not get going is raised (S5_TURN_SPEED_STEP), up to S5_TURN_SPEED_MAX. */
 #ifndef S5_TURN_SPEED
-#define S5_TURN_SPEED               (35)
+#define S5_TURN_SPEED               (53)
 #endif
 
 /* The most a turn is raised to if it does not get going.  Turning on the
  * spot drags the front of the car sideways, so it needs more than driving
- * straight: 70 (the turning speed before the bypass was slowed down) is
- * known to turn the car. */
-#define S5_TURN_SPEED_MAX           (70)
+ * straight: 1.5 x the 70 that is known to turn the car. */
+#define S5_TURN_SPEED_MAX           (105)
 
 /* Stop the turn EARLY by the angle the car will still turn after the stop
  * command: this many milliseconds of the car's CURRENT turning speed is
  * subtracted from the turn.  Subsystem 2 ramps the wheels down in fixed
- * steps, so from half the speed the ramp takes half as long: halved with
- * the speeds (measured live as 140 at the old speed; recheck).  Raise it if
+ * steps, so the ramp time follows the speed: 1.5 x with the speeds (was
+ * 70; measured live as 140 at speed 70; recheck).  Raise it if
  * the turn still overshoots, lower it if it falls short.  0 = no early
  * stop. */
 #ifndef S5_TURN_COAST_MS
-#define S5_TURN_COAST_MS            (70u)
+#define S5_TURN_COAST_MS            (105u)
 #endif
 
 /* The same early stop for the STRAIGHT moves.  After the stop command the car
  * keeps rolling while Subsystem 2 ramps the wheels down (about 5 cm going
  * forward at the old speed of 120, about a quarter of that at 60).  The
  * move is stopped early by this many milliseconds of the car's current
- * speed: halved with the speeds (measured as 180 / 140 at the old speeds;
- * recheck).  Raise it if a leg still runs past its distance, lower it if
+ * speed: 1.5 x with the speeds (were 90 / 70; measured as 180 / 140 at
+ * speeds 120 / 90; recheck).  Raise it if a leg still runs past its distance, lower it if
  * it stops short. */
 #ifndef S5_FORWARD_COAST_MS
-#define S5_FORWARD_COAST_MS         (90u)
+#define S5_FORWARD_COAST_MS         (135u)
 #endif
 #ifndef S5_BACK_COAST_MS
-#define S5_BACK_COAST_MS            (70u)
+#define S5_BACK_COAST_MS            (105u)
 #endif
 
 /* A turn should be finished within S5_TURN_MAX_MS.  Every S5_TURN_START_MS
  * the progress is checked against a straight line to "finished in that
  * time"; a turn that is behind it (the motors need more than S5_TURN_SPEED
  * to start or to turn at a useful rate) is raised by S5_TURN_SPEED_STEP,
- * never above S5_TURN_SPEED_MAX.  3000 (was 1500 at twice the speed), so a
- * turn at half speed is not pushed straight back up. */
+ * never above S5_TURN_SPEED_MAX.  2000 (was 3000 at 2/3 of this speed,
+ * 1500 at speed 70), so a turn at this speed is not pushed straight back
+ * up.  The step is 1.5 x too (was 10). */
 #define S5_TURN_START_MS            (300u)
-#define S5_TURN_SPEED_STEP          (10)
+#define S5_TURN_SPEED_STEP          (15)
 #ifndef S5_TURN_MAX_MS
-#define S5_TURN_MAX_MS              (3000u)
+#define S5_TURN_MAX_MS              (2000u)
 #endif
 
 /* After a successful bypass, keep driving straight ahead at
