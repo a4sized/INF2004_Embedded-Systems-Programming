@@ -229,7 +229,7 @@ int main (void)
     assert(ir_code39_set_action_map('a', 'Q', 'W', 'u'));
     assert(IR_BARCODE_TURN_LEFT == ir_barcode_action_for('A'));
     assert(IR_BARCODE_TURN_RIGHT == ir_barcode_action_for('Q'));
-    assert(IR_BARCODE_NO_ACTION == ir_barcode_action_for('W'));
+    assert(IR_BARCODE_STRAIGHT == ir_barcode_action_for('W'));
     assert(IR_BARCODE_U_TURN == ir_barcode_action_for('U'));
     assert(!ir_code39_set_action_map('A', 'A', '-', 'F'));
     assert(!ir_code39_set_action_map('1', 'Z', '-', 'F'));
