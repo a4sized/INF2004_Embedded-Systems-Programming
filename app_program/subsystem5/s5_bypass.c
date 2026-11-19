@@ -837,11 +837,16 @@ s5_go_round_t s5_bypass_go_round (const s5_bypass_t side,
     const uint16_t  lead_mm      = (uint16_t)(
                     ((uint32_t)S5_SENSOR_TO_AXLE_CM * S5_MM_PER_CM *
                      s5_profile_sin_q14(S5_BYPASS_TURN_DEG)) >> 14);
+    /* The car's half width on the side facing the obstacle: going round
+     * on the right the obstacle is on the car's left, which is
+     * S5_CAR_LEFT_EXTRA_CM wider. */
+    const uint16_t  side_half_cm = (uint16_t)(HALF_CAR_CM +
+                                   (b_left ? 0u : S5_CAR_LEFT_EXTRA_CM));
     const uint16_t  out_extra_mm = s5_bypass_slant_mm(
-                    (uint16_t)(((HALF_CAR_CM + S5_BYPASS_CLEAR_MARGIN_CM) *
+                    (uint16_t)(((side_half_cm + S5_BYPASS_CLEAR_MARGIN_CM) *
                                 S5_MM_PER_CM) + lead_mm));
     const uint16_t  out_max_mm   = s5_bypass_slant_mm(
-                    (uint16_t)((S5_OBSTACLE_MAX_WIDTH_CM + HALF_CAR_CM +
+                    (uint16_t)((S5_OBSTACLE_MAX_WIDTH_CM + side_half_cm +
                                 S5_BYPASS_CLEAR_MARGIN_CM) * S5_MM_PER_CM));
     leg_log_t       legs          = { { S5_MOVE_FORWARD }, { 0u }, 0u };
     along_result_t  along         = ALONG_DONE;

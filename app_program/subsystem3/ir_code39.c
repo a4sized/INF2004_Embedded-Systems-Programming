@@ -379,7 +379,7 @@ ir_barcode_action_t ir_barcode_action_for (char letter)
     }
     if (g_straight_letter == letter)
     {
-        return IR_BARCODE_NO_ACTION;
+        return IR_BARCODE_STRAIGHT;
     }
     if (g_left_letter == letter)
     {

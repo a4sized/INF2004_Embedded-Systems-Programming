@@ -9,7 +9,10 @@ typedef enum
     IR_BARCODE_NO_ACTION = 0,
     IR_BARCODE_TURN_LEFT,
     IR_BARCODE_TURN_RIGHT,
-    IR_BARCODE_U_TURN
+    IR_BARCODE_U_TURN,
+    /* Straight letter: no turn, but it waits for the junction so the
+     * decoded letter is cleared when the car reaches it. */
+    IR_BARCODE_STRAIGHT
 } ir_barcode_action_t;
 
 typedef enum
