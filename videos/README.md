@@ -22,7 +22,7 @@ the line. List **every** video in the table at the bottom of this page.
 | 1 | S1 | `S1-U12` | GP19 heartbeat LED (2 Hz) | Commit hash + Pico GP19 LED blinking evenly at 250 ms intervals (with `S1-U01`–`S1-U10` `[TEST] PASS` console if running `TEST=1`) |
 | 2 | S1 | `S1-U13` | Wi-Fi join + 1 Hz telemetry decode | Commit hash + Mosquitto `-v` window + `python scripts/telemetry_decoder.py` printing `[SEQ #...]` every 1 s cleanly (`FAULT=NONE`) |
 | 3 | S1 | `S1-U14` | MQTT RX commands (`PING`, `INVALID`, `CLEAR`, `ESTOP`) | Web Dashboard / MQTTX / `mosquitto_pub` sending valid + invalid payloads + decoder/dashboard showing `FAULT_CMD_REJECTED` / `FAULT_ESTOP` set & cleared |
-| 4 | S1 | `S1-U16`–`S1-U18` | Runtime barcode map (`MAP:LRSU`), S5 width gauge & scan history failure alerts | Web Dashboard (`http://127.0.0.1:8080/`) applying custom `MAP:LRSU` (`S1-U16`), S5 obstacle width bar updating (`S1-U17`), and Barcode Scan History terminal displaying green valid scans and red failure alerts (`S1-U18`) |
+| 4 | S1 | `S1-U16` | S5 obstacle width telemetry gauge (`0..31 cm`) | Web Dashboard (`http://127.0.0.1:8080/`) displaying live S5 obstacle width bar updating (`15 cm` / `20 cm`) in real time when car detects an obstacle |
 | 5 | INT | `INT-06` / `INT-07` | Barcode decode + VC state transitions (`INIT->READY->FOLLOWING`) | Sweeping barcode across GP6 showing decoder `Barcode` char update, plus MQTT `START`/`STOP`/`ESTOP`/`CLEAR` transitions |
 | 6 | INT | `INT-09` / `INT-10` | Fault halt / Wi-Fi resilience + S5 obstacle handoff | Chassis propped or on track showing Tier-1 motor cutoff (`ESTOP`/collision), S5 `VC_AVOIDING` transition, or AP drop continue |
 | 7 | SYS | `SYS-02`–`SYS-08` | End-to-end track circuit & Ground Station | Full car navigating track (line + hump + obstacle + barcode) with `telemetry_decoder.py` / Web Dashboard live in corner or split-screen |
@@ -50,3 +50,7 @@ Newest at the bottom. Never delete a row.
 
 | Date | Subsystem | Test ID / demo | Commit | Student ID | Link | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-22 | S1 | `S1-U12` | `8775e14` | 2501283 | https://youtu.be/jheKgzG7lM4 | Status Heartbeat LED (GP19, 2 Hz) |
+| 2026-11-22 | S1 | `S1-U13` | `8775e14` | 2501283 | https://youtu.be/iAsuP4jn5Cg | Wi-Fi join & 1 Hz telemetry streaming on Web Dashboard |
+| 2026-11-22 | S1 | `S1-U14` | `8775e14` | 2501283 | https://youtu.be/SEq8deUzmEc | Remote MQTT commands (`START`, `STOP`, `INVALID`, `ESTOP`, `CLEAR`) & centralized fault clearing |
+| 2026-11-22 | S1 | `S1-U16` | `8775e14` | 2501283 | https://youtu.be/JkdF5ngO9cg | S5 ultrasonic obstacle width telemetry (`0..31 cm`) & Web Dashboard gauge display |
