@@ -26,7 +26,8 @@ typedef enum
     IR_JUNCTION_TURN_DONE,
     IR_JUNCTION_TURN_TIMEOUT,
     IR_JUNCTION_CROSSING_TIMEOUT,
-    IR_JUNCTION_UTURN_DONE
+    IR_JUNCTION_UTURN_DONE,
+    IR_JUNCTION_STRAIGHT_DONE
 } ir_junction_event_t;
 
 typedef struct
@@ -71,7 +72,16 @@ typedef struct
 void ir_junction_note_odometry (ir_junction_t * p_junction,
                                 int32_t left_ticks, int32_t right_ticks);
 
-/** Returns true while the junction policy owns the motion request. */
+/** Start the encoder-measured 180-degree pivot now, without waiting for a
+ * junction (the isolated U-turn calibration trial). Call after
+ * ir_junction_note_odometry. */
+void ir_junction_start_uturn (ir_junction_t * p_junction, uint32_t now_ms);
+
+/** Returns true while the junction policy owns the motion request.
+ * Every mapped letter (left, right, U-turn, straight) arms on decode and
+ * waits for the GP6 junction cue: white, then black (CROSSING), then the
+ * exit white edge. There W/Z start their turn, F starts the pivot, and the
+ * straight letter finishes (STRAIGHT_DONE) and hands back to the follower. */
 bool ir_junction_update (ir_junction_t * p_junction,
                          ir_line_snapshot_t const * p_snapshot,
                          uint32_t now_ms, uint32_t max_age_ms,

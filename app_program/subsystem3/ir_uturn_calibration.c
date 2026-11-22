@@ -89,6 +89,10 @@ static void calibration_task (INT code, void * extra)
     if (E_OK == tk_get_tim(&now))
     {
         start_ms = now.lo;
+        /* No junction on the bench: start the pivot straight away. */
+        ir_junction_note_odometry(&turn, get_left_encoder_ticks(),
+                                  get_right_encoder_ticks());
+        ir_junction_start_uturn(&turn, now.lo);
         log_sample("START", 0u, get_left_encoder_ticks(),
                     get_right_encoder_ticks());
         for (;;)

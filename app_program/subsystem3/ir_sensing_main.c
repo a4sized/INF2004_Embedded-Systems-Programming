@@ -405,7 +405,8 @@ static void sensing_task (INT start_code, void * p_extra)
                 char const * p_action =
                     (IR_BARCODE_TURN_LEFT == action) ? "LEFT" :
                     (IR_BARCODE_TURN_RIGHT == action) ? "RIGHT" :
-                    (IR_BARCODE_U_TURN == action) ? "UTURN" : "UNMAPPED";
+                    (IR_BARCODE_U_TURN == action) ? "UTURN" :
+                    (IR_BARCODE_STRAIGHT == action) ? "STRAIGHT" : "UNMAPPED";
                 APP_LOG((UB const *)
                         "Code 39 decoded: %c pattern_order=%s action=%s\n",
                         decoded_letter,

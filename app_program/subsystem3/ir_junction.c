@@ -27,6 +27,19 @@ static int64_t tick_delta (int32_t current, int32_t start)
                                  (int64_t)delta - 4294967296LL;
 }
 
+void ir_junction_start_uturn (ir_junction_t * p_junction, uint32_t now_ms)
+{
+    if (NULL == p_junction)
+    {
+        return;
+    }
+    p_junction->action = IR_BARCODE_U_TURN;
+    p_junction->mode = IR_JUNCTION_UTURNING;
+    p_junction->turn_started_ms = now_ms;
+    p_junction->start_left_ticks = p_junction->left_ticks;
+    p_junction->start_right_ticks = p_junction->right_ticks;
+}
+
 bool ir_junction_update (ir_junction_t * p_junction,
                          ir_line_snapshot_t const * p_snapshot,
                          uint32_t now_ms, uint32_t max_age_ms,
@@ -65,14 +78,6 @@ bool ir_junction_update (ir_junction_t * p_junction,
                 p_junction->mode = IR_JUNCTION_WAIT_CLEAR;
                 p_junction->level_samples = 0u;
                 *p_event = IR_JUNCTION_ARMED;
-                if (IR_BARCODE_U_TURN == action)
-                {
-                    p_junction->mode = IR_JUNCTION_UTURNING;
-                    p_junction->turn_started_ms = now_ms;
-                    p_junction->start_left_ticks = p_junction->left_ticks;
-                    p_junction->start_right_ticks = p_junction->right_ticks;
-                    *p_event = IR_JUNCTION_TURN_STARTED;
-                }
             }
         }
     }
@@ -98,6 +103,30 @@ bool ir_junction_update (ir_junction_t * p_junction,
                 if (IR_JUNCTION_WAIT_CLEAR == p_junction->mode)
                 {
                     p_junction->mode = IR_JUNCTION_WAIT_BLACK;
+                }
+                else if (IR_BARCODE_STRAIGHT == p_junction->action)
+                {
+                    /* Junction crossed: nothing to turn, the follower
+                     * takes the line again from here. */
+                    p_junction->mode = IR_JUNCTION_IDLE;
+                    p_junction->action = IR_BARCODE_NO_ACTION;
+                    *p_event = IR_JUNCTION_STRAIGHT_DONE;
+                    return false;
+                }
+                else if (IR_BARCODE_U_TURN == p_junction->action)
+                {
+                    /* Junction exit edge reached: pivot from here, but
+                     * never blind (no encoder totals supplied). */
+                    if (p_junction->b_odometry_ready)
+                    {
+                        ir_junction_start_uturn(p_junction, now_ms);
+                        *p_event = IR_JUNCTION_TURN_STARTED;
+                    }
+                    else
+                    {
+                        p_junction->mode = IR_JUNCTION_FAILED;
+                        *p_event = IR_JUNCTION_TURN_TIMEOUT;
+                    }
                 }
                 else
                 {

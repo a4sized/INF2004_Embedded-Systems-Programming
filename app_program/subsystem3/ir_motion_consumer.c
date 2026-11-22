@@ -18,6 +18,15 @@
 #define IR_TEST_STRAIGHT_MAX_MS 8000u
 #endif
 
+#if !defined(BUDDY3_IR_MOVING_TEST)
+static char const * ir_junction_action_name (ir_barcode_action_t action)
+{
+    return (IR_BARCODE_TURN_LEFT == action) ? "LEFT" :
+           (IR_BARCODE_U_TURN == action) ? "UTURN" :
+           (IR_BARCODE_STRAIGHT == action) ? "STRAIGHT" : "RIGHT";
+}
+#endif
+
 static ID settings_mutex;
 /* True while Subsystem 5 drives an obstacle bypass: no Buddy 2 writes. */
 static bool b_output_paused = false;
@@ -356,28 +365,29 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
         {
             case IR_JUNCTION_ARMED:
                 s1_csv_log_event("JUNCTION_ARMED",
-                                 (IR_BARCODE_TURN_LEFT == junction.action) ?
-                                     "LEFT" :
-                                 (IR_BARCODE_U_TURN == junction.action) ?
-                                     "UTURN" : "RIGHT");
+                                 ir_junction_action_name(junction.action));
                 break;
             case IR_JUNCTION_TURN_STARTED:
-                /* The sequence consumes each instruction once. F begins
-                 * immediately, so retain it through the pivot for MQTT to
-                 * publish; W/Z were visible while awaiting their junction.
+                /* The sequence consumes each instruction once. W/Z/F all
+                 * wait for their junction now, so the letter has been
+                 * visible (for MQTT) while awaiting it; clear it as the
+                 * turn or pivot starts.
                  */
-                if (IR_BARCODE_U_TURN != junction.action)
+                s1_set_barcode_id(0u);
+                s1_csv_log_event("JUNCTION_TURN",
+                                 ir_junction_action_name(junction.action));
+                break;
+            case IR_JUNCTION_CROSSING:
+                /* Straight letter: consumed as soon as the junction is
+                 * detected. */
+                if (IR_BARCODE_STRAIGHT == junction.action)
                 {
                     s1_set_barcode_id(0u);
                 }
-                s1_csv_log_event("JUNCTION_TURN",
-                                 (IR_BARCODE_TURN_LEFT == junction.action) ?
-                                     "LEFT" :
-                                 (IR_BARCODE_U_TURN == junction.action) ?
-                                     "UTURN" : "RIGHT");
-                break;
-            case IR_JUNCTION_CROSSING:
                 s1_csv_log_event("JUNCTION_CROSSING", "FORWARD");
+                break;
+            case IR_JUNCTION_STRAIGHT_DONE:
+                s1_csv_log_event("JUNCTION_DONE", "STRAIGHT");
                 break;
             case IR_JUNCTION_UTURN_DONE:
                 s1_set_barcode_id(0u);
