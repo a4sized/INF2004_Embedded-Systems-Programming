@@ -66,13 +66,6 @@
 #include "cyw43_utk.h"
 extern UW tm_usb_state (void);
 #endif
-#if defined(BUDDY3_FORCE_MOTOR_TEST)
-#include "motor_force_test.h"
-#if defined(BUDDY3_UTURN_CALIBRATION)
-ER ir_uturn_calibration_start (void);
-#endif
-#endif
-
 /*
  * Create and start one task (declared in app.h for every subsystem).
  *   prc = TP_PRC1 (core 0), TP_PRC2 (core 1), or 0 for "any core".
@@ -169,29 +162,19 @@ EXPORT INT usermain(void)
 	/* Subsystem 5 releases the PWM block from reset; motors configure it last. */
 	CHECK(subsystem5_init(), "subsystem5_init");
 	CHECK(subsystem2_init(), "subsystem2_init");
-#if !defined(BUDDY3_FORCE_MOTOR_TEST)
 	CHECK(subsystem3_init(), "subsystem3_init");
 	CHECK(subsystem4_init(), "subsystem4_init");
-#endif
 
 	buzzer_play_tone(1000, 500);
 
 	/* Phase 2: every subsystem starts its tasks */
 	CHECK(subsystem1_start(), "subsystem1_start");
 	CHECK(subsystem2_start(), "subsystem2_start");
-#if defined(BUDDY3_FORCE_MOTOR_TEST)
-#if defined(BUDDY3_UTURN_CALIBRATION)
-    CHECK(ir_uturn_calibration_start(), "ir_uturn_calibration_start");
-#else
-	CHECK(motor_force_test_start(), "motor_force_test_start");
-#endif
-#else
 	CHECK(subsystem3_start(), "subsystem3_start");
     
 	CHECK(subsystem4_start(), "subsystem4_start");
 	CHECK(subsystem5_start(), "subsystem5_start");
 	CHECK(vehicle_controller_start(), "vehicle_controller_start");
-#endif
 
 	APP_LOG((UB*)"all subsystems started\n\n");
 

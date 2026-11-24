@@ -222,15 +222,14 @@ Buddy 3 implementation remains in `app_program/subsystem3/`.
 Only that task reads/configures GP6. It uses the existing kernel USB console
 service and creates no subsystem communication objects. The bench profile
 disables Wi-Fi/MQTT and example tasks. These choices do not settle robot
-priorities or cross-buddy interfaces. See `testing/subsystem3/IR_CALIBRATION_TEST_LOG.md` for evidence and
-pending hardware checks.
+priorities or cross-buddy interfaces. The archived `IR_CALIBRATION_TEST_LOG.md` records the bench evidence.
 
 ## 8. Buddy 3 three-sensor digital readout (13 October 2026)
 
 Historical implementation record; Section 10 gives the current pins and
 normal team build. The GP4/GP16 values below describe earlier work.
 
-`app_program/subsystem3/` contains a sensing-only application for GP7 left,
+The archived Subsystem 3 sensing-only profile supported GP7 left,
 GP4 right and GP16 barcode DO. `build_sensing.py` stages Buddy 3 sensing and
 Buddy 1 Gatekeeper sources in a temporary build tree; it does not start the
 example consumer, producer or monitor. The output UF2 is placed in
@@ -248,7 +247,7 @@ sample gaps in microseconds, count within 4000–6000 us, and count above
 10 ms over a rolling window of up to 12,000 intervals. On 21 October 2026, the user
 reported black=1 and white=0 on GP7, GP4 and GP16, so the standalone image
 maps a high level to BLACK on each channel.
-See `testing/subsystem3/IR_SENSING_TEST_LOG.md`.
+See the archived `IR_SENSING_TEST_LOG.md` for the original record.
 
 On 21 October 2026, Buddy 3 added a time-qualified filter to the two line
 levels in this standalone readout. It accepts a changed level only after a

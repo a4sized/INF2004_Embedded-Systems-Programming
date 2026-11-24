@@ -12,7 +12,6 @@
 #include "ir_fault_status.h"
 #include "ir_barcode_capture.h"
 #include "ir_barcode_gpio.h"
-#include "ir_barcode_segments.h"
 #include "ir_barcode_window.h"
 #include "ir_code39.h"
 #include "ir_line_filter.h"
@@ -649,40 +648,7 @@ static void report_barcode_reject (ir_barcode_window_t const * p_window)
 
 static void print_capture (ir_barcode_window_t const * p_window)
 {
-#if defined(BUDDY3_SENSING_STANDALONE)
-    ir_barcode_segments_t segments = {0};
-    bool const b_candidate = ir_barcode_segments_make(p_window, &segments);
-
-    if (IR_USB_READY != tm_usb_state())
-    {
-        return;
-    }
-
-    APP_LOG((UB const *)"Barcode edge window: count=%u invalid=%u"
-            " overflows=%u segments=%s\n",
-            p_window->count, (UW)p_window->b_invalid,
-            ir_barcode_gpio_overflows(),
-            b_candidate ? "PROVISIONAL" : "NONE");
-    if (p_window->b_invalid)
-    {
-        return;
-    }
-
-    for (uint32_t index = 0u; index < p_window->count; ++index)
-    {
-        uint32_t const duration_us = (index + 1u < p_window->count) ?
-            (p_window->edges[index + 1u].time_us -
-             p_window->edges[index].time_us) : 0u;
-        uint32_t const fraction_ppm =
-            (b_candidate && (index < segments.count)) ?
-            segments.fractions[index] : 0u;
-        APP_LOG((UB const *)"  edge=%u t=%u us level=%u"
-                " duration=%u us fraction=%u ppm\n",
-                index, p_window->edges[index].time_us,
-                (UW)p_window->edges[index].b_high,
-                duration_us, fraction_ppm);
-    }
-#elif defined(BUDDY3_IR_MOVING_TEST)
+#if defined(BUDDY3_IR_MOVING_TEST)
     moving_log_window(p_window, '-', '-',
                       p_window->b_invalid ? "INVALID" :
                       ((IR_BARCODE_COMPLETE_EDGES == p_window->count) ?
