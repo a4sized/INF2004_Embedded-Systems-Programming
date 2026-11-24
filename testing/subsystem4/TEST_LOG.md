@@ -68,3 +68,12 @@ Add a new row for every run. Never edit or delete old rows.
 
 | Date | Test ID | Commit | Tester | Result | Log / evidence | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-18 | S4-U20 | e64b45c | Darius | PASS | logs/2026-11-18_pc_sim.txt | packing: 21 checks, 0 failed |
+| 2026-11-18 | S4-U09 | e64b45c | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenarios 1, 2, 4, 5 all ALL PASSED (full drive with and without encoders, sensor unplugged, plugged in) |
+| 2026-11-18 | S4-U23 | e64b45c | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenario 2b: hump read 28 mm for the true 30 mm with encoders zeroed mid-hump |
+| 2026-11-18 | S4-U22 | e64b45c | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenario 3b: all 6 LED phases (0 to 200 ms) ALL PASSED, no ghost fault |
+| 2026-11-18 | S4-U26 | e64b45c | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenarios 3 and 3a (automatic release and LIFT_LATCH 1) ALL PASSED |
+| 2026-11-18 | S4-U27 | e64b45c | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenarios 3c (on its side, then set upright) and 3d (upside down) ALL PASSED |
+| 2026-11-18 | S4-U28 | e64b45c | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenarios 1, 3e and 3f ALL PASSED: knock, rough ground and 30 degree slope never stop the car |
+| 2026-11-18 | S4-U33 | e64b45c | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenario 3g: PICKED_UP twice, OVERTURNED once, one halt only |
+| 2026-11-18 | S4-U29 | e64b45c | Darius | PASS | logs/2026-11-18_pc_sim.txt | scenario 6: not reported as overturned; the calibration FAILED line is expected |
