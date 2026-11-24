@@ -46,9 +46,9 @@ are defined for future hardware runs.
 
 | Date | Test ID | Commit | Tester | Result | Log / evidence | Notes |
 |---|---|---|---|---|---|---|
-| 2026-11-19 | S3-M01 | Pending | Rance (2501107) | PASS (reported) | [Left turn video](https://youtube.com/shorts/wQ1VXyUp1To?feature=share) | Line following, barcode decoding, junction detection, and left turn. |
-| 2026-11-19 | S3-M02 | Pending | Rance (2501107) | PASS (reported) | [Right turn video](https://youtu.be/xYHqsB7dWBY) | Line following, barcode decoding, junction detection, and right turn. |
-| 2026-11-19 | S3-M03 | Pending | Rance (2501107) | PASS (reported) | [Straight video](https://youtube.com/shorts/kDpTaxi1b3c) | Line following, barcode decoding, junction detection, and straight travel. |
-| 2026-11-19 | S3-M04 | Pending | Rance (2501107) | PASS (reported) | [U-turn video](https://youtube.com/shorts/zCP5LPdWkfk?feature=share) | Line following, barcode decoding, junction detection, and U-turn. |
+| 2026-11-19 | S3-M01 | `ed835e5` | Rance (2501107) | PASS (reported) | [Left turn video](https://youtube.com/shorts/wQ1VXyUp1To?feature=share) | Line following, barcode decoding, junction detection, and left turn. |
+| 2026-11-19 | S3-M02 | `ed835e5` | Rance (2501107) | PASS (reported) | [Right turn video](https://youtu.be/xYHqsB7dWBY) | Line following, barcode decoding, junction detection, and right turn. |
+| 2026-11-19 | S3-M03 | `ed835e5` | Rance (2501107) | PASS (reported) | [Straight video](https://youtube.com/shorts/kDpTaxi1b3c) | Line following, barcode decoding, junction detection, and straight travel. |
+| 2026-11-19 | S3-M04 | `ed835e5` | Rance (2501107) | PASS (reported) | [U-turn video](https://youtube.com/shorts/zCP5LPdWkfk?feature=share) | Line following, barcode decoding, junction detection, and U-turn. |
 
 The four recordings were supplied by the tester. The firmware commits, printed letters, and clip timestamps are pending confirmation.
