@@ -4,6 +4,7 @@
  *  Built only with: make TEST=1
  */
 
+#include <stdbool.h>
 #include "subsystem2.h"
 #include "encoder.h" /* Required to read the distance */
 #include "../test_report.h"
@@ -11,6 +12,15 @@
 
 IMPORT ID mtx_motor_intent;
 IMPORT void s2_set_ir_velocity(int16_t left_target, int16_t right_target);
+IMPORT void ir_motion_consumer_set_paused(bool paused);
+
+/* Tunable low-speed test PWM values (0..255).
+ * Matched to Subsystem 5's proven speeds: 60 moves straight reliably,
+ * while 70 overcomes extra drag during pivots and single-wheel tests. */
+#define S2_TEST_DRIVE_SPEED     (60)
+#define S2_TEST_REVERSE_SPEED   (60)
+#define S2_TEST_TURN_SPEED      (70)
+#define S2_TEST_SINGLE_SPEED    (70)
 
 #if APP_TEST
 
@@ -21,6 +31,8 @@ EXPORT void subsystem2_test(void)
     T_RMTX  rmtx;
 
     TEST_INIT();
+
+    ir_motion_consumer_set_paused(true);
 
     /* S2-U01: Verify all RTOS IPC objects initialized correctly */
     TEST_CHECK("S2-U01",
@@ -83,10 +95,10 @@ EXPORT void subsystem2_test(void)
 
     /* 4. Force safety caps open and command maximum torque forward */
     s2_set_us_clearance(255);
-    s2_set_ir_velocity(255, 255);
+    s2_set_ir_velocity(S2_TEST_DRIVE_SPEED, S2_TEST_DRIVE_SPEED);
     
-    /* 5. Drive for 1 second, printing live ticks every 100ms */
-    for (int i = 0; i < 10; i++) {
+    /* 5. Drive for 5 seconds, printing live ticks every 100ms */
+    for (int i = 0; i < 50; i++) {
         int32_t live_l = get_left_encoder_ticks();
         int32_t live_r = get_right_encoder_ticks();
         tm_printf((UB*)"[T+%04d ms] L=%d | R=%d\n", i * 100, (int)live_l, (int)live_r);
@@ -112,7 +124,7 @@ EXPORT void subsystem2_test(void)
 
     TEST_CHECK("S2-U06",
            1, 
-           "Active 1-second drive completed and distance calculated");
+           "Active 5-second drive completed and distance calculated");
 
 
 
@@ -121,10 +133,10 @@ EXPORT void subsystem2_test(void)
     s2_set_ir_velocity(0, 0);
     motor_reset_ticks();
     s2_set_us_clearance(255);
-    s2_set_ir_velocity(-255, -255); /* Command full reverse */
-    tk_dly_tsk(500);
+    s2_set_ir_velocity(-S2_TEST_REVERSE_SPEED, -S2_TEST_REVERSE_SPEED); /* Command full reverse */
+    tk_dly_tsk(1600);
     s2_set_ir_velocity(0, 0);
-    tk_dly_tsk(200); /* Wait for momentum to settle */
+    tk_dly_tsk(300); /* Wait for momentum to settle */
     
     TEST_CHECK("S2-U08",
            get_left_encoder_ticks() < -50 && get_right_encoder_ticks() < -50,
@@ -135,13 +147,15 @@ EXPORT void subsystem2_test(void)
     /* S2-U09: Differential Steering (Pivot Left/Right) */
     tm_printf((UB*)"\n[S2-U09] Testing counter-rotation (pivots)...\n");
     motor_reset_ticks();
+    s2_set_us_clearance(255);
     
-    s2_set_ir_velocity(-255, 255); /* Pivot Left */
-    tk_dly_tsk(250);
-    s2_set_ir_velocity(255, -255); /* Pivot Right */
-    tk_dly_tsk(250);
+    s2_set_ir_velocity(-S2_TEST_TURN_SPEED, S2_TEST_TURN_SPEED); /* Pivot Left */
+    tk_dly_tsk(800);
+    s2_set_ir_velocity(S2_TEST_TURN_SPEED, -S2_TEST_TURN_SPEED); /* Pivot Right */
+    tk_dly_tsk(800);
     
     s2_set_ir_velocity(0, 0);
+    tk_dly_tsk(300); /* Wait for momentum to settle */
     
     /* If the microcontroller doesn't crash from the H-bridge current flip, it passes */
     TEST_CHECK("S2-U09", 
@@ -155,17 +169,18 @@ EXPORT void subsystem2_test(void)
     motor_reset_ticks();
     
     s2_set_us_clearance(255);
-    s2_set_ir_velocity(255, 0); /* Command left wheel only */
-    tk_dly_tsk(500);
+    s2_set_ir_velocity(S2_TEST_SINGLE_SPEED, 0); /* Command left wheel only */
+    tk_dly_tsk(800);
     
     s2_set_ir_velocity(0, 0);
-    tk_dly_tsk(200); /* Wait for momentum to settle */
+    tk_dly_tsk(300); /* Wait for momentum to settle */
     
     TEST_CHECK("S2-U10",
            get_left_encoder_ticks() > 50 && get_right_encoder_ticks() == 0,
            "Left encoder counts positive while right encoder remains at exactly 0");
 
 
+    ir_motion_consumer_set_paused(false); /* Resume normal operation after test */   
            
     TEST_SUMMARY("subsystem2");
 }
