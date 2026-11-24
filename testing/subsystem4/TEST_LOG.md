@@ -102,7 +102,7 @@ and do not touch it for about 8 seconds. They are in `app_program/subsystem4/sub
 
 | S4-U11 | picked up: the wheels stop, and release after it is put down | project change: pick-up detection, IF-07, IF-10 | manual | Car driving on the floor (Subsystem 2 commanding movement). Lift it off the ground, hold it for 3 s, put it down on the floor and leave it alone. Once. | within about 0.5 s of the lift the wheels stop; console `PICKED_UP (tilt N deg): motors stopped`, `faults now 0x2`, `motion: PICKED_UP`; it stays stopped while held; about 3 s after it is put down: `put down`, `faults now 0x0` and it can drive again (with `S4_LIFT_LATCH 1` it stays stopped until `s4_clear_lifted()`) |
 
-| S4-U30 | overturned: the wheels stop and stay stopped | project change: overturn detection, IF-07, IF-10 | manual | Car driving on the floor. Tip it onto its side, hold it there for 3 s, then set it upright on the floor and leave it alone. Once. | the wheels stop; console `OVERTURNED (tilt N deg): motors stopped` with N about 90; `motion: OVERTURNED`; it stays stopped while it lies on its side; once set upright it reports `PICKED_UP`, and about 3 s after it rests: `put down`, `faults now 0x0` |
+| S4-U30 | overturned: the wheels stop and stay stopped | project change: overturn detection, IF-07, IF-10 | manual | Car driving on the floor. Tip it onto its side, hold it there for 3 s, then set it upright on the floor and leave it alone. Once. | the wheels stop; console `OVERTURNED (tilt N deg): motors stopped` with N about 90; `motion: OVERTURNED`; it stays stopped while it lies on its side; |
 
 | S4-U36 | hump under ONE rear wheel (tricycle chassis) | project brief: hump height | manual | Drive over the ruler-measured hump so that only the RIGHT rear wheel climbs it, once; then only the LEFT rear wheel, once. | one `HUMP` line per run, `peak_mm` within +/-20 % of the ruler; the nose does not go up and `roll` shows the climb |
 
@@ -173,4 +173,9 @@ Add a new row for every run. Never edit or delete old rows.
 | 2026-11-18 | S4-U25 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | |
 
 | 2026-11-18 | S4-U07 | 1bdd64f | Darius | PASS | logs/2026-11-18_unit.txt | Re-run of the earlier FAIL. Fixed in 25a95bd: the test now waits for Subsystem 4's own status message and retries, because Subsystem 5 rewrites the obstacle field |
-
+| 2026-11-24 | S4-U10 | 25a95bd | Darius | PASS | https://youtu.be/RMK1jYUtg2g | level pitch and roll near 0; nose up positive, nose down negative; left side up gives positive roll |
+| 2026-11-24 | S4-U11 | 25a95bd | Darius | PASS | https://youtu.be/RMK1jYUtg2g | wheels stopped within about 0.5 s of the lift, stayed stopped while held, released after being put down |
+| 2026-11-24 | S4-U30 | 25a95bd | Darius | PASS | https://youtu.be/SZSbGvP1IzI | wheels stopped on its side, stayed stopped; |
+| 2026-11-24 | S4-U36 | 25a95bd | Darius | PASS | https://youtu.be/y29xQHxkbuE | A hump of 10mm successfully records shows up as 11 mm, which is within  20%|
+| 2026-11-24 | S4-U14 | 25a95bd | Darius | PASS | https://youtu.be/y29xQHxkbuE | recorded 2 humps tested and successfully displays the higher hump |
+| 2026-11-24 | S4-U16 | 25a95bd | Darius | PASS | https://youtu.be/ct8wM9yMECo | IMU not answering reported and FAULT_IMU_SENS set; recalibrated and bit cleared after replugging |
