@@ -58,15 +58,33 @@ void subsystem4_test(void)
 
     /* S4-U07: the pitch reaches Subsystem 1 (IF-01) and the fields that
      * Subsystem 2 and 5 set are left alone. */
-    s1_set_speed(57);
-    s1_set_obstacle(33);
-    s1_set_pitch(99);                           /* a value that is not ours */
-    tk_dly_tsk(400);                            /* a few status messages    */
-    s1_get_telemetry(&pkt);
-    TEST_CHECK("S4-U07",
-               pkt.pitch_deg > -5 && pkt.pitch_deg < 5 &&
-               pkt.speed_mm_s == 57 && pkt.obstacle_cm == 33,
-               "pitch reaches subsystem 1; speed and obstacle left unchanged");
+    /* Subsystem 5 is running during the test and writes the obstacle field
+     * after every ultrasonic reading, so one attempt can be spoiled by ITS
+     * write (not ours).  So: set the three values, wait until OUR next status
+     * message has replaced the 99 (at most 300 ms), look at the packet at that
+     * moment, and try up to 5 times.  If Subsystem 4 really overwrote another
+     * subsystem's field, every attempt would fail. */
+    {
+        BOOL ok = FALSE;
+        INT  tries, waited;
+
+        for (tries = 0; (tries < 5) && !ok; tries++) {
+            s1_set_speed(57);
+            s1_set_obstacle(33);
+            s1_set_pitch(99);                   /* a value that is not ours */
+            for (waited = 0; waited < 300; waited += 5) {
+                tk_dly_tsk(5);
+                s1_get_telemetry(&pkt);
+                if (pkt.pitch_deg != 99) {
+                    break;                      /* our status message arrived */
+                }
+            }
+            ok = (pkt.pitch_deg > -5) && (pkt.pitch_deg < 5) &&
+                 (pkt.speed_mm_s == 57) && (pkt.obstacle_cm == 33);
+        }
+        TEST_CHECK("S4-U07", ok,
+                   "pitch reaches subsystem 1; speed and obstacle left unchanged");
+    }
 
     /* S4-U08: an IMU fault reaches Subsystem 1's fault mask (FAULT_IMU_SENS)
      * without disturbing another subsystem's bit, and is removed again. */
@@ -146,4 +164,4 @@ void subsystem4_test(void)
     TEST_SUMMARY("subsystem4");
 }
 
-#endif /* APP_TEST */
+#endif /* APP_TEST */

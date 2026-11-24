@@ -29,6 +29,19 @@ echo
 echo "=== scenario 2b: the encoder counters are zeroed IN THE MIDDLE of the hump (motor_reset_ticks): the hump must still be measured"
 /tmp/s4_sim reset
 echo
+echo "=== scenario 7: a hump under the RIGHT rear wheel only (tricycle: the front wheel stays down, the nose never goes up, the car ROLLS): height = track width x sin(roll)"
+/tmp/s4_sim sidehump
+echo
+echo "=== scenario 7a: the same under the LEFT rear wheel"
+/tmp/s4_sim sidehump_l
+echo
+echo "=== scenario 7b: CONTROL: the same right-hand hump with the roll detector switched off (S4_SIDE_ENABLE 0): the old pitch-only detector sees nothing"
+build s4_sim_noside -DS4_SIDE_ENABLE=0
+/tmp/s4_sim_noside sidehump
+echo
+echo "=== scenario 7c: a tight curve with 0.06 g of sideways acceleration (3.4 degrees of fake roll): must NOT be taken for a hump"
+/tmp/s4_sim curve
+echo
 echo "=== scenario 3: picked up, carried, put down: the motors are halted at once and released after it has rested (automatic release)"
 /tmp/s4_sim lift
 echo

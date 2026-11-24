@@ -1,0 +1,782 @@
+=== packing: sizes, limits, wrap-round, the accumulator (test_pack.c)
+21 checks, 0 failed
+ALL PASSED
+
+=== scenario 1: full drive (13 s): still, accelerate, a hard knock (NOT a fault any more), hump, turn. Distance from SUBSYSTEM 2's get_distance_traveled_mm()
+  0.000 [S4] IMU found (LSM303D)
+  1.030 [S4] calibrated, spread 7 mg
+  1.516 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.023 [S4] pitch 0 roll 1 turn 0 dps  STATIONARY
+  2.326 [S4] motion: MOVING
+  2.528 [S4] pitch 1 roll 0 turn 0 dps  MOVING
+  3.035 [S4] pitch -1 roll 1 turn 0 dps  MOVING
+  3.541 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  4.047 [S4] pitch 0 roll 1 turn 0 dps  MOVING
+  4.555 [S4] pitch 1 roll 0 turn 0 dps  MOVING
+  5.061 [S4] pitch -5 roll 0 turn 0 dps  MOVING
+  5.569 [S4] pitch -1 roll -1 turn 0 dps  MOVING
+  6.079 [S4] pitch 1 roll 0 turn 0 dps  MOVING
+  6.591 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  7.104 [S4] pitch 0 roll 1 turn 0 dps  MOVING
+  7.617 [S4] pitch 5 roll 0 turn 0 dps  MOVING
+  7.821 [S4] motion: CLIMBING_HUMP
+  8.126 [S4] pitch 12 roll 0 turn 0 dps  CLIMBING_HUMP
+  8.537 [S4] motion: DESCENDING_HUMP
+  8.640 [S4] pitch -17 roll 0 turn 0 dps  DESCENDING_HUMP
+  9.133 LOG_CSV,HUMP,n=1,peak_mm=29,len_mm=316,max_mm=29
+  9.133 [S4] hump 1: peak 29 mm, length 316 mm
+  9.153 [S4] pitch 1 roll 0 turn 0 dps  DESCENDING_HUMP
+  9.357 [S4] motion: MOVING
+  9.668 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+ 10.184 [S4] motion: TURNING
+ 10.184 [S4] pitch 0 roll 1 turn 52 dps  TURNING
+ 10.698 [S4] pitch 1 roll 0 turn 60 dps  TURNING
+ 11.210 [S4] motion: MOVING
+ 11.210 [S4] pitch 0 roll 0 turn 6 dps  MOVING
+ 11.723 [S4] pitch -1 roll 0 turn 0 dps  MOVING
+ 12.234 [S4] pitch -1 roll 0 turn 0 dps  MOVING
+ 12.744 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+
+--- results (drive) ---
+samples 583, S1 pitch updates 116 (max 17, min -17 deg), humps 1, run max 29 mm, turn peak 60 dps
+  PASS  calibration succeeded (offsets removed, car still)
+  PASS  sensor read about 50 times a second
+  PASS  STATIONARY while standing still, MOVING while cruising
+  PASS  exactly one hump detected
+  PASS  peak height within +/-20% of the true 30 mm (distance from subsystem 2's get_distance_traveled_mm)
+  PASS  hump logged once through s1_csv_log_event("HUMP"), in mm
+  -- subsystem 1: telemetry (IF-01) --
+  PASS  pitch pushed through s1_set_pitch() regularly
+  PASS  nose up gives POSITIVE pitch, nose down NEGATIVE, in the telemetry
+  PASS  speed, obstacle and barcode set by others are NOT overwritten
+  PASS  hump_state reported both 1 (going up) and 2 (going down)
+  PASS  car_state reported every motion state we went through (3-bit values)
+  -- the 1.8 g knock at 5.0 s: collision detection is GONE, so it must stop nothing --
+  PASS  after the knock: no fault, no lift state, no PICKED_UP / OVERTURNED motion state, no halt
+  PASS  the motors were never halted during the whole drive
+  PASS  no PICKED_UP / OVERTURNED / PUT_DOWN / IMU_FAULT event was logged
+  PASS  car_state never showed 6 (PICKED_UP) or 7 (OVERTURNED)
+  PASS  FAULT_IMU_SENS stayed clear all run; another subsystem's fault bit (WIFI) never disturbed
+  -- turning --
+  PASS  TURNING seen; turn rate about +60 dps (left is positive)
+  PASS  no sensor fault
+  PASS  s4_reset_run() clears the highest hump and the count
+ 13.061 LOG_CSV,RUN_SUMMARY,humps=0,highest_mm=0
+  PASS  run summary logged
+ALL PASSED
+
+=== scenario 2: the same drive WITHOUT encoders (S4_USE_ENCODER_DISTANCE 0): fixed-speed assumption
+  0.000 [S4] IMU found (LSM303D)
+  1.055 [S4] calibrated, spread 7 mg
+  1.547 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.061 [S4] pitch 0 roll 1 turn 0 dps  STATIONARY
+  2.370 [S4] motion: MOVING
+  2.575 [S4] pitch 1 roll 0 turn 0 dps  MOVING
+  3.090 [S4] pitch -1 roll 1 turn 0 dps  MOVING
+  3.599 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  4.113 [S4] pitch 0 roll 1 turn 0 dps  MOVING
+  4.624 [S4] pitch 1 roll 0 turn 0 dps  MOVING
+  5.133 [S4] motion: ACCELERATING
+  5.133 [S4] pitch -4 roll 0 turn 0 dps  ACCELERATING
+  5.543 [S4] motion: MOVING
+  5.645 [S4] pitch -1 roll -1 turn 0 dps  MOVING
+  6.155 [S4] pitch 1 roll 0 turn 0 dps  MOVING
+  6.667 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  7.182 [S4] pitch 0 roll 1 turn 0 dps  MOVING
+  7.696 [S4] pitch 10 roll 0 turn 0 dps  MOVING
+  7.798 [S4] motion: CLIMBING_HUMP
+  8.212 [S4] pitch 7 roll 0 turn 0 dps  CLIMBING_HUMP
+  8.519 [S4] motion: DESCENDING_HUMP
+  8.724 [S4] pitch -17 roll 0 turn 0 dps  DESCENDING_HUMP
+  9.175 LOG_CSV,HUMP,n=1,peak_mm=29,len_mm=328,max_mm=29
+  9.175 [S4] hump 1: peak 29 mm, length 328 mm
+  9.237 [S4] pitch 1 roll 0 turn 0 dps  DESCENDING_HUMP
+  9.441 [S4] motion: MOVING
+  9.750 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+ 10.265 [S4] motion: TURNING
+ 10.265 [S4] pitch 0 roll 1 turn 56 dps  TURNING
+ 10.779 [S4] pitch 1 roll 0 turn 60 dps  TURNING
+ 11.191 [S4] motion: MOVING
+ 11.293 [S4] pitch 0 roll 0 turn 2 dps  MOVING
+ 11.807 [S4] pitch -1 roll 0 turn 0 dps  MOVING
+ 12.320 [S4] pitch -1 roll 0 turn 0 dps  MOVING
+ 12.833 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+
+--- results (drive) ---
+samples 578, S1 pitch updates 115 (max 17, min -17 deg), humps 1, run max 29 mm, turn peak 60 dps
+  PASS  calibration succeeded (offsets removed, car still)
+  PASS  sensor read about 50 times a second
+  PASS  STATIONARY while standing still, MOVING while cruising
+  PASS  exactly one hump detected
+  PASS  peak height within 12 mm of the true 30 mm (fixed-speed assumption)
+  PASS  hump logged once through s1_csv_log_event("HUMP"), in mm
+  -- subsystem 1: telemetry (IF-01) --
+  PASS  pitch pushed through s1_set_pitch() regularly
+  PASS  nose up gives POSITIVE pitch, nose down NEGATIVE, in the telemetry
+  PASS  speed, obstacle and barcode set by others are NOT overwritten
+  PASS  hump_state reported both 1 (going up) and 2 (going down)
+  PASS  car_state reported every motion state we went through (3-bit values)
+  -- the 1.8 g knock at 5.0 s: collision detection is GONE, so it must stop nothing --
+  PASS  after the knock: no fault, no lift state, no PICKED_UP / OVERTURNED motion state, no halt
+  PASS  the motors were never halted during the whole drive
+  PASS  no PICKED_UP / OVERTURNED / PUT_DOWN / IMU_FAULT event was logged
+  PASS  car_state never showed 6 (PICKED_UP) or 7 (OVERTURNED)
+  PASS  FAULT_IMU_SENS stayed clear all run; another subsystem's fault bit (WIFI) never disturbed
+  -- turning --
+  PASS  TURNING seen; turn rate about +60 dps (left is positive)
+  PASS  no sensor fault
+  PASS  s4_reset_run() clears the highest hump and the count
+ 13.061 LOG_CSV,RUN_SUMMARY,humps=0,highest_mm=0
+  PASS  run summary logged
+ALL PASSED
+
+=== scenario 2b: the encoder counters are zeroed IN THE MIDDLE of the hump (motor_reset_ticks): the hump must still be measured
+  0.001 [S4] IMU found (LSM303D)
+  1.056 [S4] calibrated, spread 7 mg
+  1.549 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.060 [S4] pitch 0 roll 1 turn 0 dps  STATIONARY
+  2.368 [S4] motion: MOVING
+  2.572 [S4] pitch 1 roll 0 turn 0 dps  MOVING
+  3.083 [S4] pitch -1 roll 1 turn 0 dps  MOVING
+  3.598 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  4.107 [S4] pitch 0 roll 1 turn 0 dps  MOVING
+  4.618 [S4] pitch 1 roll 0 turn 0 dps  MOVING
+  5.132 [S4] motion: ACCELERATING
+  5.132 [S4] pitch -2 roll 0 turn 0 dps  ACCELERATING
+  5.336 [S4] motion: MOVING
+  5.644 [S4] pitch -1 roll -1 turn 0 dps  MOVING
+  6.157 [S4] pitch 1 roll 0 turn 0 dps  MOVING
+  6.670 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  7.184 [S4] pitch 0 roll 1 turn 0 dps  MOVING
+  7.697 [S4] pitch 10 roll 0 turn 0 dps  MOVING
+  7.800 [S4] motion: CLIMBING_HUMP
+  8.213 [S4] pitch 7 roll 0 turn 0 dps  CLIMBING_HUMP
+  8.519 [S4] motion: DESCENDING_HUMP
+  8.725 [S4] pitch -17 roll 0 turn 0 dps  DESCENDING_HUMP
+  9.176 LOG_CSV,HUMP,n=1,peak_mm=28,len_mm=324,max_mm=28
+  9.176 [S4] hump 1: peak 28 mm, length 324 mm
+  9.238 [S4] pitch 1 roll 0 turn 0 dps  DESCENDING_HUMP
+  9.443 [S4] motion: MOVING
+  9.750 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+ 10.264 [S4] motion: TURNING
+ 10.264 [S4] pitch 0 roll 1 turn 56 dps  TURNING
+ 10.775 [S4] pitch 1 roll 0 turn 60 dps  TURNING
+ 11.185 [S4] motion: MOVING
+ 11.288 [S4] pitch 0 roll 0 turn 2 dps  MOVING
+ 11.801 [S4] pitch -1 roll 0 turn 0 dps  MOVING
+ 12.314 [S4] pitch -1 roll 0 turn 0 dps  MOVING
+ 12.827 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+
+--- results (reset) ---
+samples 578, S1 pitch updates 115 (max 17, min -17 deg), humps 1, run max 28 mm, turn peak 60 dps
+  PASS  calibration succeeded (offsets removed, car still)
+  PASS  sensor read about 50 times a second
+  PASS  STATIONARY while standing still, MOVING while cruising
+  PASS  exactly one hump detected
+  PASS  peak height within +/-20% of the true 30 mm (distance from subsystem 2's get_distance_traveled_mm)
+  PASS  hump logged once through s1_csv_log_event("HUMP"), in mm
+  -- subsystem 1: telemetry (IF-01) --
+  PASS  pitch pushed through s1_set_pitch() regularly
+  PASS  nose up gives POSITIVE pitch, nose down NEGATIVE, in the telemetry
+  PASS  speed, obstacle and barcode set by others are NOT overwritten
+  PASS  hump_state reported both 1 (going up) and 2 (going down)
+  PASS  car_state reported every motion state we went through (3-bit values)
+  -- the 1.8 g knock at 5.0 s: collision detection is GONE, so it must stop nothing --
+  PASS  after the knock: no fault, no lift state, no PICKED_UP / OVERTURNED motion state, no halt
+  PASS  the motors were never halted during the whole drive
+  PASS  no PICKED_UP / OVERTURNED / PUT_DOWN / IMU_FAULT event was logged
+  PASS  car_state never showed 6 (PICKED_UP) or 7 (OVERTURNED)
+  PASS  FAULT_IMU_SENS stayed clear all run; another subsystem's fault bit (WIFI) never disturbed
+  -- turning --
+  PASS  TURNING seen; turn rate about +60 dps (left is positive)
+  PASS  no sensor fault
+  PASS  s4_reset_run() clears the highest hump and the count
+ 13.058 LOG_CSV,RUN_SUMMARY,humps=0,highest_mm=0
+  PASS  run summary logged
+ALL PASSED
+
+=== scenario 3: picked up, carried, put down: the motors are halted at once and released after it has rested (automatic release)
+  0.001 [S4] IMU found (LSM303D)
+  1.048 [S4] calibrated, spread 7 mg
+  1.536 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.051 [S4] pitch 0 roll 1 turn 0 dps  STATIONARY
+  2.113 LOG_CSV,PICKED_UP,tilt_deg=0
+  2.113 [S4] PICKED_UP (tilt 0 deg): motors stopped
+  2.113 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.113 [S4] faults now 0x2
+  2.154 [S4] motion: PICKED_UP
+  2.565 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  3.017 [S4] clear ignored: the car is not resting level
+  3.078 [S4] pitch 11 roll 1 turn 0 dps  PICKED_UP
+  3.593 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  4.104 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  4.616 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.132 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.646 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  6.161 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  6.672 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  6.714 LOG_CSV,PUT_DOWN,tilt_deg=0
+  6.714 [S4] put down (tilt 0 deg)
+  6.714 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  6.714 [S4] faults now 0x0
+  6.878 [S4] motion: STATIONARY
+  7.186 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  7.699 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  8.211 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- lift: picked up at 2.0 s, carried, put down at 3.95 s  (S4_PUTDOWN_MS 2000, S4_LIFT_LATCH 0, LED task phase 0 ms) ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  picked up: the detector says PICKED_UP
+  PASS  the motors were halted within 0.45 s of the lift (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is PICKED_UP (6), not OVERTURNED
+  PASS  a clear by someone else while it is still lifted is undone, and the motors are halted again
+  PASS  a CLEAR sent while the car is still being carried is ignored
+  PASS  still stopped 1 s after being put down: it has to rest for S4_PUTDOWN_MS first
+  PASS  released by itself after resting level for S4_PUTDOWN_MS, through s1_clear_fault()
+  PASS  FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)
+  PASS  logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)
+  PASS  telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)
+  PASS  another subsystem's fault bit untouched
+  PASS  no sensor fault
+ALL PASSED
+
+=== scenario 3a: the same with S4_LIFT_LATCH = 1: stays latched until s4_clear_lifted(), accepted only while resting level
+  0.000 [S4] IMU found (LSM303D)
+  1.048 [S4] calibrated, spread 7 mg
+  1.541 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.054 [S4] pitch 0 roll 1 turn 0 dps  STATIONARY
+  2.115 LOG_CSV,PICKED_UP,tilt_deg=0
+  2.115 [S4] PICKED_UP (tilt 0 deg): motors stopped
+  2.115 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.115 [S4] faults now 0x2
+  2.157 [S4] motion: PICKED_UP
+  2.569 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  3.020 [S4] clear ignored: the car is not resting level
+  3.082 [S4] pitch 11 roll 1 turn 0 dps  PICKED_UP
+  3.594 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  4.106 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  4.617 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.130 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.646 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  6.158 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  6.671 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  6.955 LOG_CSV,PUT_DOWN,tilt_deg=0
+  6.955 [S4] put down (tilt 0 deg)
+  6.955 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  6.955 [S4] faults now 0x0
+  7.078 [S4] motion: STATIONARY
+  7.181 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  7.692 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  8.206 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- lift: picked up at 2.0 s, carried, put down at 3.95 s  (S4_PUTDOWN_MS 2000, S4_LIFT_LATCH 1, LED task phase 0 ms) ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  picked up: the detector says PICKED_UP
+  PASS  the motors were halted within 0.45 s of the lift (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is PICKED_UP (6), not OVERTURNED
+  PASS  a clear by someone else while it is still lifted is undone, and the motors are halted again
+  PASS  a CLEAR sent while the car is still being carried is ignored
+  PASS  still stopped 1 s after being put down: it has to rest for S4_PUTDOWN_MS first
+  PASS  S4_LIFT_LATCH = 1: still latched after resting long enough
+  PASS  s4_clear_lifted() releases it once the car is resting level
+  PASS  FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)
+  PASS  logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)
+  PASS  telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)
+  PASS  another subsystem's fault bit untouched
+  PASS  no sensor fault
+ALL PASSED
+
+=== scenario 3b: no ghost fault.  Put down and released after 0.6 s; Subsystem 1's LED task is run at 6 different phases
+  0.000 [S4] IMU found (LSM303D)
+  1.035 [S4] calibrated, spread 7 mg
+  1.521 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.034 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.116 LOG_CSV,PICKED_UP,tilt_deg=0
+  2.116 [S4] PICKED_UP (tilt 0 deg): motors stopped
+  2.116 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.116 [S4] faults now 0x2
+  2.137 [S4] motion: PICKED_UP
+  2.546 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  3.018 [S4] clear ignored: the car is not resting level
+  3.058 [S4] pitch 11 roll 1 turn 0 dps  PICKED_UP
+  3.572 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  4.083 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  4.598 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.109 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.314 LOG_CSV,PUT_DOWN,tilt_deg=0
+  5.314 [S4] put down (tilt 0 deg)
+  5.314 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  5.314 [S4] faults now 0x0
+  5.416 [S4] motion: CLIMBING_HUMP
+  5.624 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.136 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.551 [S4] motion: STATIONARY
+  6.653 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- ghost: picked up at 2.0 s, carried, put down at 3.95 s  (S4_PUTDOWN_MS 600, S4_LIFT_LATCH 0, LED task phase 0 ms) ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  picked up: the detector says PICKED_UP
+  PASS  the motors were halted within 0.45 s of the lift (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is PICKED_UP (6), not OVERTURNED
+  PASS  a clear by someone else while it is still lifted is undone, and the motors are halted again
+  PASS  a CLEAR sent while the car is still being carried is ignored
+  PASS  released by itself after resting level for S4_PUTDOWN_MS, through s1_clear_fault()
+  PASS  FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)
+  PASS  logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)
+  PASS  telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)
+  PASS  another subsystem's fault bit untouched
+  PASS  no sensor fault
+ALL PASSED
+  0.001 [S4] IMU found (LSM303D)
+  1.060 [S4] calibrated, spread 7 mg
+  1.553 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.065 [S4] pitch -1 roll 1 turn 0 dps  STATIONARY
+  2.107 LOG_CSV,PICKED_UP,tilt_deg=0
+  2.108 [S4] PICKED_UP (tilt 0 deg): motors stopped
+  2.108 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.108 [S4] faults now 0x2
+  2.170 [S4] motion: PICKED_UP
+  2.582 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  3.012 [S4] clear ignored: the car is not resting level
+  3.094 [S4] pitch 11 roll 1 turn 0 dps  PICKED_UP
+  3.608 [S4] pitch 9 roll 0 turn 0 dps  PICKED_UP
+  4.120 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  4.635 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.148 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.292 LOG_CSV,PUT_DOWN,tilt_deg=0
+  5.292 [S4] put down (tilt 0 deg)
+  5.292 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  5.292 [S4] faults now 0x0
+  5.457 [S4] motion: CLIMBING_HUMP
+  5.663 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.175 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.484 [S4] motion: STATIONARY
+  6.691 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- ghost: picked up at 2.0 s, carried, put down at 3.95 s  (S4_PUTDOWN_MS 600, S4_LIFT_LATCH 0, LED task phase 40 ms) ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  picked up: the detector says PICKED_UP
+  PASS  the motors were halted within 0.45 s of the lift (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is PICKED_UP (6), not OVERTURNED
+  PASS  a clear by someone else while it is still lifted is undone, and the motors are halted again
+  PASS  a CLEAR sent while the car is still being carried is ignored
+  PASS  released by itself after resting level for S4_PUTDOWN_MS, through s1_clear_fault()
+  PASS  FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)
+  PASS  logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)
+  PASS  telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)
+  PASS  another subsystem's fault bit untouched
+  PASS  no sensor fault
+ALL PASSED
+  0.000 [S4] IMU found (LSM303D)
+  1.049 [S4] calibrated, spread 7 mg
+  1.540 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.057 [S4] pitch 0 roll 1 turn 0 dps  STATIONARY
+  2.119 LOG_CSV,PICKED_UP,tilt_deg=0
+  2.119 [S4] PICKED_UP (tilt 0 deg): motors stopped
+  2.119 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.119 [S4] faults now 0x2
+  2.160 [S4] motion: PICKED_UP
+  2.569 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  3.021 [S4] clear ignored: the car is not resting level
+  3.082 [S4] pitch 11 roll 1 turn 0 dps  PICKED_UP
+  3.597 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  4.111 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  4.625 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.138 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.365 LOG_CSV,PUT_DOWN,tilt_deg=0
+  5.365 [S4] put down (tilt 0 deg)
+  5.365 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  5.365 [S4] faults now 0x0
+  5.548 [S4] motion: CLIMBING_HUMP
+  5.649 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.156 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.566 [S4] motion: STATIONARY
+  6.669 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- ghost: picked up at 2.0 s, carried, put down at 3.95 s  (S4_PUTDOWN_MS 600, S4_LIFT_LATCH 0, LED task phase 80 ms) ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  picked up: the detector says PICKED_UP
+  PASS  the motors were halted within 0.45 s of the lift (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is PICKED_UP (6), not OVERTURNED
+  PASS  a clear by someone else while it is still lifted is undone, and the motors are halted again
+  PASS  a CLEAR sent while the car is still being carried is ignored
+  PASS  released by itself after resting level for S4_PUTDOWN_MS, through s1_clear_fault()
+  PASS  FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)
+  PASS  logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)
+  PASS  telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)
+  PASS  another subsystem's fault bit untouched
+  PASS  no sensor fault
+ALL PASSED
+  0.000 [S4] IMU found (LSM303D)
+  1.055 [S4] calibrated, spread 7 mg
+  1.547 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.061 [S4] pitch 0 roll 1 turn 0 dps  STATIONARY
+  2.122 LOG_CSV,PICKED_UP,tilt_deg=0
+  2.122 [S4] PICKED_UP (tilt 0 deg): motors stopped
+  2.122 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.122 [S4] faults now 0x2
+  2.163 [S4] motion: PICKED_UP
+  2.574 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  3.004 [S4] clear ignored: the car is not resting level
+  3.087 [S4] pitch 11 roll 1 turn 0 dps  PICKED_UP
+  3.598 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  4.110 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  4.622 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.135 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.361 LOG_CSV,PUT_DOWN,tilt_deg=0
+  5.361 [S4] put down (tilt 0 deg)
+  5.361 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  5.361 [S4] faults now 0x0
+  5.545 [S4] motion: CLIMBING_HUMP
+  5.647 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.160 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.570 [S4] motion: STATIONARY
+  6.673 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- ghost: picked up at 2.0 s, carried, put down at 3.95 s  (S4_PUTDOWN_MS 600, S4_LIFT_LATCH 0, LED task phase 120 ms) ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  picked up: the detector says PICKED_UP
+  PASS  the motors were halted within 0.45 s of the lift (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is PICKED_UP (6), not OVERTURNED
+  PASS  a clear by someone else while it is still lifted is undone, and the motors are halted again
+  PASS  a CLEAR sent while the car is still being carried is ignored
+  PASS  released by itself after resting level for S4_PUTDOWN_MS, through s1_clear_fault()
+  PASS  FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)
+  PASS  logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)
+  PASS  telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)
+  PASS  another subsystem's fault bit untouched
+  PASS  no sensor fault
+ALL PASSED
+  0.000 [S4] IMU found (LSM303D)
+  1.054 [S4] calibrated, spread 7 mg
+  1.549 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.063 [S4] pitch -1 roll 1 turn 0 dps  STATIONARY
+  2.105 LOG_CSV,PICKED_UP,tilt_deg=0
+  2.105 [S4] PICKED_UP (tilt 0 deg): motors stopped
+  2.105 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.105 [S4] faults now 0x2
+  2.167 [S4] motion: PICKED_UP
+  2.578 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  3.006 [S4] clear ignored: the car is not resting level
+  3.088 [S4] pitch 11 roll 1 turn 0 dps  PICKED_UP
+  3.602 [S4] pitch 9 roll 0 turn 0 dps  PICKED_UP
+  4.114 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  4.631 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.142 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.287 LOG_CSV,PUT_DOWN,tilt_deg=0
+  5.288 [S4] put down (tilt 0 deg)
+  5.288 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  5.288 [S4] faults now 0x0
+  5.452 [S4] motion: CLIMBING_HUMP
+  5.656 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.171 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.479 [S4] motion: STATIONARY
+  6.685 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- ghost: picked up at 2.0 s, carried, put down at 3.95 s  (S4_PUTDOWN_MS 600, S4_LIFT_LATCH 0, LED task phase 160 ms) ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  picked up: the detector says PICKED_UP
+  PASS  the motors were halted within 0.45 s of the lift (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is PICKED_UP (6), not OVERTURNED
+  PASS  a clear by someone else while it is still lifted is undone, and the motors are halted again
+  PASS  a CLEAR sent while the car is still being carried is ignored
+  PASS  released by itself after resting level for S4_PUTDOWN_MS, through s1_clear_fault()
+  PASS  FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)
+  PASS  logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)
+  PASS  telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)
+  PASS  another subsystem's fault bit untouched
+  PASS  no sensor fault
+ALL PASSED
+  0.001 [S4] IMU found (LSM303D)
+  1.056 [S4] calibrated, spread 7 mg
+  1.551 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.063 [S4] pitch -1 roll 1 turn 0 dps  STATIONARY
+  2.105 LOG_CSV,PICKED_UP,tilt_deg=0
+  2.105 [S4] PICKED_UP (tilt 0 deg): motors stopped
+  2.105 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.105 [S4] faults now 0x2
+  2.167 [S4] motion: PICKED_UP
+  2.579 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  3.010 [S4] clear ignored: the car is not resting level
+  3.092 [S4] pitch 11 roll 1 turn 0 dps  PICKED_UP
+  3.608 [S4] pitch 9 roll 0 turn 0 dps  PICKED_UP
+  4.122 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  4.636 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.148 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  5.292 LOG_CSV,PUT_DOWN,tilt_deg=0
+  5.292 [S4] put down (tilt 0 deg)
+  5.292 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  5.292 [S4] faults now 0x0
+  5.456 [S4] motion: CLIMBING_HUMP
+  5.660 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.173 [S4] pitch 0 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.481 [S4] motion: STATIONARY
+  6.686 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- ghost: picked up at 2.0 s, carried, put down at 3.95 s  (S4_PUTDOWN_MS 600, S4_LIFT_LATCH 0, LED task phase 200 ms) ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  picked up: the detector says PICKED_UP
+  PASS  the motors were halted within 0.45 s of the lift (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is PICKED_UP (6), not OVERTURNED
+  PASS  a clear by someone else while it is still lifted is undone, and the motors are halted again
+  PASS  a CLEAR sent while the car is still being carried is ignored
+  PASS  released by itself after resting level for S4_PUTDOWN_MS, through s1_clear_fault()
+  PASS  FAULT_IMU_SENS is still CLEAR 1.2 s after the release (no ghost fault came back)
+  PASS  logged once each: PICKED_UP and PUT_DOWN (no OVERTURNED)
+  PASS  telemetry car_state showed 6 (PICKED_UP) and never 7 (OVERTURNED)
+  PASS  another subsystem's fault bit untouched
+  PASS  no sensor fault
+ALL PASSED
+
+=== scenario 3c: tipped onto its side, left lying, then set upright
+  0.000 [S4] IMU found (LSM303D)
+  1.062 [S4] calibrated, spread 7 mg
+  1.556 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.070 [S4] pitch -1 roll -5 turn 0 dps  STATIONARY
+  2.172 [S4] motion: MOVING
+  2.582 [S4] pitch 3 roll -43 turn 0 dps  MOVING
+  2.787 LOG_CSV,OVERTURNED,tilt_deg=84
+  2.787 [S4] OVERTURNED (tilt 84 deg): motors stopped
+  2.787 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.787 [S4] faults now 0x2
+  2.787 [S4] motion: OVERTURNED
+  3.093 [S4] pitch 3 roll -43 turn 0 dps  OVERTURNED
+  3.606 [S4] pitch 3 roll -43 turn 0 dps  OVERTURNED
+  4.121 [S4] pitch 3 roll -43 turn 0 dps  OVERTURNED
+  4.634 [S4] pitch 3 roll -44 turn 0 dps  OVERTURNED
+  5.142 [S4] pitch 0 roll -1 turn 0 dps  OVERTURNED
+  5.202 LOG_CSV,PICKED_UP,tilt_deg=9
+  5.202 [S4] PICKED_UP (tilt 9 deg): motors stopped
+  5.243 [S4] motion: PICKED_UP
+  5.653 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  6.170 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  6.684 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  7.195 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  7.708 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  8.036 LOG_CSV,PUT_DOWN,tilt_deg=0
+  8.036 [S4] put down (tilt 0 deg)
+  8.036 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  8.036 [S4] faults now 0x0
+  8.221 [S4] motion: STATIONARY
+  8.221 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  8.734 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- tipped onto its side at 2.0 s, set upright at 4.5 s ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  the detector says OVERTURNED (not just PICKED_UP)
+  PASS  the motors were halted soon after it tipped (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is OVERTURNED (7), not PICKED_UP
+  PASS  logged once as OVERTURNED, and not as PICKED_UP
+  PASS  still stopped while it lies on its side, though quiet and still: it is not upright
+  PASS  telemetry car_state showed 7 (OVERTURNED) while it lay there, then 6 (PICKED_UP) once it was righted
+  PASS  set upright by hand at 5 s: the reason changed to PICKED_UP (logged once), the motors stay stopped
+  PASS  still stopped 2 s after it was set upright: it has to REST for S4_PUTDOWN_MS first, and the shaking figure needs about a second to settle
+  PASS  released after it was upright and resting for S4_PUTDOWN_MS
+  PASS  PUT_DOWN logged once
+  PASS  another subsystem's fault bit untouched
+ALL PASSED
+
+=== scenario 3d: turned upside down
+  0.001 [S4] IMU found (LSM303D)
+  1.056 [S4] calibrated, spread 7 mg
+  1.549 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.062 [S4] pitch -1 roll -7 turn 0 dps  STATIONARY
+  2.164 [S4] motion: MOVING
+  2.573 [S4] pitch 0 roll -39 turn 0 dps  MOVING
+  2.656 LOG_CSV,OVERTURNED,tilt_deg=149
+  2.656 [S4] OVERTURNED (tilt 149 deg): motors stopped
+  2.656 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.656 [S4] faults now 0x2
+  2.677 [S4] motion: OVERTURNED
+  3.087 [S4] pitch 0 roll -39 turn 0 dps  OVERTURNED
+  3.595 [S4] pitch 0 roll -39 turn 0 dps  OVERTURNED
+  4.101 [S4] pitch 0 roll -39 turn 0 dps  OVERTURNED
+  4.607 [S4] pitch 0 roll -39 turn 0 dps  OVERTURNED
+
+--- turned upside down at 2.0 s and left there ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  the detector says OVERTURNED (not just PICKED_UP)
+  PASS  the motors were halted soon after it tipped (motion_trigger_safety_halt called)
+  PASS  FAULT_IMU_SENS is set through subsystem 1
+  PASS  the motion state shown is OVERTURNED (7), not PICKED_UP
+  PASS  logged once as OVERTURNED, and not as PICKED_UP
+  PASS  still stopped while it lies upside down
+  PASS  telemetry car_state showed 7 (OVERTURNED) and never 6
+  PASS  another subsystem's fault bit untouched
+ALL PASSED
+
+=== scenario 3g: lifted (state 6), turned over IN THE HAND (state 7), turned back up (state 6), put down: the reason follows the tilt
+  0.000 [S4] IMU found (LSM303D)
+  1.019 [S4] calibrated, spread 7 mg
+  1.511 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.023 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.104 LOG_CSV,PICKED_UP,tilt_deg=0
+  2.104 [S4] PICKED_UP (tilt 0 deg): motors stopped
+  2.104 LOG_CSV,IMU_FAULT,imu_sens=1,comm=0,lifted=1
+  2.104 [S4] faults now 0x2
+  2.124 [S4] motion: PICKED_UP
+  2.531 [S4] pitch 12 roll 0 turn 0 dps  PICKED_UP
+  3.039 [S4] pitch 11 roll 1 turn 0 dps  PICKED_UP
+  3.553 [S4] pitch 3 roll -38 turn 0 dps  PICKED_UP
+  3.799 LOG_CSV,OVERTURNED,tilt_deg=155
+  3.799 [S4] OVERTURNED (tilt 155 deg): motors stopped
+  3.860 [S4] motion: OVERTURNED
+  4.067 [S4] pitch 3 roll -38 turn 0 dps  OVERTURNED
+  4.582 [S4] pitch 3 roll -38 turn 0 dps  OVERTURNED
+  5.094 [S4] pitch 3 roll -38 turn 0 dps  OVERTURNED
+  5.605 [S4] pitch 6 roll -5 turn 0 dps  OVERTURNED
+  5.811 LOG_CSV,PICKED_UP,tilt_deg=10
+  5.811 [S4] PICKED_UP (tilt 10 deg): motors stopped
+  5.811 [S4] motion: PICKED_UP
+  6.119 [S4] pitch 3 roll 0 turn 0 dps  PICKED_UP
+  6.635 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  7.147 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  7.656 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  8.168 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  8.682 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  9.135 LOG_CSV,PUT_DOWN,tilt_deg=0
+  9.135 [S4] put down (tilt 0 deg)
+  9.135 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  9.135 [S4] faults now 0x0
+  9.197 [S4] pitch 0 roll 0 turn 0 dps  PICKED_UP
+  9.299 [S4] motion: STATIONARY
+  9.711 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+ 10.223 [S4] motion: TURNING
+ 10.223 [S4] pitch 0 roll 0 turn 54 dps  TURNING
+
+--- lifted, turned over IN THE HAND, turned back up, then put down ---
+  PASS  nothing fires while the car sits on the floor, and no halt was sent
+  PASS  lifted: PICKED_UP (state 6), halted within 0.45 s, logged once
+  PASS  turned over in the hand: the reason changes to OVERTURNED (state 7), logged once, the bit stays set
+  PASS  the change of reason did not send a second halt: the motors were already stopped
+  PASS  turned back up in the hand: the reason changes back to PICKED_UP (state 6), logged again, the bit stays set
+  PASS  put down: released after resting level, and the bit clears
+  PASS  events logged: PICKED_UP twice, OVERTURNED once, PUT_DOWN once
+  PASS  telemetry car_state showed both 6 and 7
+  PASS  another subsystem's fault bit untouched
+ALL PASSED
+
+=== scenario 3e: FALSE ALARM test: rough ground (0.12 g shaking) with a knock, a vertical bump and a sideways shove
+  0.000 [S4] IMU found (LSM303D)
+  1.040 [S4] calibrated, spread 7 mg
+  1.533 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.047 [S4] pitch -2 roll 2 turn 0 dps  STATIONARY
+  2.253 [S4] motion: ACCELERATING
+  2.458 [S4] motion: MOVING
+  2.562 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  2.973 [S4] motion: ACCELERATING
+  3.076 [S4] pitch -7 roll 3 turn 0 dps  ACCELERATING
+  3.589 [S4] pitch 0 roll 0 turn 0 dps  ACCELERATING
+  3.904 [S4] motion: MOVING
+  4.109 [S4] pitch -1 roll 3 turn 0 dps  MOVING
+  4.313 [S4] motion: ACCELERATING
+  4.517 [S4] motion: MOVING
+  4.621 [S4] pitch 2 roll -1 turn 0 dps  MOVING
+  4.929 [S4] motion: ACCELERATING
+  5.136 [S4] pitch -1 roll 3 turn 0 dps  ACCELERATING
+  5.650 [S4] motion: MOVING
+  5.650 [S4] pitch -2 roll -3 turn 0 dps  MOVING
+  6.062 [S4] motion: ACCELERATING
+  6.164 [S4] pitch 4 roll 1 turn 0 dps  ACCELERATING
+  6.572 [S4] motion: MOVING
+  6.675 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  6.879 [S4] motion: ACCELERATING
+  7.187 [S4] motion: MOVING
+  7.187 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  7.596 [S4] motion: STATIONARY
+  7.699 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- rough ground (0.12 g shaking) with a 1.8 g knock, a 0.9 g vertical bump and a 0.8 g sideways shove ---
+  PASS  calibrated and sampling
+  PASS  none of it stops the car: no fault, no PICKED_UP / OVERTURNED state
+  PASS  the motors were never halted
+  PASS  no PICKED_UP / OVERTURNED / PUT_DOWN logged
+  PASS  the IMU bit stayed clear; another subsystem's bit untouched
+ALL PASSED
+
+=== scenario 3f: FALSE ALARM test: a 30 degree slope
+  0.001 [S4] IMU found (LSM303D)
+  1.049 [S4] calibrated, spread 7 mg
+  1.542 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+  2.055 [S4] pitch 0 roll 1 turn 0 dps  STATIONARY
+  2.363 [S4] motion: CLIMBING_HUMP
+  2.568 [S4] pitch 15 roll 0 turn 0 dps  CLIMBING_HUMP
+  3.083 [S4] pitch 29 roll 1 turn 0 dps  CLIMBING_HUMP
+  3.592 [S4] pitch 30 roll 0 turn 0 dps  CLIMBING_HUMP
+  4.098 [S4] pitch 30 roll 1 turn 0 dps  CLIMBING_HUMP
+  4.606 [S4] pitch 31 roll 0 turn 0 dps  CLIMBING_HUMP
+  5.113 [S4] pitch 30 roll 0 turn 0 dps  CLIMBING_HUMP
+  5.620 [S4] pitch 29 roll -1 turn 0 dps  CLIMBING_HUMP
+  6.131 [S4] pitch 29 roll 0 turn 0 dps  CLIMBING_HUMP
+  6.439 [S4] motion: ACCELERATING
+  6.642 [S4] pitch 13 roll 0 turn 0 dps  ACCELERATING
+  7.151 [S4] pitch 0 roll 0 turn 0 dps  ACCELERATING
+  7.253 [S4] motion: MOVING
+  7.658 [S4] pitch 0 roll 0 turn 0 dps  MOVING
+  7.759 [S4] motion: STATIONARY
+
+--- a 30 degree slope, climbed in 1 s and held for 3 s ---
+  PASS  calibrated and sampling
+  PASS  the slope never stops the car: no fault, no PICKED_UP / OVERTURNED state
+  PASS  the motors were never halted
+  PASS  no PICKED_UP / OVERTURNED / PUT_DOWN logged
+  PASS  the pitch really did reach about 30 degrees
+  PASS  the IMU bit stayed clear; another subsystem's bit untouched
+ALL PASSED
+
+=== scenario 4: sensor unplugged
+  0.003 [S4] IMU not answering (error -57): check 3.3V/GND, SDA on GP26, SCL on GP27
+  0.003 LOG_CSV,IMU_FAULT,imu_sens=1,comm=1,lifted=0
+  0.003 [S4] faults now 0x1
+  1.005 [S4] IMU not answering (error -57): check 3.3V/GND, SDA on GP26, SCL on GP27
+  2.008 [S4] IMU not answering (error -57): check 3.3V/GND, SDA on GP26, SCL on GP27
+  3.010 [S4] IMU not answering (error -57): check 3.3V/GND, SDA on GP26, SCL on GP27
+
+--- sensor unplugged ---
+  PASS  COMM condition raised
+  PASS  FAULT_IMU_SENS is set in subsystem 1's fault mask
+  PASS  another subsystem's fault bit untouched
+  PASS  nothing was read
+ALL PASSED
+
+=== scenario 5: sensor plugged in after 3 s (cable fixed while running)
+  0.003 [S4] IMU not answering (error -57): check 3.3V/GND, SDA on GP26, SCL on GP27
+  0.003 LOG_CSV,IMU_FAULT,imu_sens=1,comm=1,lifted=0
+  0.003 [S4] faults now 0x1
+  1.007 [S4] IMU not answering (error -57): check 3.3V/GND, SDA on GP26, SCL on GP27
+  2.010 [S4] IMU not answering (error -57): check 3.3V/GND, SDA on GP26, SCL on GP27
+  3.011 [S4] IMU found (LSM303D)
+  4.055 [S4] calibrated, spread 7 mg
+  4.056 LOG_CSV,IMU_FAULT,imu_sens=0,comm=0,lifted=0
+  4.056 [S4] faults now 0x0
+  4.547 [S4] pitch 0 roll 0 turn 0 dps  STATIONARY
+
+--- sensor plugged in after 3 s (cable fixed while running) ---
+  PASS  FAULT_IMU_SENS was set while the sensor was missing
+  PASS  calibrated by itself once the sensor appeared
+  PASS  COMM condition over: FAULT_IMU_SENS cleared again through subsystem 1
+  PASS  another subsystem's fault bit untouched
+  PASS  readings flowing again
+ALL PASSED
+
+=== scenario 6: board mounted the other way up, mapping not changed
+  0.000 [S4] IMU found (LSM303D)
+  1.033 [S4] calibration: up axis reads -1009 mg (negative): flip S4_SIGN_UP in s4_config.h
+  2.560 [S4] calibration: the car is moving, keep it still and level
+  4.091 [S4] calibration: the car is moving, keep it still and level
+  4.591 [S4] calibration FAILED: running uncalibrated
+
+--- board mounted the other way up, mapping NOT changed ---
+  PASS  calibration refuses to run (and says why)
+  PASS  the sensor itself is fine: no fault
+  PASS  an uncalibrated car does not stop itself: it cannot tell which way is up, so it reads as upside down but is NOT reported as overturned
+ALL PASSED

@@ -55,6 +55,7 @@ void report_task(INT stacd, void *exinf)
     S4_MOTION   candidate = S4_STATIONARY;  /* the state we are waiting to confirm */
     UINT        candidate_n = 0;
     UINT        lines = 0;                  /* status messages seen           */
+    UB          hump_rd = s4_hump_wr;       /* next finished hump to print    */
 
     (void)stacd;
     (void)exinf;
@@ -108,15 +109,8 @@ void report_task(INT stacd, void *exinf)
         }
 
         case S4_MSG_HUMP:
-            (void)tm_sprintf(text, (const UB*)"n=%d,peak_mm=%d,len_mm=%d,max_mm=%d",
-                             (INT)s4_hump_count,
-                             (INT)m.p.hump.peak * S4_PEAK_STEP_MM,
-                             (INT)m.p.hump.length * S4_LENGTH_STEP_MM,
-                             (INT)s4_max_hump_mm);
-            s4_log_csv("HUMP", (const char*)text);
-            S4_LOG("hump %d: peak %d mm, length %d mm\n", (INT)s4_hump_count,
-                   (INT)m.p.hump.peak * S4_PEAK_STEP_MM,
-                   (INT)m.p.hump.length * S4_LENGTH_STEP_MM);
+            /* Nothing to do here: finished humps are printed from the ring
+             * below, because this message is dropped when the buffer is full. */
             break;
 
         case S4_MSG_LIFT: {
@@ -145,6 +139,24 @@ void report_task(INT stacd, void *exinf)
 
         default:
             break;
+        }
+
+        /* Print every finished hump (climbed and descended) not yet printed.
+         * Done after ANY message, so a dropped HUMP message loses nothing. */
+        if ((UB)(s4_hump_wr - hump_rd) > (UB)S4_HUMP_RING) {
+            hump_rd = (UB)(s4_hump_wr - S4_HUMP_RING);      /* fell too far behind */
+        }
+        while (hump_rd != s4_hump_wr) {
+            const S4_HUMP_REC *r = &s4_hump_ring[hump_rd & (S4_HUMP_RING - 1U)];
+
+            (void)tm_sprintf(text, (const UB*)"n=%d,peak_mm=%d,len_mm=%d,max_mm=%d",
+                             (INT)r->n, (INT)r->peak_mm, (INT)r->len_mm,
+                             (INT)s4_max_hump_mm);
+            s4_log_csv("HUMP", (const char*)text);
+            S4_LOG("hump %d finished: height %d mm, length %d mm\n",
+                   (INT)r->n, (INT)r->peak_mm, (INT)r->len_mm);
+            S4_LOG("highest hump so far: %d mm\n", (INT)s4_max_hump_mm);
+            hump_rd = (UB)(hump_rd + 1U);
         }
     }
 }

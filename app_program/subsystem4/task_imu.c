@@ -260,6 +260,13 @@ static void hump_publish(float peak, float len, UW t_ms)
     if (peak_mm > (INT)s4_max_hump_mm) {
         s4_max_hump_mm = (UB)s4_clip_u(peak_mm, 8);
     }
+    {   /* Store the result where it cannot be dropped, then publish it. */
+        S4_HUMP_REC *r = &s4_hump_ring[s4_hump_wr & (S4_HUMP_RING - 1U)];
+        r->peak_mm = (UH)s4_clip_u(peak_mm, 12);
+        r->len_mm  = (UH)s4_clip_u(s4_round(len * 10.0f), 12);
+        r->n       = s4_hump_count;
+        s4_hump_wr = (UB)(s4_hump_wr + 1U);
+    }
     m.type          = S4_MSG_HUMP;
     m.time16        = t_ms & 0xFFFFU;
     m.p.hump.peak   = s4_clip_u(s4_round(peak * 10.0f / (float)S4_PEAK_STEP_MM), 7) & 0x7FU;

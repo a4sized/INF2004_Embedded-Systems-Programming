@@ -163,7 +163,7 @@ time `process_sample()` with the 1 MHz timer before quoting a number.
   commanded speeds are zero (`handle_motor_safety_halt`), so the follower has to stop commanding movement before the wheels
   can turn again.
 - **`car_state` is assumed to be subsystem 4's motion state** (8 states = 3 bits). Test S4-U19 checks it; confirm with Subsystem 1. Subsystem 4 is the only writer of `car_state`, but `scripts/telemetry_decoder.py` still names the values after Subsystem 2's motor states (see `telemetry_decoder.patch`).
-- **Hump height is not in the 8-byte packet**, only in the CSV log. Ask Subsystem 1 for a field.
+- **Hump height is in the 8-byte packet** (`hump_height_mm`, 10 bits, filled by Subsystem 1 from `s4_get_max_hump_mm()` once per second) and in the CSV log (`HUMP` line). The highest hump of the run is reported.
 - **The CSV log is text.** Ask the professor whether it counts as application data.
 - **Ghost fault (found by the simulation, fixed in subsystem 4, root cause is in Subsystem 1).** `s1_report_fault()`
   sets the mask bit AND a bit in Subsystem 1's event flag; `s1_clear_fault()` clears only the mask. Subsystem 1's LED
@@ -174,7 +174,7 @@ time `process_sample()` with the 1 MHz timer before quoting a number.
   fault through `s1_clear_fault()` has the same problem until Subsystem 1 fixes it.
 - **Subsystem 2's automatic fault override is commented out** (`subsystem2.c`, "Master safety override"), so `FAULT_IMU_SENS`
   alone does not stop the wheels. Picked-up / overturned stops them with the direct call `motion_trigger_safety_halt()`
-  (IF-10). A lost IMU still only raises the bit. If Subsystem 2 re-enables its override, both paths work together.
+  (IF-10). A lost IMU now also stops the car: the vehicle controller treats `FAULT_IMU_SENS` as a Tier 1 fatal fault (`VC_FAULT`) and halts the motors. If Subsystem 2 re-enables its override, both paths work together.
 - **Pins (checked against `PINLAYOUT.md` and the code):** the encoders moved to GP17/GP16 (left A/B) and GP5/GP4 (right A/B).
   Subsystem 4 does not use them, and its own pins are unchanged: I2C1 on GP26 (SDA) and GP27 (SCL). One hardware risk:
   `PINLAYOUT.md` puts the edge sensor's (Grove 4) analog output on **GP26, the same pin as the IMU's SDA**. If the IMU
@@ -186,7 +186,7 @@ time `process_sample()` with the 1 MHz timer before quoting a number.
 
 - **Acceleration looks like tilt.** (The encoder distance now gives the speed, so this could be corrected; it is not.) Speeding up or braking pushes the accelerometer the same way as tilting does.
   Drive over humps at a steady speed.
-- **Hump height can only be as accurate as the distance.** It uses Subsystem 2's `WHEEL_DIAMETER_MM` (66) and `ENCODER_TPR` (2050), both marked "replace with your exact value". Height scales directly with them: a 2 % error in the distance is a 2 % error in every hump. Push the robot an exactly measured distance (1 m or more, tape measure) and compare it with the distance Subsystem 2 reports (test S4-U24). `S4_USE_ENCODER_DISTANCE 0` falls back to a fixed 20 cm/s and is only for running without encoders.
+- **Hump height can only be as accurate as the distance.** It uses Subsystem 2's `WHEEL_DIAMETER_MM` (66) and `ENCODER_TPR` (2050), both marked "replace with your exact value". Height scales directly with them: a 2 % error in the distance is a 2 % error in every hump. Check it by pushing the robot an exactly measured distance (1 m or more, tape measure) and comparing it with the distance Subsystem 2 reports; this is not a numbered test yet. `S4_USE_ENCODER_DISTANCE 0` falls back to a fixed 20 cm/s and is only for running without encoders.
 - **Short humps:** a 5 cm hump at 30 cm/s (about 8 samples) is missed with the current settings in the simulation.
   Tune `S4_HUMP_ENTER_N`, `S4_HUMP_EXIT_N` and `S4_PITCH_ALPHA` from real logs.
 - **A gentle lift can be missed.** The force rule needs about 0.2 g for 120 ms; a slow, smooth lift that is then held level

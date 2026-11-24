@@ -172,10 +172,11 @@ sends to it or waits on it. Agree on the data format before coding.
 #| IF-03 | S3 → S4 | message buffer + event flag (owned by S4) | `mbf_summary`, `flg_events` | text line ≤ `S4_SUMMARY_MAX` bytes, then `FLG_BATCH` | *example* |
 #| IF-04 | S4 → S3 | shared data under a mutex (owned by S3) | `app_stats`, `mtx_stats` | `APP_STATS`, read only while locked | *example* |
 #| IF-05 | S4 → S1 | task control | `tid_led` | `tk_sus_tsk` / `tk_rsm_tsk` / `tk_chg_pri` | *example* |
-| IF-06 | S2 -> S4 | Function calls (S2) | `get_left_encoder_ticks()`, `get_right_encoder_ticks()` | Signed ticks; S4 uses the mean of both wheels times `S4_CM_PER_TICK` (`s4_config.h`) as distance in cm. Ticks must count up when driving forward. | 2500787 |
-| IF-07 | S4 -> S1 | Function calls (S1) | `s1_report_fault(FAULT_IMU_SENS)`, `s1_clear_fault(FAULT_IMU_SENS)` | One IMU bit (bit 4), set while the IMU is not answering or a collision is active; collision released after `S4_COLLISION_HOLD_MS` (3 s, 0 = until `s4_clear_collision()` is called) | 2500787 |
-| IF-08 | S4 -> S1 | Function call (S1) | `s1_csv_log_event()` | Event names `HUMP`, `COLLISION`, `IMU_FAULT`, `RUN_SUMMARY`, with a short details string (heights in millimetres) | 2500787 |
+| IF-06 | S2 -> S4 | Function call (S2) | `get_distance_traveled_mm()` | Distance driven in millimetres: the mean of both wheel encoders, forward positive. S4 uses it for hump height. One step of more than `S4_MAX_STEP_CM` (5 cm per 20 ms) is ignored (counter reset or glitch). | 2500787 |
+| IF-07 | S4 -> S1 | Function calls (S1) | `s1_report_fault(FAULT_IMU_SENS)`, `s1_clear_fault(FAULT_IMU_SENS)` | One IMU bit (bit 4), set while the IMU is not answering or the car is picked up / overturned. A lift is released automatically after the car has rested for `S4_PUTDOWN_MS` (2 s); with `S4_LIFT_LATCH 1` it stays set until `s4_clear_lifted()` is called. | 2500787 |
+| IF-08 | S4 -> S1 | Function call (S1) | `s1_csv_log_event()` | Event names `HUMP`, `PICKED_UP`, `OVERTURNED`, `PUT_DOWN`, `IMU_FAULT`, `RUN_SUMMARY`, with a short details string (heights in millimetres) | 2500787 |
 | IF-09 | S4 -> S1 | Function calls (S1) | `s1_set_pitch()`, `s1_set_car_state()` | pitch (8 bits signed, degrees, clipped); car_state (3 bits) = Subsystem 4's motion state 0..6; hump_state (2 bits): 0 flat, 1 going up, 2 going down | pending 2501283 |
+| IF-10 | S4 -> S2 | Function call (S2) | `motion_trigger_safety_halt(FAULT_IMU_SENS)` | Called by S4 when the car is picked up / overturned, because S2's automatic fault override is commented out. | 2500787 |
 
 Each interface is tested by at least one integration test
 (`testing/integration/TEST_LOG.md`).

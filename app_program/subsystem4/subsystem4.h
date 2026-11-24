@@ -208,6 +208,15 @@ IMPORT volatile UB  s4_hump_count;      /* writer: imu_task (saturates 255)  */
 IMPORT volatile UB  s4_max_hump_mm;     /* writer: imu_task (saturates 255)  */
 IMPORT volatile UH  s4_samples;         /* writer: imu_task (wraps: use differences) */
 
+/* Finished humps waiting to be printed.  The message buffer may be full (it
+ * drops messages), so a finished hump is ALSO stored here: imu_task fills an
+ * entry, then advances s4_hump_wr; report_task prints everything between its
+ * own read position and s4_hump_wr.  S4_HUMP_RING must be a power of two. */
+#define S4_HUMP_RING        4U
+typedef struct { volatile UH peak_mm; volatile UH len_mm; volatile UB n; } S4_HUMP_REC;
+IMPORT S4_HUMP_REC  s4_hump_ring[S4_HUMP_RING];
+IMPORT volatile UB  s4_hump_wr;         /* writer: imu_task (wraps: use differences) */
+
 IMPORT void s4_fault_set(UW bits);      /* only imu_task changes faults      */
 IMPORT void s4_fault_clear(UW bits);
 IMPORT void s4_fault_assert(void);      /* repeat the report while faulted   */

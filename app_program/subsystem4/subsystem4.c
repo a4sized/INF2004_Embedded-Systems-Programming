@@ -20,6 +20,8 @@ volatile UB         s4_lift;
 volatile UB         s4_hump_count;
 volatile UB         s4_max_hump_mm;
 volatile UH         s4_samples;
+S4_HUMP_REC         s4_hump_ring[S4_HUMP_RING];
+volatile UB         s4_hump_wr;
 
 /* Our two fault conditions, one bit each.  Only imu_task changes it, so the
  * "read, change a bit, write back" is safe. */
@@ -248,4 +250,4 @@ ER subsystem4_start(void)
     }
     tid = app_start_task(report_task, S4_PRI_REPORT, 0, "report_task");
     return (tid < E_OK) ? tid : E_OK;
-}
+}
