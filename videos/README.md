@@ -54,3 +54,4 @@ Newest at the bottom. Never delete a row.
 | 2026-11-22 | S1 | `S1-U13` | `8775e14` | 2501283 | https://youtu.be/iAsuP4jn5Cg | Wi-Fi join & 1 Hz telemetry streaming on Web Dashboard |
 | 2026-11-22 | S1 | `S1-U14` | `8775e14` | 2501283 | https://youtu.be/SEq8deUzmEc | Remote MQTT commands (`START`, `STOP`, `INVALID`, `ESTOP`, `CLEAR`) & centralized fault clearing |
 | 2026-11-22 | S1 | `S1-U16` | `8775e14` | 2501283 | https://youtu.be/JkdF5ngO9cg | S5 ultrasonic obstacle width telemetry (`0..31 cm`) & Web Dashboard gauge display |
+| 2026-11-24 | S2 | `S2-U08/U09/U10` |`6e45c79` | 2501820 | https://youtu.be/YimOlkuZO2s | S2 Reverse Odometry, Differential Steering, Channel Isolation |
