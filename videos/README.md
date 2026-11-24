@@ -70,3 +70,7 @@ Newest at the bottom. Never delete a row.
 | 2026-11-24 | S4 | `S4-U30` | `25a95bd` | 2500787 | https://youtu.be/SZSbGvP1IzI | Car on its side: wheels stop and stay stopped; reported `PICKED_UP` once upright, faults cleared after putting down |
 | 2026-11-24 | S4 | `S4-U14` / `S4-U36` | `25a95bd` | 2500787 | https://youtu.be/y29xQHxkbuE | Hump height: a 10 mm hump read as 11 mm (within 20 %); two humps on one run, the higher one reported |
 | 2026-11-24 | S4 | `S4-U16` | `25a95bd` | 2500787 | https://youtu.be/ct8wM9yMECo | IMU unplugged: `FAULT_IMU_SENS` set; recalibrated and fault cleared after replugging |
+| 2026-11-19 | S3 | `S3-M01` | Pending | 2501107 | [Left turn video](https://youtube.com/shorts/wQ1VXyUp1To?feature=share) | Line following, barcode decoding, junction detection, and left turn |
+| 2026-11-19 | S3 | `S3-M02` | Pending | 2501107 | [Right turn video](https://youtu.be/xYHqsB7dWBY) | Line following, barcode decoding, junction detection, and right turn |
+| 2026-11-19 | S3 | `S3-M03` | Pending | 2501107 | [Straight video](https://youtube.com/shorts/kDpTaxi1b3c) | Line following, barcode decoding, junction detection, and straight travel |
+| 2026-11-19 | S3 | `S3-M04` | Pending | 2501107 | [U-turn video](https://youtube.com/shorts/zCP5LPdWkfk?feature=share) | Line following, barcode decoding, junction detection, and U-turn |
