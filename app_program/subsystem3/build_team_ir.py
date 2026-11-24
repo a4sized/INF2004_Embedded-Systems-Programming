@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build team/diagnostic images with the IR service and a 5 ms kernel tick."""
+"""Build isolated team/diagnostic profiles; default kernel tick is 5 ms."""
 
 from pathlib import Path
 import os
@@ -19,8 +19,16 @@ FORCE_MOTOR_TEST_IMAGE = "team_s2_forced_motor_test_smp1_usb_cdc_wifi_cyw43"
 
 
 def main(moving_test=False, force_motor_test=False, network=False, mqtt=False,
-         wifi_test_only=False):
+         wifi_test_only=False, uturn_calibration=False, uturn_track_mm=129,
+         barcode_1ms_test=False):
     network = network or wifi_test_only
+    if barcode_1ms_test and (not network or not mqtt or wifi_test_only or
+                            moving_test or force_motor_test or uturn_calibration):
+        raise ValueError("1 ms barcode trial requires the networked team profile.")
+    if uturn_calibration:
+        if not isinstance(uturn_track_mm, int) or not 1 <= uturn_track_mm <= 500:
+            raise ValueError("Calibration effective track must be 1..500 mm.")
+        force_motor_test = True
     if moving_test and force_motor_test:
         raise ValueError("Select only one diagnostic profile.")
     if mqtt and not network:
@@ -47,7 +55,7 @@ def main(moving_test=False, force_motor_test=False, network=False, mqtt=False,
         config = stage / "config" / "config.h"
         configured, count = re.subn(
             r"(?m)^(#define\s+CNF_TIMER_PERIOD\s+)\d+\b",
-            lambda match: f"{match.group(1)}5",
+            lambda match: f"{match.group(1)}{1 if barcode_1ms_test else 5}",
             config.read_text(),
         )
         if count != 1:
@@ -60,12 +68,19 @@ def main(moving_test=False, force_motor_test=False, network=False, mqtt=False,
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination)
         makefile = (recipes / "makefile").read_text()
+        if barcode_1ms_test:
+            makefile += ("\nmtkernel_3/app_program/%.o: CFLAGS += "
+                         "-DBUDDY3_BARCODE_1MS_TEST=1\n")
         if moving_test:
             makefile += ("\nmtkernel_3/app_program/%.o: CFLAGS += "
                          "-DBUDDY3_IR_MOVING_TEST=1\n")
         if force_motor_test:
             makefile += ("\nmtkernel_3/app_program/%.o: CFLAGS += "
                          "-DBUDDY3_FORCE_MOTOR_TEST=1\n")
+        if uturn_calibration:
+            makefile += ("\nmtkernel_3/app_program/%.o: CFLAGS += "
+                         "-DBUDDY3_UTURN_CALIBRATION=1 "
+                         f"-DIR_UTURN_EFFECTIVE_TRACK_MM={uturn_track_mm}u\n")
         if wifi_test_only:
             makefile += ("\nmtkernel_3/app_program/%.o: CFLAGS += "
                          "-DBUDDY3_WIFI_ONLY_TEST=1\n")
@@ -73,7 +88,9 @@ def main(moving_test=False, force_motor_test=False, network=False, mqtt=False,
             makefile += ("\nmtkernel_3/app_program/%.o: CFLAGS += "
                          "-DBUDDY3_BARCODE_DEBUG=1\n")
         (build / "makefile").write_text(makefile)
-        image = (FORCE_MOTOR_TEST_IMAGE if force_motor_test else
+        image = ("team_barcode_1ms_sampling_wifi_mqtt" if barcode_1ms_test else
+                 f"team_uturn_calibration_{uturn_track_mm}mm_usb" if uturn_calibration else
+                 FORCE_MOTOR_TEST_IMAGE if force_motor_test else
                  MOVING_TEST_IMAGE if moving_test else
                  WIFI_TEST_IMAGE if wifi_test_only else
                  NETWORK_IMAGE if mqtt else WIFI_IMAGE if network else IMAGE)
@@ -95,6 +112,8 @@ def main(moving_test=False, force_motor_test=False, network=False, mqtt=False,
         ).stdout
         required = (("subsystem1_init", "vehicle_controller_set_wifi_connected")
                     if wifi_test_only else
+                    ("s2_set_ir_velocity", "ir_uturn_calibration_start")
+                    if uturn_calibration else
                     ("s2_set_ir_velocity", "motor_force_test_start")
                     if force_motor_test else
                     ("ir_sensing_service_init", "ir_motion_consumer_task",
@@ -110,6 +129,8 @@ def main(moving_test=False, force_motor_test=False, network=False, mqtt=False,
         if network:
             executable = (build / f"{image}.elf").read_bytes()
             markers = [b"wifi: joining", b"wifi: link up"]
+            if barcode_1ms_test:
+                markers.append(b"IR_BARCODE_TIMING")
             if mqtt:
                 markers.append(b"mqtt: connected to")
                 markers.extend((b"IR_BARCODE_SAMPLE", b"IR_BARCODE_EDGE",
@@ -119,7 +140,11 @@ def main(moving_test=False, force_motor_test=False, network=False, mqtt=False,
                     raise RuntimeError(f"Network image is missing {marker!r}.")
             if wifi_test_only and b"[S2] encoder ticks" in executable:
                 raise RuntimeError("Wi-Fi-only image still contains motor diagnostics.")
-        if force_motor_test:
+        if uturn_calibration:
+            executable = (build / f"{image}.elf").read_bytes()
+            if b"UTURN_CAL" not in executable:
+                raise RuntimeError("Missing U-turn calibration diagnostics.")
+        elif force_motor_test:
             executable = (build / f"{image}.elf").read_bytes()
             for marker in (b"USB_READY_WAIT_3S", b"FORWARD_50_50_1S"):
                 if marker not in executable:

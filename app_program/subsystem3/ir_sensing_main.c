@@ -27,7 +27,11 @@
 
 #define IR_TASK_PRIORITY   16
 #define IR_TASK_STACK      2048
+#if defined(BUDDY3_BARCODE_1MS_TEST)
+#define IR_SAMPLE_PERIOD_MS 1u
+#else
 #define IR_SAMPLE_PERIOD_MS 5u
+#endif
 #define IR_PRINT_EVERY     40u
 #define IR_USB_READY       3u
 #define IR_LINE_STABLE_MS  10u
@@ -41,7 +45,7 @@
 #endif
 
 #if CNF_TIMER_PERIOD != IR_SAMPLE_PERIOD_MS
-#error "Buddy 3 sensing needs a 5 ms kernel tick."
+#error "IR sensing period must match this profile kernel tick."
 #endif
 
 /* User-observed DO levels: black = 1, white = 0 on all three modules. */
@@ -55,9 +59,15 @@ extern UW tm_usb_state (void);
 static void sensing_task (INT start_code, void * p_extra);
 static void sensing_tick (void * p_extra);
 static void print_capture (ir_barcode_window_t const * p_window);
+static void report_barcode_reject (ir_barcode_window_t const * p_window);
 static void halt_task (void);
 #if defined(BUDDY3_BARCODE_DEBUG)
 static char * barcode_debug_u32 (char * p_out, uint32_t value);
+#if defined(BUDDY3_BARCODE_1MS_TEST)
+static void barcode_debug_timing (uint32_t count, uint32_t min_us,
+                                  uint32_t max_us, uint32_t over2,
+                                  uint32_t over5);
+#endif
 static void barcode_debug_reading (char const * p_event,
                                    drv_ir_levels_t raw, uint32_t count,
                                    uint32_t now_ms);
@@ -222,6 +232,18 @@ static void sensing_task (INT start_code, void * p_extra)
     bool b_have_previous = false;
     bool b_console_was_ready = false;
 #endif
+#if defined(BUDDY3_BARCODE_1MS_TEST)
+    uint32_t fast_previous_us = 0u;
+    uint32_t fast_report_us = 0u;
+    uint32_t fast_min_us = UINT32_MAX;
+    uint32_t fast_max_us = 0u;
+    uint32_t fast_intervals = 0u;
+    uint32_t fast_over2 = 0u;
+    uint32_t fast_over5 = 0u;
+    bool b_fast_previous = false;
+    uint32_t line_published_us = 0u;
+    bool b_line_published = false;
+#endif
     ir_line_filter_t filter = {0};
     ir_line_state_t line = {0};
     ir_fault_status_t fault_status = {0};
@@ -269,6 +291,23 @@ static void sensing_task (INT start_code, void * p_extra)
         }
 
         uint32_t const sample_us = ir_time_us();
+#if defined(BUDDY3_BARCODE_1MS_TEST)
+        if (b_fast_previous)
+        {
+            uint32_t const gap = sample_us - fast_previous_us;
+            if (gap < fast_min_us) fast_min_us = gap;
+            if (gap > fast_max_us) fast_max_us = gap;
+            ++fast_intervals;
+            if (gap > 2000u) ++fast_over2;
+            if (gap > 5000u) ++fast_over5;
+        }
+        else
+        {
+            fast_report_us = sample_us;
+        }
+        fast_previous_us = sample_us;
+        b_fast_previous = true;
+#endif
         ir_fault_status_note_sample(&fault_status, sample_us);
         drv_ir_levels_t const raw = drv_ir_read();
         ir_barcode_gpio_poll(raw.b_barcode_high, sample_us);
@@ -289,6 +328,7 @@ static void sensing_task (INT start_code, void * p_extra)
             if ((IR_BARCODE_COMPLETE_EDGES == window.count) ||
                 ir_barcode_window_expired(&window, edge.time_us))
             {
+                report_barcode_reject(&window);
                 print_capture(&window);
                 ir_barcode_window_reset(&window);
             }
@@ -303,6 +343,7 @@ static void sensing_task (INT start_code, void * p_extra)
             {
                 if (!ir_code39_start_marker_seen(&window))
                 {
+                    report_barcode_reject(&window);
                     print_capture(&window);
                     ir_barcode_window_reset(&window);
                 }
@@ -312,6 +353,7 @@ static void sensing_task (INT start_code, void * p_extra)
                 if (!ir_code39_frame_single_with_direction(
                         &window, &decoded_letter, &scan_direction))
                 {
+                    report_barcode_reject(&window);
                     print_capture(&window);
                     ir_barcode_window_reset(&window);
                 }
@@ -362,13 +404,15 @@ static void sensing_task (INT start_code, void * p_extra)
                     ir_barcode_action_for(decoded_letter);
                 char const * p_action =
                     (IR_BARCODE_TURN_LEFT == action) ? "LEFT" :
-                    (IR_BARCODE_TURN_RIGHT == action) ? "RIGHT" : "UNMAPPED";
-                tm_printf((UB const *)
-                          "Code 39 decoded: %c pattern_order=%s action=%s\n",
-                          decoded_letter,
-                          (IR_CODE39_FORWARD == scan_direction) ?
-                              "FORWARD" : "REVERSE",
-                          p_action);
+                    (IR_BARCODE_TURN_RIGHT == action) ? "RIGHT" :
+                    (IR_BARCODE_U_TURN == action) ? "UTURN" :
+                    (IR_BARCODE_STRAIGHT == action) ? "STRAIGHT" : "UNMAPPED";
+                APP_LOG((UB const *)
+                        "Code 39 decoded: %c pattern_order=%s action=%s\n",
+                        decoded_letter,
+                        (IR_CODE39_FORWARD == scan_direction) ?
+                            "FORWARD" : "REVERSE",
+                        p_action);
                 print_capture(&window);
             }
 #endif
@@ -377,6 +421,7 @@ static void sensing_task (INT start_code, void * p_extra)
 
         if (ir_barcode_window_expired(&window, ir_time_us()))
         {
+            report_barcode_reject(&window);
             print_capture(&window);
             ir_barcode_window_reset(&window);
         }
@@ -407,6 +452,18 @@ static void sensing_task (INT start_code, void * p_extra)
             halt_task();
         }
 
+#if defined(BUDDY3_BARCODE_1MS_TEST)
+        /* Only raw GP6 capture/decoding runs at 1 ms. Keep the existing
+         * line filter/state and snapshot cadence at approximately 5 ms.
+         */
+        if (b_line_published &&
+            ((uint32_t)(sample_us - line_published_us) < 5000u))
+        {
+            goto sampling_done;
+        }
+        line_published_us = sample_us;
+        b_line_published = true;
+#endif
         drv_ir_levels_t const stable = ir_line_filter_update(
             &filter, raw, now.lo, IR_LINE_STABLE_MS);
         ir_sensing_result_t const result = ir_sensing_read(stable, &map);
@@ -451,43 +508,43 @@ static void sensing_task (INT start_code, void * p_extra)
 
         if (b_console_ready && !b_console_was_ready)
         {
-            tm_printf((UB const *)"Buddy 3 IR sensing: GP7 left, GP2 right,"
-                      " GP6 barcode.\n"
-                      "Black=1, white=0 for all three sensors."
-                      " Check raw levels if lighting or height changes.\n"
-                      "L/R show raw>stable; B remains raw."
-                      " Timing range is 4000..6000 us.\n"
-                      "Line decisions are diagnostic; no motion request"
-                      " is sent. GP6 edge windows last 2 s.\n");
+            APP_LOG((UB const *)"Buddy 3 IR sensing: GP7 left, GP2 right,"
+                    " GP6 barcode.\n"
+                    "Black=1, white=0 for all three sensors."
+                    " Check raw levels if lighting or height changes.\n"
+                    "L/R show raw>stable; B remains raw."
+                    " Timing range is 4000..6000 us.\n"
+                    "Line decisions are diagnostic; no motion request"
+                    " is sent. GP6 edge windows last 2 s.\n");
         }
 
         if (b_console_ready &&
             ((0u == (samples % IR_PRINT_EVERY)) || !b_console_was_ready))
         {
-            tm_printf((UB const *)
-                      "t=%u ms L=%u>%u/%s R=%u>%u/%s B=%u/%s"
-                      " pos=%s steer=%s lost=%u"
-                      " gap=%u..%u us ok=%u/%u over10ms=%u"
-                      " ir_init_fault=%u late_total=%u\n",
-                      now.lo,
-                      (UW)raw.b_left_high,
-                      (UW)stable.b_left_high,
-                      surface_name(result.left),
-                      (UW)raw.b_right_high,
-                      (UW)stable.b_right_high,
-                      surface_name(result.right),
-                      (UW)raw.b_barcode_high,
-                      surface_name(result.barcode),
-                      position_name(line.position),
-                      steer_name(line.latest_steer),
-                      (UW)line.b_lost,
-                      min_gap_us,
-                      max_gap_us,
-                      in_range,
-                      intervals,
-                      over_limit,
-                      (UW)fault_status.b_gpio_init_failed,
-                      fault_status.gaps_over_limit);
+            APP_LOG((UB const *)
+                    "t=%u ms L=%u>%u/%s R=%u>%u/%s B=%u/%s"
+                    " pos=%s steer=%s lost=%u"
+                    " gap=%u..%u us ok=%u/%u over10ms=%u"
+                    " ir_init_fault=%u late_total=%u\n",
+                    now.lo,
+                    (UW)raw.b_left_high,
+                    (UW)stable.b_left_high,
+                    surface_name(result.left),
+                    (UW)raw.b_right_high,
+                    (UW)stable.b_right_high,
+                    surface_name(result.right),
+                    (UW)raw.b_barcode_high,
+                    surface_name(result.barcode),
+                    position_name(line.position),
+                    steer_name(line.latest_steer),
+                    (UW)line.b_lost,
+                    min_gap_us,
+                    max_gap_us,
+                    in_range,
+                    intervals,
+                    over_limit,
+                    (UW)fault_status.b_gpio_init_failed,
+                    fault_status.gaps_over_limit);
         }
 
         b_console_was_ready = b_console_ready;
@@ -503,6 +560,20 @@ static void sensing_task (INT start_code, void * p_extra)
         }
 #endif
 
+#if defined(BUDDY3_BARCODE_1MS_TEST)
+    sampling_done:
+        if ((uint32_t)(sample_us - fast_report_us) >= 1000000u)
+        {
+            barcode_debug_timing(fast_intervals, fast_min_us, fast_max_us,
+                                  fast_over2, fast_over5);
+            fast_report_us = sample_us;
+            fast_min_us = UINT32_MAX;
+            fast_max_us = 0u;
+            fast_intervals = 0u;
+            fast_over2 = 0u;
+            fast_over5 = 0u;
+        }
+#endif
         if (tk_can_wup(TSK_SELF) < E_OK)
         {
             halt_task();
@@ -516,6 +587,66 @@ static void sensing_tick (void * p_extra)
     (void)tk_wup_tsk(sensing_task_id);
 }
 
+static bool barcode_str_eq (char const * p_a, char const * p_b)
+{
+    while (('\0' != *p_a) && (*p_a == *p_b))
+    {
+        ++p_a;
+        ++p_b;
+    }
+    return *p_a == *p_b;
+}
+
+/* Report rejected or failed barcode windows to Subsystem 1 telemetry so they
+ * appear in the Ground Station Barcode Scan History terminal. Short fragments
+ * (< 6 edges, e.g. a 2-edge junction bar) are ignored to avoid false alerts.
+ */
+static void report_barcode_reject (ir_barcode_window_t const * p_window)
+{
+    if ((NULL == p_window) || (0u == p_window->count))
+    {
+        return;
+    }
+    if (p_window->b_invalid)
+    {
+        s1_report_barcode_reject((UB)S1_BARCODE_ERR_INVALID);
+        return;
+    }
+    if ((10u == p_window->count) && !ir_code39_start_marker_seen(p_window))
+    {
+        s1_report_barcode_reject((UB)S1_BARCODE_ERR_START);
+        return;
+    }
+    if (IR_BARCODE_COMPLETE_EDGES == p_window->count)
+    {
+        char const * const fwd = ir_code39_frame_reason(p_window, false);
+        char const * const rev = ir_code39_frame_reason(p_window, true);
+        if (barcode_str_eq(fwd, "CHARACTER_GAP") ||
+            barcode_str_eq(rev, "CHARACTER_GAP"))
+        {
+            s1_report_barcode_reject((UB)S1_BARCODE_ERR_GAP);
+        }
+        else if (barcode_str_eq(fwd, "START_PATTERN") ||
+                 barcode_str_eq(fwd, "STOP_PATTERN") ||
+                 barcode_str_eq(fwd, "DATA_PATTERN") ||
+                 barcode_str_eq(rev, "START_PATTERN") ||
+                 barcode_str_eq(rev, "STOP_PATTERN") ||
+                 barcode_str_eq(rev, "DATA_PATTERN"))
+        {
+            s1_report_barcode_reject((UB)S1_BARCODE_ERR_PATTERN);
+        }
+        else
+        {
+            s1_report_barcode_reject((UB)S1_BARCODE_ERR_WIDTH);
+        }
+        return;
+    }
+    if (p_window->count >= 6u)
+    {
+        s1_report_barcode_reject((UB)S1_BARCODE_ERR_INCOMPLETE);
+    }
+}
+
 static void print_capture (ir_barcode_window_t const * p_window)
 {
 #if defined(BUDDY3_SENSING_STANDALONE)
@@ -527,11 +658,11 @@ static void print_capture (ir_barcode_window_t const * p_window)
         return;
     }
 
-    tm_printf((UB const *)"Barcode edge window: count=%u invalid=%u"
-              " overflows=%u segments=%s\n",
-              p_window->count, (UW)p_window->b_invalid,
-              ir_barcode_gpio_overflows(),
-              b_candidate ? "PROVISIONAL" : "NONE");
+    APP_LOG((UB const *)"Barcode edge window: count=%u invalid=%u"
+            " overflows=%u segments=%s\n",
+            p_window->count, (UW)p_window->b_invalid,
+            ir_barcode_gpio_overflows(),
+            b_candidate ? "PROVISIONAL" : "NONE");
     if (p_window->b_invalid)
     {
         return;
@@ -545,11 +676,11 @@ static void print_capture (ir_barcode_window_t const * p_window)
         uint32_t const fraction_ppm =
             (b_candidate && (index < segments.count)) ?
             segments.fractions[index] : 0u;
-        tm_printf((UB const *)"  edge=%u t=%u us level=%u"
-                  " duration=%u us fraction=%u ppm\n",
-                  index, p_window->edges[index].time_us,
-                  (UW)p_window->edges[index].b_high,
-                  duration_us, fraction_ppm);
+        APP_LOG((UB const *)"  edge=%u t=%u us level=%u"
+                " duration=%u us fraction=%u ppm\n",
+                index, p_window->edges[index].time_us,
+                (UW)p_window->edges[index].b_high,
+                duration_us, fraction_ppm);
     }
 #elif defined(BUDDY3_IR_MOVING_TEST)
     moving_log_window(p_window, '-', '-',
@@ -559,7 +690,7 @@ static void print_capture (ir_barcode_window_t const * p_window)
 #elif defined(BUDDY3_BARCODE_DEBUG)
     if ((0u != p_window->count) && (IR_USB_READY == tm_usb_state()))
     {
-        char details[80];
+        char details[160];
         char * p_out = details;
         char const * p_prefix = "edges=";
         while ('\0' != *p_prefix)
@@ -587,6 +718,23 @@ static void print_capture (ir_barcode_window_t const * p_window)
         p_out = barcode_debug_u32(
             p_out, (p_window->edges[p_window->count - 1u].time_us -
                     p_window->edges[0].time_us) / 1000u);
+        char const * reasons[2] =
+        {
+            ir_code39_frame_reason(p_window, false),
+            ir_code39_frame_reason(p_window, true)
+        };
+        for (uint32_t i = 0u; i < 2u; ++i)
+        {
+            p_prefix = (0u == i) ? ";reasonF=" : ";reasonR=";
+            while ('\0' != *p_prefix) *p_out++ = *p_prefix++;
+            p_prefix = reasons[i];
+            if ((10u == p_window->count) && !p_window->b_invalid &&
+                !ir_code39_start_marker_seen(p_window))
+            {
+                p_prefix = "START_MARKER_REJECTED";
+            }
+            while ('\0' != *p_prefix) *p_out++ = *p_prefix++;
+        }
         *p_out = '\0';
         s1_csv_log_event("IR_BARCODE_WINDOW", details);
     }
@@ -611,6 +759,28 @@ static char * barcode_debug_u32 (char * p_out, uint32_t value)
     }
     return p_out;
 }
+
+#if defined(BUDDY3_BARCODE_1MS_TEST)
+static void barcode_debug_timing (uint32_t count, uint32_t min_us,
+                                  uint32_t max_us, uint32_t over2,
+                                  uint32_t over5)
+{
+    if (IR_USB_READY != tm_usb_state()) return;
+    char details[128];
+    char * out = details;
+    char const * const labels[6] =
+        {"nominal_us=", ";n=", ";min_us=", ";max_us=", ";over2ms=", ";over5ms="};
+    uint32_t const values[6] = {1000u, count, min_us, max_us, over2, over5};
+    for (uint32_t i = 0u; i < 6u; ++i)
+    {
+        char const * label = labels[i];
+        while ('\0' != *label) *out++ = *label++;
+        out = barcode_debug_u32(out, values[i]);
+    }
+    *out = '\0';
+    s1_csv_log_event("IR_BARCODE_TIMING", details);
+}
+#endif
 
 static void barcode_debug_reading (char const * p_event,
                                    drv_ir_levels_t raw, uint32_t count,

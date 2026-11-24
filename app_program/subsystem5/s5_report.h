@@ -6,6 +6,7 @@
  * Subsystem 5 never writes them itself; it only calls Subsystem 1's API:
  *     s1_report_fault(FAULT_US_SENS) / s1_clear_fault(FAULT_US_SENS)
  *     s1_set_obstacle(cm)
+ *     s1_set_obstacle_width(cm)
  *
  * Call these only from the scanning task (they are not re-entrant), except
  * s5_report_scanner_failed(), which is for start-up.
@@ -27,19 +28,19 @@ void s5_report_sensor_error (void);
  * set because the scanning task (which would clear it) never runs. */
 void s5_report_scanner_failed (void);
 
-/* Record the latest GOOD distance (mm, NO_OBSTACLE = nothing seen) at one
- * scan position and send the nearest obstacle over all positions to
- * telemetry. Never call it for a failed reading. */
-void s5_report_distance (const uint8_t position, const uint16_t distance_mm);
+/* Send the latest GOOD straight-ahead distance (mm, NO_OBSTACLE = nothing
+ * seen) to telemetry. Never call it for a failed reading. */
+void s5_report_distance (const uint16_t distance_mm);
+
+/* Send the obstacle width (cm) measured by the last fine scan to
+ * telemetry: left + right edge, 0 if the scan failed (S1 clips it to its
+ * 5-bit 0..31 cm field, 0 = not scanned). Sent once per fine scan and kept
+ * until the next one. */
+void s5_report_obstacle_width (const uint16_t width_cm);
 
 /* Convert a reading in mm (NO_OBSTACLE = nothing seen) to the 9-bit cm
  * scale: 0..510 cm, S5_OBSTACLE_NONE_CM = nothing seen. */
 uint16_t s5_report_mm_to_cm (const uint16_t distance_mm);
-
-/* Forget the distances at every scan position except keep_position (set
- * them to "nothing seen"). Used after the start-up scan, when the sensor
- * stays facing ahead and old side readings must not hold the car. */
-void s5_report_keep_only (const uint8_t keep_position);
 
 /* True while Subsystem 5 has FAULT_US_SENS reported. */
 bool s5_report_is_faulted (void);

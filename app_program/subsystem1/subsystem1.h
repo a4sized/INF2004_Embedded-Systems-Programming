@@ -52,7 +52,7 @@ typedef struct __attribute__((packed)){
 
     /* Word 1 (32 bits) */
     int32_t  pitch_deg   : 8;   /* -128..+127 deg signed IMU pitch angle */
-    uint32_t line_mask   : 5;   /* 5-bit line tracker IR sensor pattern */
+    uint32_t obstacle_width_cm : 5; /* 0..31 cm measured S5 obstacle width (0 = not scanned) */
     uint32_t barcode_id  : 7;   /* 7-bit ASCII barcode character or ID */
     uint32_t fault_mask  : 12;  /* 12-bit consolidated fault bitmask */
 } S1_TELEMETRY_PKT;
@@ -79,13 +79,25 @@ IMPORT UW               s1_rx_commands;  /* Total valid commands received and pr
 IMPORT UW               s1_rx_rejected;  /* Total invalid/unrecognized commands rejected */
 IMPORT S1_CMD_TYPE      s1_last_cmd;     /* Most recently processed command */
 
+/* Special non-ASCII barcode_id status codes (1..6) for failed/rejected scans.
+ * Valid Code 39 letters use ASCII 'A'..'Z' (65..90); 0 = NONE.
+ * Cleared automatically after 1 telemetry TX cycle so repeat failures show up. */
+#define S1_BARCODE_NONE             0u
+#define S1_BARCODE_ERR_START        1u  /* 10-edge start marker '*' rejected */
+#define S1_BARCODE_ERR_WIDTH        2u  /* 30-edge frame rejected: bar/space width ratio */
+#define S1_BARCODE_ERR_PATTERN      3u  /* 30-edge frame rejected: invalid pattern */
+#define S1_BARCODE_ERR_GAP          4u  /* 30-edge frame rejected: inter-character gap */
+#define S1_BARCODE_ERR_INCOMPLETE   5u  /* Timed out with partial scan (>= 6 edges) */
+#define S1_BARCODE_ERR_INVALID      6u  /* Capture invalid / queue overflow */
+
 /* Public Gatekeeper APIs (Thread-safe setters under mtx_telemetry) */
 IMPORT void     s1_set_speed(INT speed_mm_s);
 IMPORT void     s1_set_obstacle(INT obstacle_cm);
 IMPORT void     s1_set_pitch(INT pitch_deg);
 IMPORT void     s1_set_barcode_id(UB barcode_id);
+IMPORT void     s1_report_barcode_reject(UB err_code);
 IMPORT void     s1_set_car_state(UW state, UW hump);
-IMPORT void     s1_set_line_mask(UW mask);
+IMPORT void     s1_set_obstacle_width(INT width_cm);
 
 /* Centralized Fault Management */
 IMPORT void     s1_report_fault(UW fault_bit);      /* Report fault from normal task context */

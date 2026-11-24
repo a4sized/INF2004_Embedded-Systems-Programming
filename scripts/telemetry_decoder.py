@@ -8,11 +8,12 @@ and decodes all packed bit-fields into human-readable engineering units and
 individual fault flags in real-time.
 """
 
+import os
 import struct
 import sys
 import paho.mqtt.client as mqtt
 
-BROKER_IP = "172.20.10.4"
+BROKER_IP = os.environ.get("MQTT_BROKER_IP", "10.33.147.245")
 BROKER_PORT = 1883
 TOPIC_TELEM = "robot/inf2004team15/telemetry"
 
@@ -28,13 +29,16 @@ FAULT_NAMES = {
     (1 << 7): "FAULT_IR_NAV",
 }
 
-# State machine names matching subsystem2.h
+# State machine names (0..4 kept compatible with motor FSM; 5..7 match subsystem4.h S4_MOTION)
 STATE_NAMES = {
     0: "MOTOR_STOPPED",
     1: "MOTOR_RAMPING",
     2: "MOTOR_STEADY_DRIVE",
     3: "MOTOR_REVERSING",
     4: "MOTOR_SAFETY_HALT",
+    5: "DESCENDING_HUMP",
+    6: "PICKED_UP",
+    7: "OVERTURNED",
 }
 
 # Hump / terrain names
@@ -43,6 +47,16 @@ HUMP_NAMES = {
     1: "RAMP_UP",
     2: "RAMP_DOWN",
     3: "HUMP_PEAK",
+}
+
+# Special non-ASCII barcode_id status codes (1..6) matching subsystem1.h
+BARCODE_ERROR_NAMES = {
+    1: "REJECTED (Start '*' Marker)",
+    2: "REJECTED (Width Ratio)",
+    3: "REJECTED (Invalid Pattern)",
+    4: "REJECTED (Character Gap)",
+    5: "FAILED (Incomplete Scan)",
+    6: "FAILED (Invalid Capture)",
 }
 
 def decode_faults(mask):
@@ -60,9 +74,10 @@ def decode_faults(mask):
     return " | ".join(active)
 
 def on_connect(client, userdata, flags, rc, properties=None):
+    broker_ip = userdata.get("broker_ip", BROKER_IP) if isinstance(userdata, dict) else BROKER_IP
     if rc == 0:
         print("\n" + "=" * 80)
-        print(f" [OK] CONNECTED TO BROKER ({BROKER_IP}:{BROKER_PORT})")
+        print(f" [OK] CONNECTED TO BROKER ({broker_ip}:{BROKER_PORT})")
         print(f" [OK] LISTENING FOR 8-BYTE PACKETS ON: {TOPIC_TELEM}")
         print("=" * 80 + "\n")
         client.subscribe(TOPIC_TELEM)
@@ -94,39 +109,49 @@ def on_message(client, userdata, msg):
 
     # Word 1 Bitfields:
     # Bits  0..7  ( 8 bits): pitch_deg signed (-128..+127)
-    # Bits  8..12 ( 5 bits): line_mask (5-bit IR sensor)
+    # Bits  8..12 ( 5 bits): obstacle_width_cm (0..31 cm S5 measured obstacle width)
     # Bits 13..19 ( 7 bits): barcode_id (0..127)
     # Bits 20..31 (12 bits): fault_mask (0..4095)
-    pitch_raw   = w1 & 0xFF
-    pitch_deg   = pitch_raw if pitch_raw < 128 else pitch_raw - 256
-    line_mask   = (w1 >> 8) & 0x1F
-    barcode_id  = (w1 >> 13) & 0x7F
-    fault_mask  = (w1 >> 20) & 0xFFF
+    pitch_raw         = w1 & 0xFF
+    pitch_deg         = pitch_raw if pitch_raw < 128 else pitch_raw - 256
+    obstacle_width_cm = (w1 >> 8) & 0x1F
+    barcode_id        = (w1 >> 13) & 0x7F
+    fault_mask        = (w1 >> 20) & 0xFFF
 
     state_str = STATE_NAMES.get(car_state, f"STATE_{car_state}")
     hump_str  = HUMP_NAMES.get(hump_state, f"HUMP_{hump_state}")
     fault_str = decode_faults(fault_mask)
 
+    if barcode_id in BARCODE_ERROR_NAMES:
+        barcode_str = BARCODE_ERROR_NAMES[barcode_id]
+    elif 32 <= barcode_id <= 126:
+        barcode_str = chr(barcode_id)
+    else:
+        barcode_str = str(barcode_id)
+
     print(f"[SEQ #{seq:03d}] Raw HEX: [{raw_hex}] (8 bytes)")
     print(f"  ├─ State:     {state_str} ({car_state})")
     print(f"  ├─ Terrain:   {hump_str} ({hump_state}) | Peak Hump Height = {hump_height_mm} mm | Pitch = {pitch_deg:+3d}°")
-    print(f"  ├─ Sensors:   Obstacle = {obstacle_cm:3d} cm | Line IR = [0b{line_mask:05b}] | Barcode = '{chr(barcode_id) if 32 <= barcode_id <= 126 else barcode_id}'")
+    print(f"  ├─ Sensors:   Obstacle = {obstacle_cm:3d} cm | Width = {obstacle_width_cm:2d} cm | Barcode = '{barcode_str}'")
     print(f"  └─ Faults:    [0x{fault_mask:03X}] -> {fault_str}")
     print("-" * 80)
 
 def main():
+    broker_ip = sys.argv[1] if len(sys.argv) > 1 else BROKER_IP
+
     # Support paho-mqtt v2 and v1
     try:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     except AttributeError:
         client = mqtt.Client()
 
+    client.user_data_set({"broker_ip": broker_ip})
     client.on_connect = on_connect
     client.on_message = on_message
 
-    print(f"Connecting to Mosquitto at {BROKER_IP}:{BROKER_PORT}...")
+    print(f"Connecting to Mosquitto at {broker_ip}:{BROKER_PORT}...")
     try:
-        client.connect(BROKER_IP, BROKER_PORT, 60)
+        client.connect(broker_ip, BROKER_PORT, 60)
         client.loop_forever()
     except KeyboardInterrupt:
         print("\nGround Station monitor stopped.")

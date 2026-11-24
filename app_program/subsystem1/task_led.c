@@ -6,7 +6,10 @@
 
 #include "subsystem1.h"
 #include "../systemFaults.h"
+#include <stdbool.h>
 #include <tstdlib.h>
+
+extern bool ir_code39_set_action_map(char left, char right, char straight, char uturn);
 
 /* Telemetry and command counters */
 EXPORT UW               s1_tx_queued = 0;          /* Total telemetry packets queued for TX */
@@ -22,7 +25,7 @@ LOCAL S1_TELEMETRY_PKT  s1_telemetry = {
         .car_state   = 0,
         .hump_state  = 0,
         .pitch_deg   = 0,
-        .line_mask   = 0,
+        .obstacle_width_cm = 0,
         .barcode_id  = 0,
         .fault_mask  = 0
 };
@@ -52,6 +55,16 @@ EXPORT void s1_set_barcode_id(UB barcode_id) {
     tk_unl_mtx(mtx_telemetry);
 }
 
+EXPORT void s1_report_barcode_reject(UB err_code) {
+    if (err_code < 1u || err_code > 31u) return;
+    tk_loc_mtx(mtx_telemetry, TMO_FEVR);
+    /* Preserve an active decoded letter ('A'..'Z') still awaiting its junction */
+    if (s1_telemetry.barcode_id < 'A' || s1_telemetry.barcode_id > 'Z') {
+        s1_telemetry.barcode_id = err_code;
+    }
+    tk_unl_mtx(mtx_telemetry);
+}
+
 EXPORT void s1_set_car_state(UW state, UW hump) {
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
     s1_telemetry.car_state = state;
@@ -59,9 +72,17 @@ EXPORT void s1_set_car_state(UW state, UW hump) {
     tk_unl_mtx(mtx_telemetry);
 }
 
-EXPORT void s1_set_line_mask(UW mask) {
+EXPORT void s1_set_obstacle_width(INT width_cm) {
+    UW clipped;
+    if (width_cm < 0) {
+        clipped = 0u;
+    } else if (width_cm > 31) {
+        clipped = 31u;
+    } else {
+        clipped = (UW)width_cm;
+    }
     tk_loc_mtx(mtx_telemetry, TMO_FEVR);
-    s1_telemetry.line_mask = mask;
+    s1_telemetry.obstacle_width_cm = clipped;
     tk_unl_mtx(mtx_telemetry);
 }
 
@@ -129,6 +150,42 @@ EXPORT S1_CMD_TYPE s1_parse_command(const UB *payload, INT len) {
     return S1_CMD_NONE;
 }
 
+/* Applies runtime barcode mapping command "MAP:LRSU" (each char A-Z or '-').
+ * Returns: 0 if not a MAP: command, 1 if applied, -1 if malformed/duplicate. */
+LOCAL INT s1_try_apply_barcode_map(const UB *payload, INT len, char details[16]) {
+    INT i;
+    char c0, c1, c2, c3;
+    char m[4];
+
+    if (payload == NULL || len < 4) return 0;
+    c0 = (char)payload[0]; if (c0 >= 'a' && c0 <= 'z') c0 -= 32;
+    c1 = (char)payload[1]; if (c1 >= 'a' && c1 <= 'z') c1 -= 32;
+    c2 = (char)payload[2]; if (c2 >= 'a' && c2 <= 'z') c2 -= 32;
+    c3 = (char)payload[3];
+    if (!(c0 == 'M' && c1 == 'A' && c2 == 'P' && c3 == ':')) return 0;
+
+    if (len < 8) return -1;
+    for (i = 8; i < len; i++) {
+        char ch = (char)payload[i];
+        if (!(ch == '\r' || ch == '\n' || ch == ' ' || ch == '\t' || ch == '\0')) {
+            return -1;
+        }
+    }
+    for (i = 0; i < 4; i++) {
+        char ch = (char)payload[4 + i];
+        if (ch >= 'a' && ch <= 'z') ch -= 32;
+        m[i] = ch;
+    }
+    if (!ir_code39_set_action_map(m[0], m[1], m[2], m[3])) {
+        return -1;
+    }
+    details[0]  = 'L'; details[1]  = '='; details[2]  = m[0]; details[3]  = ',';
+    details[4]  = 'R'; details[5]  = '='; details[6]  = m[1]; details[7]  = ',';
+    details[8]  = 'S'; details[9]  = '='; details[10] = m[2]; details[11] = ',';
+    details[12] = 'U'; details[13] = '='; details[14] = m[3]; details[15] = '\0';
+    return 1;
+}
+
 /* Logs event and telemetry state in CSV format over USB serial */
 EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
 #if defined(BUDDY3_IR_MOVING_TEST) || defined(BUDDY3_FORCE_MOTOR_TEST)
@@ -159,11 +216,11 @@ EXPORT void s1_csv_log_event(const char *event_type, const char *details) {
 #endif
           0))) {
 
-        tm_printf((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
-                  (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
-                  (INT)snap.pitch_deg, (UW)snap.fault_mask,
-                  event_type != NULL ? event_type : "NONE",
-                  details != NULL ? details : "NONE");
+        APP_LOG((UB*)"LOG_CSV,%u,%d,%d,%d,%u,%s,%s\n",
+                (UW)snap.seq, (INT)snap.speed_mm_s, (INT)snap.obstacle_cm,
+                (INT)snap.pitch_deg, (UW)snap.fault_mask,
+                event_type != NULL ? event_type : "NONE",
+                details != NULL ? details : "NONE");
     }
 }
 
@@ -203,6 +260,18 @@ EXPORT void led_task(INT stacd, void *exinf) {
 
         /* Drain and execute inbound MQTT commands from message buffer */
         while ((len = tk_rcv_mbf(mbf_mqtt_rx, rx_buf, TMO_POL)) > 0) {
+            char map_details[16];
+            INT map_res = s1_try_apply_barcode_map(rx_buf, len, map_details);
+            if (map_res == 1) {
+                s1_rx_commands++;
+                s1_csv_log_event("CMD_MAP", map_details);
+                continue;
+            } else if (map_res < 0) {
+                s1_rx_rejected++;
+                s1_csv_log_event("CMD_REJECTED", "INVALID_MAP");
+                s1_report_fault(FAULT_CMD_REJECTED);
+                continue;
+            }
             S1_CMD_TYPE cmd = s1_parse_command(rx_buf, len);
             if (cmd != S1_CMD_NONE) {
                 s1_last_cmd = cmd;
@@ -211,9 +280,9 @@ EXPORT void led_task(INT stacd, void *exinf) {
                 case S1_CMD_START: tk_set_flg(flg_s1_cmd, S1_FLG_CMD_START); break;
                 case S1_CMD_STOP:  tk_set_flg(flg_s1_cmd, S1_FLG_CMD_STOP); break;
                 case S1_CMD_ESTOP: tk_set_flg(flg_s1_cmd, S1_FLG_CMD_ESTOP); break;
-                case S1_CMD_CLEAR: 
-                    tk_set_flg(flg_s1_cmd, S1_FLG_CMD_CLEAR); 
-                    s1_clear_fault(FAULT_CMD_REJECTED | FAULT_ESTOP);
+                case S1_CMD_CLEAR:
+                    s1_clear_fault(FAULT_CMD_REJECTED | FAULT_ESTOP | FAULT_IR_NAV);
+                    tk_set_flg(flg_s1_cmd, S1_FLG_CMD_CLEAR);
                     break;
                 case S1_CMD_PING:  tk_set_flg(flg_s1_cmd, S1_FLG_CMD_PING); break;
                 default: break;
@@ -233,6 +302,11 @@ EXPORT void led_task(INT stacd, void *exinf) {
             s1_telemetry.seq++;
             s1_telemetry.hump_height_mm = (uint32_t)s4_get_max_hump_mm();
             snap = s1_telemetry;
+            /* Auto-clear one-shot rejected-scan codes (1..31) after one TX
+             * so consecutive failures each appear distinctly on the dashboard. */
+            if (s1_telemetry.barcode_id >= 1u && s1_telemetry.barcode_id <= 31u) {
+                s1_telemetry.barcode_id = S1_BARCODE_NONE;
+            }
             tk_unl_mtx(mtx_telemetry);
 
             if (tk_snd_mbf(mbf_mqtt_tx, (UB*)&snap, sizeof(S1_TELEMETRY_PKT), TMO_POL) == E_OK) {

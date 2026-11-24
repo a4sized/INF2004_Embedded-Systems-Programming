@@ -1,0 +1,11 @@
+test_decode_sample_telemetry_and_negative_pitch (__main__.TelemetryDecoderTests.test_decode_sample_telemetry_and_negative_pitch) ... ok
+test_decode_zero_barcode_and_clear_faults (__main__.TelemetryDecoderTests.test_decode_zero_barcode_and_clear_faults) ... ok
+test_fault_names_match_system_faults_header (__main__.TelemetryDecoderTests.test_fault_names_match_system_faults_header) ... ok
+test_header_bitfields_match_64_bits_and_decoder_order (__main__.TelemetryDecoderTests.test_header_bitfields_match_64_bits_and_decoder_order) ... ok
+test_matches_real_c_struct_layout_when_gcc_available (__main__.TelemetryDecoderTests.test_matches_real_c_struct_layout_when_gcc_available) ... ok
+test_reject_non_8_byte_payload (__main__.TelemetryDecoderTests.test_reject_non_8_byte_payload) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.428s
+
+OK

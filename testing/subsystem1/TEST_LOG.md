@@ -1,26 +1,77 @@
 # Subsystem 1 — test log
 
-**Subsystem:** LED heartbeat (example)  ·  **Student ID:** <student ID>  ·  **Code:** `app_program/subsystem1/`
+**Subsystem:** Wi-Fi & MQTT Telemetry, Telemetry Gatekeeper, Centralized Fault Manager, Ground Station Dashboard & Heartbeat LED  ·  **Student ID:** `2501283` (`ray15rk`)  ·  **Code:** `app_program/subsystem1/`, `lib/liblwip/sysdepend/pico_rp2040/mqtt_utk.c`, `lib/libwifi/sysdepend/pico_rp2040/cyw43_utk.c`, `scripts/telemetry_decoder.py`, `scripts/telemetry_dashboard.py`, `scripts/dashboard/`
 
 See `testing/README.md` for how to run tests and record results.
+
+## Test layout note
+
+- **On-target automated firmware tests (`S1-U01`–`S1-U10`)** stay in `app_program/subsystem1/subsystem1_test.c` because `build_make/mtkernel_3/app_program/subdir.mk` compiles `app_program/*/*.c` and `app_program/app_main.c` calls `subsystem1_test()` when built with `TEST=1`.
+- **Host/PC unit tests (`S1-U11`, `S1-U15`)** live in `testing/subsystem1/test_telemetry_decoder.py` and `testing/subsystem1/test_telemetry_dashboard.py`, verifying 64-bit packet bit-layout parity (`hump_height_mm`, `obstacle_width_cm`), `systemFaults.h` fault mapping, `MAP:LRSU` encoding, barcode history action resolution, HTTP/SSE endpoints, and static asset security without Pico hardware.
+- **Manual hardware/network tests (`S1-U12`–`S1-U14`, `S1-U16`)** require `NET=lwip MQTT=1` with `config/wifi_secrets.h`, Mosquitto (`mosquitto -c mosquitto_local.conf -v`), and `scripts/telemetry_decoder.py` or `scripts/telemetry_dashboard.py` (`http://127.0.0.1:8080/`). *(Starter template's manual LED item `S1-U03` was assigned to `S1-U12` so IDs do not collide with `S1-U03` already compiled in `subsystem1_test.c`.)*
 
 ## Test cases
 
 Define a test here before running it. Test IDs never change.
 
+### On-target automatic tests (`make TEST=1` / `make NET=lwip MQTT=1 TEST=1`)
+
 | ID | What is tested | Requirement / interface | Method | Steps / how | Expected result |
 |---|---|---|---|---|---|
-| S1-U01 | cyclic handler is running | | auto | `subsystem1_test.c` | `[TEST] S1-U01 PASS` |
-| S1-U02 | LED task sleeps between ticks (not busy) | | auto | `subsystem1_test.c` | `[TEST] S1-U02 PASS` |
-| S1-U03 | LED on GP19 toggles every 250 ms | | manual | 1. Flash normal image. 2. Watch LED / measure with scope. | 2 Hz blink, 50 % duty |
+| S1-U01 | `cyc_led`, `led_task` (`tid_led`), `mbf_mqtt_tx`, `mbf_mqtt_rx`, `mtx_telemetry`, `flg_s1_cmd`, and `flg_s1_isr_fault` are created and active | RTOS init, `IF-01`–`IF-05` | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U01 PASS` |
+| S1-U02 | `led_task` blocks in `TTS_WAI` between 250 ms cyclic ticks (≥ 9 of 10 polls at 97 ms) | Non-busy cyclic execution | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U02 PASS` |
+| S1-U03 | Packed wire structs (`sizeof(S1_TELEMETRY_PKT) == 8`, `sizeof(S1_CMD_PKT) == 1`) and core Gatekeeper setters (`s1_set_speed`, `s1_set_obstacle`, `s1_set_pitch`, `s1_report_fault`, `s1_get_telemetry`) | `IF-01`, 8-byte payload | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U03 PASS` |
+| S1-U04 | Inbound `S1_CMD_PING` pushed via `s1_mqtt_push_rx()` is popped by `led_task`, sets `S1_FLG_CMD_PING` on `flg_s1_cmd`, updates `s1_last_cmd`, and increments `s1_rx_commands` | `IF-02`, `IF-03` | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U04 PASS` |
+| S1-U05 | Invalid binary command (`cmd_id = 7`) pushed via `s1_mqtt_push_rx()` is rejected, increments `s1_rx_rejected`, sets `FAULT_CMD_REJECTED`, and clears cleanly afterward | `IF-03`, Fault Manager | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U05 PASS` |
+| S1-U06 | `s1_csv_log_event()` logs faulted (`TEST_FAULT`), `BARCODE_DECODED`, and `NULL`-argument calls without crashing or blocking | `IF-08`, CSV logging | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U06 PASS` |
+| S1-U07 | Extended Gatekeeper setters (`s1_set_car_state`, `s1_set_obstacle_width`, `s1_set_barcode_id`), bit-isolated fault set/clear (`FAULT_WIFI \| FAULT_CMD_REJECTED`), and `s1_get_telemetry(NULL)` guardrails | `IF-01`, Fault Manager | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U07 PASS` |
+| S1-U08 | `s1_parse_command()` decodes 1-byte binary `S1_CMD_START`, ASCII digits `'1'`/`'5'`, case-insensitive/whitespace-trimmed words (`START`, `stop\n`, `Estop\r\n`, `cLeAr`, `PING`), rejects invalid inputs (`0`, `6`, `INVALID`, `""`, `NULL`), and `s1_mqtt_push_rx()` rejects `NULL`/zero-len | `IF-02`, `IF-03` | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U08 PASS` |
+| S1-U09 | Non-blocking ISR fault reporting (`s1_report_fault_isr(FAULT_WIFI)`) sets `flg_s1_isr_fault`, drains via `led_task` into `fault_mask`, and clears cleanly | ISR safety, Fault Manager | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U09 PASS` |
+| S1-U10 | 1 Hz telemetry TX path increments `seq` and `s1_tx_queued` after `4 × 250 ms` ticks; `s1_mqtt_pop_tx()` enforces NULL/short-buffer bounds and pops 8-byte `S1_TELEMETRY_PKT` (or 0 if already popped by MQTT client) | `IF-04`, 1 Hz telemetry | auto | `app_program/subsystem1/subsystem1_test.c` | `[TEST] S1-U10 PASS` |
 
-*Method:* **auto** = `TEST_CHECK` in code, result printed on the console;
-**manual** = a person observes the result (LED, scope, meter, phone app…).
+### PC / host automatic tests (`testing/subsystem1/test_telemetry_*.py`)
+
+| ID | What is tested | Requirement / interface | Method | Steps / how | Expected result |
+|---|---|---|---|---|---|
+| S1-U11 | Ground Station decoder (`scripts/telemetry_decoder.py`) matches `S1_TELEMETRY_PKT` 64-bit bitfield order in `subsystem1.h` (including `hump_height_mm` and `obstacle_width_cm`), `systemFaults.h` bit names, signed negative pitch, barcode `'0'`/`'A'`/`'Z'`, fault masks, non-8-byte rejection, and real C struct layout (when host `gcc` is available) | Wire format parity, Ground Station | auto (PC) | Run `python testing/subsystem1/test_telemetry_decoder.py` (with `gcc` in `PATH`) | `Ran 6 tests ... OK` |
+| S1-U15 | Ground Station Web Telemetry Dashboard (`scripts/telemetry_dashboard.py` & `scripts/dashboard/`): decode parity with `telemetry_decoder.py` (including `obstacle_width_cm`), binary/ASCII command encoding, `MAP:LRSU` validation & duplicate rejection, barcode scan history action resolution, HTTP API (`/api/state`, `/api/command`, `/api/barcode-map`, `/api/reset`), live SSE stream, demo mode, and static path-traversal guard | Ground Station Web UI, `MAP:LRSU` API | auto (PC) | Run `python testing/subsystem1/test_telemetry_dashboard.py` | `Ran 8 tests ... OK` |
+
+### Manual hardware & networked tests (`make NET=lwip MQTT=1`)
+
+| ID | What is tested | Requirement / interface | Method | Steps / how | Expected result |
+|---|---|---|---|---|---|
+| S1-U12 | Status LED on GP19 (+ 330 Ω resistor) toggles every 250 ms *(supersedes starter template's `S1-U03` manual LED label)* | GP19 heartbeat, 2 Hz indicator | manual | 1. Flash normal (`make`) or networked (`make NET=lwip MQTT=1`) image. 2. Observe GP19 LED (or measure with scope/logic analyzer) for 15 s. | Steady 2 Hz blink (250 ms ON / 250 ms OFF, 50% duty); record 15–30 s video clip |
+| S1-U13 | CYW43 Wi-Fi association, Mosquitto broker connection, and 1 Hz 8-byte binary telemetry decode over the air | Wi-Fi / lwIP / MQTT / `IF-04` | manual | 1. Configure `config/wifi_secrets.h` and launch Mosquitto (`mosquitto -c mosquitto_local.conf -v`). 2. Flash `make NET=lwip MQTT=1`. 3. Run `python scripts/telemetry_decoder.py <broker_ip>` or `python scripts/telemetry_dashboard.py <broker_ip>`. 4. Capture USB serial log + decoder/dashboard output. | USB prints `wifi: link up`, `mqtt: connected`, `mqtt: subscribed to robot/inf2004team15/cmd`, `mqtt: TX` (8 bytes) every 1 s; decoder prints `[SEQ #...]` (or dashboard shows `LIVE MQTT` with incrementing `#SEQ`) and `FAULT_WIFI` cleared; record video clip |
+| S1-U14 | Remote MQTT command RX (`PING`, `START`, `STOP`, `ESTOP`, `"INVALID"`, `CLEAR`) and fault injection/clearing | `IF-02`, `IF-03`, Fault Manager | manual | 1. While `S1-U13` is active, publish `PING`, `STOP`, `INVALID`, `CLEAR`, and `ESTOP` to `robot/inf2004team15/cmd` using the Web Dashboard, MQTTX, or `mosquitto_pub`. 2. Observe USB console (`mqtt: RX`, `LOG_CSV`) and `telemetry_decoder.py` / dashboard. | `PING` / `STOP` / `START` execute cleanly; `"INVALID"` logs `LOG_CSV,...,CMD_REJECTED` and shows `FAULT_CMD_REJECTED`; `ESTOP` raises `FAULT_ESTOP`; `CLEAR` clears `FAULT_CMD_REJECTED \| FAULT_ESTOP \| FAULT_IR_NAV`; record video clip |
+| S1-U16 | S5 Ultrasonic obstacle width telemetry (`0..31 cm`) in 8-byte packet & dashboard gauge | `IF-01`, 5-bit width field, S5 interface | manual | 1. With live telemetry streaming to Web Dashboard (`http://127.0.0.1:8080/`), trigger an S5 obstacle fine scan or inject obstacle widths (0 cm, 15 cm, 25 cm, 35 cm) via `s1_set_obstacle_width()`. 2. Observe decoder terminal and dashboard `Obstacle Width (S5)` widget. | 0 cm displays `None / Clear` (0% gauge); 15 cm displays `15 cm`; 25 cm displays `25 cm`; values >31 cm saturate cleanly at 31 cm without corrupting adjacent fields (`pitch_deg`, `barcode_id`); gauge bar fills proportionally in real time; record video clip |
+
+*Method:* **auto** = `TEST_CHECK` in code, result printed on the console; **auto (PC)** = run on a laptop/desktop;
+**manual** = a person observes the result (LED, scope, meter, Ground Station / MQTTX…).
 
 ## Results
 
-Add a new row for every run. Never edit or delete old rows.
+Add a new row for every post-commit run (`git rev-parse --short HEAD`). Never edit or delete old rows.
 
 | Date | Test ID | Commit | Tester | Result | Log / evidence | Notes |
 |---|---|---|---|---|---|---|
-| YYYY-MM-DD | S1-U01 | `abc1234` | | PASS / FAIL | `logs/YYYY-MM-DD_….txt` | |
+| 2026-11-11 | S1-U01 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U01 PASS`; cyclic handler, `led_task`, and S1 kernel objects active |
+| 2026-11-11 | S1-U02 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U02 PASS`; telemetry task blocks in `TTS_WAI` between cyclic ticks |
+| 2026-11-11 | S1-U03 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U03 PASS`; binary bit-field setters succeed, 8-byte payload |
+| 2026-11-11 | S1-U04 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U04 PASS`; `S1_CMD_PING` pushed, decoded, flag set (`CMD_ACCEPTED`) |
+| 2026-11-11 | S1-U05 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U05 PASS`; unknown binary command rejected, counted, fault raised (`CMD_REJECTED`) |
+| 2026-11-11 | S1-U06 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U06 PASS`; `s1_csv_log_event()` (`TEST_FAULT`, `BARCODE_DECODED`, `NONE`) safe |
+| 2026-11-11 | S1-U07 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U07 PASS`; extended setters, fault bit isolation, NULL safety |
+| 2026-11-11 | S1-U08 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U08 PASS`; `s1_parse_command()` decodes binary/ASCII and rejects invalid inputs |
+| 2026-11-11 | S1-U09 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U09 PASS`; ISR fault flag drained by `led_task` and cleared cleanly |
+| 2026-11-11 | S1-U10 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt` | `[TEST] S1-U10 PASS`; 1 Hz telemetry TX queued with `seq` increment and bounds enforced |
+| 2026-11-11 | S1-U11 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_u11_host.txt` | `Ran 6 tests in 0.428s ... OK` (GCC struct parity passed) |
+| 2026-11-11 | S1-U13 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_unit.txt`, `logs/2026-11-11_s1_mqtt_decoder.txt` | Wi-Fi `10.33.147.203`, Mosquitto `10.33.147.245`, 1 Hz `[SEQ #002]`–`[#044]` |
+| 2026-11-11 | S1-U14 | `f4a367a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-11_s1_serial.txt`, `logs/2026-11-11_s1_u14_decoder.txt` | `START`/`STOP`/`CLEAR`/`ESTOP` (`0x001`)/`INVALID` (`0x041`) |
+| 2026-11-18 | S1-U11 | `5f8434f` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-18_s1_u11_host.txt` | `Ran 6 tests ... OK` (GCC struct parity passed with `obstacle_width_cm` & `hump_height_mm`) |
+| 2026-11-18 | S1-U15 | `5f8434f` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-18_s1_u15_dashboard.txt` | `Ran 8 tests ... OK` (dashboard decode parity, `MAP:LRSU` API, barcode history, SSE, path guard) |
+| 2026-11-19 | S1-U11 | `db8471a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-19_s1_u11_host.txt` | `Ran 7 tests ... OK` (wire bitfield parity with `obstacle_width_cm`, reject codes 1..6) |
+| 2026-11-19 | S1-U15 | `db8471a` | Khoo Yi Rui (2501283) | PASS | `logs/2026-11-19_s1_u15_dashboard.txt` | `Ran 8 tests ... OK` (dashboard decode parity, SSE stream, `MAP:LRSU`, barcode history, path guard) |
+| 2026-11-22 | S1-U12 | `8775e14` | Khoo Yi Rui (2501283) | PASS | https://youtu.be/jheKgzG7lM4 | Status Heartbeat LED on GP19 toggling at steady 2 Hz (250 ms period) |
+| 2026-11-22 | S1-U13 | `8775e14` | Khoo Yi Rui (2501283) | PASS | https://youtu.be/iAsuP4jn5Cg | CYW43 Wi-Fi connection, Mosquitto broker link, and 1 Hz 8-byte telemetry stream on Web Dashboard (`LIVE MQTT`, rolling `#SEQ`) |
+| 2026-11-22 | S1-U14 | `8775e14` | Khoo Yi Rui (2501283) | PASS | https://youtu.be/SEq8deUzmEc | Remote commands (`START`, `STOP`, `INVALID`, `ESTOP`) and fault clearing (`CLEAR`) via Web Dashboard |
+| 2026-11-22 | S1-U16 | `8775e14` | Khoo Yi Rui (2501283) | PASS | https://youtu.be/JkdF5ngO9cg | S5 Ultrasonic obstacle width telemetry (`0..31 cm`) in 8-byte packet & live Web Dashboard gauge update |

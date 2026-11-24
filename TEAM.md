@@ -202,13 +202,17 @@ limit there. The numbers below are the example's usage.
 
 ## 7. Standalone Buddy 3 calibration bench (13 October 2026)
 
-`bench/ir_calibration/` is a separate one-sensor application for Buddy 3
-(2501107). Its isolated build replaces the example application only inside
+The historical `bench/ir_calibration/` was a one-sensor application for Buddy 3
+(2501107). Its isolated build replaced the example application only inside
 an ignored build staging tree; the example code and its tables above remain
 unchanged. The user confirmed DO on GP6 through Grove 4 of a Maker Pi Pico
-carrier with the Pico W seated on it. The current bench reads GP6; GP7
+carrier with the Pico W seated on it. The bench read GP6; GP7
 remains the intended robot left IR allocation. AO is disconnected; no ADC
 is used.
+
+The bench was archived on 11 November 2026 at
+`../integration_archive_2026-11-11/bench/ir_calibration/`. The integrated
+Buddy 3 implementation remains in `app_program/subsystem3/`.
 
 | Bench task | Priority | Core | Stack | Kernel objects |
 |---|---|---|---|---|

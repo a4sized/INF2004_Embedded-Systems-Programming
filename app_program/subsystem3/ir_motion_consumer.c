@@ -18,9 +18,22 @@
 #define IR_TEST_STRAIGHT_MAX_MS 8000u
 #endif
 
+#if !defined(BUDDY3_IR_MOVING_TEST)
+static char const * ir_junction_action_name (ir_barcode_action_t action)
+{
+    return (IR_BARCODE_TURN_LEFT == action) ? "LEFT" :
+           (IR_BARCODE_U_TURN == action) ? "UTURN" :
+           (IR_BARCODE_STRAIGHT == action) ? "STRAIGHT" : "RIGHT";
+}
+#endif
+
 static ID settings_mutex;
 /* True while Subsystem 5 drives an obstacle bypass: no Buddy 2 writes. */
 static bool b_output_paused = false;
+/* A search requested after a bypass (ir_motion_consumer_request_search),
+ * not yet applied; and which way the line is. */
+static bool b_search_pending = false;
+static bool b_search_left = false;
 /* Movement stays disabled until the Vehicle Controller explicitly enables it. */
 static ir_motion_settings_t settings =
 {
@@ -105,6 +118,7 @@ ER ir_motion_consumer_init (void)
         .max_age_ms = IR_START_MAX_AGE_MS
     };
     b_output_paused = false;
+    b_search_pending = false;
     settings_mutex = tk_cre_mtx(&config);
     return (settings_mutex < E_OK) ? settings_mutex : E_OK;
 }
@@ -117,6 +131,18 @@ ER ir_motion_consumer_set_paused (bool b_paused)
         return status;
     }
     b_output_paused = b_paused;
+    return tk_unl_mtx(settings_mutex);
+}
+
+ER ir_motion_consumer_request_search (bool b_line_on_left)
+{
+    ER const status = tk_loc_mtx(settings_mutex, TMO_FEVR);
+    if (E_OK != status)
+    {
+        return status;
+    }
+    b_search_pending = true;
+    b_search_left = b_line_on_left;
     return tk_unl_mtx(settings_mutex);
 }
 
@@ -142,6 +168,7 @@ ER ir_motion_consumer_set_following (ir_motion_settings_t const * p_settings)
     {
         /* Serialize revocation with the consumer's own Buddy 2 write. */
         s2_set_ir_velocity(0, 0);
+        b_search_pending = false;   /* a later START starts afresh */
     }
     return tk_unl_mtx(settings_mutex);
 }
@@ -193,6 +220,20 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
                  * cycle under load. Freshness is checked by the controller.
                  */
                 p_snapshot = &snapshot;
+            }
+            /* Handed back after a bypass: start in SEARCH toward the line,
+             * not WAIT (which would sit still with both sensors white).
+             * Applied only on a cycle that really follows, with a fresh
+             * snapshot, so the update below keeps it (a paused, stale or
+             * unready update resets the controller). */
+            if (b_search_pending && settings.b_follow_allowed &&
+                !b_output_paused && ((void *)0 != p_snapshot))
+            {
+                follow.mode = IR_FOLLOW_SEARCH;
+                follow.last_side = b_search_left ? IR_SEARCH_LEFT :
+                                                   IR_SEARCH_RIGHT;
+                follow.b_last_side_valid = true;
+                b_search_pending = false;
             }
 #if defined(BUDDY3_IR_MOVING_TEST)
             b_allowed = settings.b_follow_allowed;
@@ -266,6 +307,8 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
             {
                 b_barcode_white_hold = false;
             }
+            ir_junction_note_odometry(&junction, get_left_encoder_ticks(),
+                                       get_right_encoder_ticks());
             if (ir_junction_update(&junction,
                                    b_time_valid ? &snapshot : (void *)0,
                                    now.lo,
@@ -279,9 +322,17 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
             }
             else
             {
-                if (IR_JUNCTION_TURN_DONE == junction_event)
+                if ((IR_JUNCTION_TURN_DONE == junction_event) ||
+                    (IR_JUNCTION_UTURN_DONE == junction_event))
                 {
                     ir_follow_controller_reset(&follow);
+                    if ((IR_JUNCTION_UTURN_DONE == junction_event) &&
+                        (IR_LINE_BOTH_WHITE == snapshot.position))
+                    {
+                        follow.mode = IR_FOLLOW_SEARCH;
+                        follow.last_side = IR_SEARCH_LEFT;
+                        follow.b_last_side_valid = true;
+                    }
                 }
                 if (!b_barcode_white_hold ||
                     ((uint32_t)(now.lo - barcode_white_started_ms) >=
@@ -314,27 +365,41 @@ void ir_motion_consumer_task (INT stacd, void * exinf)
         {
             case IR_JUNCTION_ARMED:
                 s1_csv_log_event("JUNCTION_ARMED",
-                                 (IR_BARCODE_TURN_LEFT == junction.action) ?
-                                     "LEFT" : "RIGHT");
+                                 ir_junction_action_name(junction.action));
                 break;
             case IR_JUNCTION_TURN_STARTED:
-                /* The letter has become a turn request. Clear the visible
-                 * telemetry value so the next decode is a new instruction.
-                 * The junction sequence number prevents stale rearming.
+                /* The sequence consumes each instruction once. W/Z/F all
+                 * wait for their junction now, so the letter has been
+                 * visible (for MQTT) while awaiting it; clear it as the
+                 * turn or pivot starts.
                  */
                 s1_set_barcode_id(0u);
                 s1_csv_log_event("JUNCTION_TURN",
-                                 (IR_BARCODE_TURN_LEFT == junction.action) ?
-                                     "LEFT" : "RIGHT");
+                                 ir_junction_action_name(junction.action));
                 break;
             case IR_JUNCTION_CROSSING:
+                /* Straight letter: consumed as soon as the junction is
+                 * detected. */
+                if (IR_BARCODE_STRAIGHT == junction.action)
+                {
+                    s1_set_barcode_id(0u);
+                }
                 s1_csv_log_event("JUNCTION_CROSSING", "FORWARD");
+                break;
+            case IR_JUNCTION_STRAIGHT_DONE:
+                s1_csv_log_event("JUNCTION_DONE", "STRAIGHT");
+                break;
+            case IR_JUNCTION_UTURN_DONE:
+                s1_set_barcode_id(0u);
+                s1_csv_log_event("JUNCTION_DONE", "UTURN_180_ENCODER");
                 break;
             case IR_JUNCTION_TURN_DONE:
                 s1_csv_log_event("JUNCTION_DONE", "LINE_FOUND");
                 break;
             case IR_JUNCTION_TURN_TIMEOUT:
-                s1_csv_log_event("JUNCTION_TIMEOUT", "LINE_NOT_FOUND");
+                s1_csv_log_event("JUNCTION_TIMEOUT",
+                    (IR_BARCODE_U_TURN == junction.action) ?
+                        "UTURN_ENCODER_TIMEOUT" : "LINE_NOT_FOUND");
                 s1_report_fault(FAULT_IR_NAV);
                 break;
             case IR_JUNCTION_CROSSING_TIMEOUT:

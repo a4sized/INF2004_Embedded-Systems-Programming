@@ -8,7 +8,11 @@ typedef enum
 {
     IR_BARCODE_NO_ACTION = 0,
     IR_BARCODE_TURN_LEFT,
-    IR_BARCODE_TURN_RIGHT
+    IR_BARCODE_TURN_RIGHT,
+    IR_BARCODE_U_TURN,
+    /* Straight letter: no turn, but it waits for the junction so the
+     * decoded letter is cleared when the car reaches it. */
+    IR_BARCODE_STRAIGHT
 } ir_barcode_action_t;
 
 typedef enum
@@ -40,7 +44,24 @@ bool ir_code39_decode_single_with_direction (
     ir_barcode_window_t const * p_window, uint32_t now_us,
     char * p_letter, ir_code39_direction_t * p_direction);
 
-/** Fixed course trial mapping; all letters other than A and Z are unmapped. */
+/** Explain a frame rejection in one pattern order; returned text is static.
+ * Width failures include insufficient separation within black bars/white
+ * gaps, excessive wide-bar spread or an extreme wide-gap outlier.
+ */
+char const * ir_code39_frame_reason (
+    ir_barcode_window_t const * p_window, bool b_reverse);
+
+/** Runtime-configurable barcode mapping; defaults: W=left, Z=right, -=straight, F=U-turn. */
 ir_barcode_action_t ir_barcode_action_for (char letter);
+
+/**
+ * Update runtime barcode letter -> action mapping ('A'..'Z', or '\0'/'-' for none).
+ * Rejects invalid characters or duplicate assigned letters without changing the active map.
+ */
+bool ir_code39_set_action_map (char left, char right, char straight, char uturn);
+
+/** Read the active barcode letter -> action mapping ('\0' if unassigned). */
+void ir_code39_get_action_map (char * p_left, char * p_right,
+                               char * p_straight, char * p_uturn);
 
 #endif

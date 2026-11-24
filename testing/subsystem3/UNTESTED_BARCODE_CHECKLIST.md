@@ -238,3 +238,149 @@ separation was only 1.12, below the 1.4 threshold. No overflow was logged.
 Repeated W/Z decoding and reliable line retention after junction turns
 remain unverified; retain the raw edge logs for comparison with the next
 physical run.
+
+Encoder diagnostic trial (18 November 2026): the networked debug image logs
+signed wheel counters beside GP6 edges and identifies rejection stages in
+both pattern orders. The Code 39 host tests, including the measured Z
+width-overlap rejection, passed with sanitizers and the networked UF2 built.
+Encoder/GPIO alignment, logging load, small/large W/Z capture in both
+directions, and movement during corrections remain untested on the car.
+Distance-based acceptance is not enabled by this diagnostic change.
+
+Superseded F sensor U-turn trial (18 November 2026): F now triggers an immediate left pivot
+(-64/+64) without GP6 junction gating. Completion uses a line sensor's
+white-to-black transition and 40 ms stable black, with an 8 s fault timeout.
+Host tests and the networked build passed. Actual pivot direction, reverse
+motor torque, early reacquisition, correct return heading, repeat scanning,
+and fault/obstacle takeover on the car remain untested. No 180-degree gate
+is used, at the user's explicit request.
+
+Encoder half-turn follow-up (18 November 2026): the user reports improved
+scan consistency; F was absent from the dashboard, and small-print tests
+remain pending. F now completes from signed differential encoder travel
+for an estimated 180-degree pivot, then settles for 200 ms and resumes
+following/search. No line/GP6 completion gate remains. F is retained in
+telemetry during the pivot instead of cleared immediately. Actual angle,
+slip/drag calibration, dashboard delivery, takeover on the car, and
+small/large W/Z/F decode coverage remain untested. Host tests and a
+networked UF2 build cover software paths only.
+
+Isolated U-turn calibration (18 November 2026): a separate USB one-shot
+motor profile now overrides effective track to 147 mm, based on the user's
+approximate 270-degree result at 220 mm. It waits three seconds after USB
+opens, runs the shared pivot algorithm at -64/+64, then stops permanently
+until reset and logs final encoder totals. No following/search can add
+rotation. The integrated default remains 220 mm pending physical trials.
+Both profiles compile; host pivot tests at 147 mm pass. Actual final angle,
+repeatability, torque, coast and USB-loss stop remain untested. See
+`testing/subsystem3/UTURN_CALIBRATION_TEST.md`. Small-print barcode testing
+is still pending separately.
+
+Small-print failed scan evidence (18 November 2026): the first supplied
+small-print USB trace rejects two ten-edge windows at START_MARKER_REJECTED,
+then logs a five-edge incomplete window. No letter decoded; invalid and
+overflow remain zero. Captured black pulses include 5, 10 and 15 ms, near
+the 5 ms poll resolution. Wheel-distance normalization still rejects the
+first opening pattern despite nearly equal wheel increments. Small-print
+reliability is now attempted/failed, not wholly untested; repeatable success,
+letter/direction coverage and the cause of waveform distortion remain open.
+
+1 ms small-print sampling trial (18 November 2026): a separate networked
+profile stages a 1 ms tick/raw GP6 capture cadence while preserving 5 ms
+line publication and the 10 ms motor consumer. The profile logs per-window
+actual sample-gap statistics with nominal=1000 us, n, min/max, over2ms and
+over5ms. The default image stays at 5 ms; speed, decoder rules and U-turn
+calibration are unchanged. Both images compile; Code 39 regression tests
+pass with sanitizers. Actual rate under system/USB load, small-print decode
+success and full-car scheduling at 1 ms remain untested. See
+`testing/subsystem3/BARCODE_1MS_TEST.md`.
+
+Calibration refinement (18 November 2026): the user clarified approximately
+15-degree angular overshoot on the 147 mm trial. The next calibration UF2
+uses 136 mm (147 * 180 / 195 rounded); host tests and compilation pass.
+Physical angle and repeatability at this setting remain pending. The
+integrated U-turn setting and barcode sampling trial are unchanged.
+
+Second calibration refinement (18 November 2026): 136 mm reportedly
+overshot by approximately 5 degrees. The next one-shot calibration uses
+132 mm (2054 average wheel ticks). Compilation and host pivot tests pass;
+physical accuracy/repeatability remain pending. Integrated calibration
+and barcode sampling profiles are unchanged.
+
+Final requested calibration refinement (18 November 2026): reported
+3–5 degree overshoot at 132 mm led to a 129 mm one-shot trial (2007 mean
+wheel ticks), using a 4-degree midpoint. Build and host tests pass. Physical
+angle/repeatability and acceptance for integration remain pending.
+
+Calibration accepted/integrated (18 November 2026): the user reports that
+129 mm produced the desired half-turn in the isolated build and authorised
+integration. The normal firmware and separate rebuilt 1 ms sampling profile
+now both use 129 mm. Ray's YiRui dashboard/runtime-mapping branch merged
+without conflict. Both UF2s compile; junction/decoder host tests and 14
+Python dashboard/decoder tests pass. Post-pivot follow/search on the car,
+MQTT remapping, repeatability under full load and 1 ms small-print success
+remain pending. The isolated pivot angle is user-accepted, not untested.
+
+1 ms physical trace follow-up (18 November 2026): early identified
+small-print capture still rejects the opening marker at ten edges. During
+this pass ~986–991 intervals/s and max gaps ~3.1–3.5 ms were measured, with
+no >5 ms gaps in adjacent timing windows. No overflow/invalid flags were
+logged. Thus faster polling was exercised but did not establish small-print
+success. Later telemetry confirms Z and RIGHT arming across a serial-output
+gap; that success cannot be assigned to the early small print. The later
+right turn times out independently. Further controlled sensor/print tests
+remain needed; keep the 1 ms profile experimental.
+
+Manual small-print evidence (18 November 2026): the team image records
+all 30 edges per pass for offline reverse *A* and forward *Z* reconstruction,
+with encoders zero. It rejects them because pooled black/white separation
+ratios are 1.12–1.29, below 1.4; within-colour widths separate cleanly.
+These manual captures support separate bar/gap classification as the next
+fix, not a blanket threshold reduction. Firmware acceptance and moving
+small-print decoding remain open. The user has suspended further 1 ms
+trials; retain normal team integration as the active test baseline.
+
+Timestamp colour-classification implementation (18 November 2026): the
+user clarified removal of encoder measurements from barcode sensing, not
+replacement of timestamp decoding. EL/ER reads and logging were removed
+from barcode edge/sample diagnostics; U-turn encoder use remains. The
+decoder now separates black and white distributions (two wide bars/one
+wide gap for A-Z/*), retains 1.4 within-colour separation, bounds black
+wide spread and white outliers, and validates both markers/full 30 edges.
+Both measured manual small-print frames pass host replay as reverse A and
+forward Z. A-Z/direction/scale/bias and rejection regressions pass under
+sanitizers, as do earlier moving fixtures and the 5 ms polling pipeline.
+The normal networked UF2 compiles. Actual manual re-scan and car-driven
+small/large-print reliability remain pending. Default capture is 5 ms;
+1 ms testing remains suspended.
+
+Normal-print follow-up (18 November 2026): the latest supplied team-image
+trace directly logs BARCODE_DECODED,letter=W;order=R after all 30 edges,
+with static wheel totals. Normal reverse W is physically decoded with the
+new classifier. Wi-Fi SSID failures and unready IMU keep VC in INIT; no
+turn/dashboard delivery is validated by that scan. Small-print re-scan
+and moving-car reliability remain pending.
+
+Small A/Z manual repeat (18 November 2026): neither decoded in the next
+supplied trace. The two passes have 18 and 22 total transitions (9 and 11
+black bars), below 30/15 required for *LETTER*. Start-marker width/pattern
+checks reject, followed by incomplete-window timeouts; overflow/invalid
+remain zero. Unlike earlier complete manual captures accepted in host
+replay, these waveforms are incomplete. Controlled sensor/print alignment
+and contrast checks remain needed; small-print physical success and
+repeatability are still open.
+
+Z repeat evidence (18 November 2026): two complete 30-edge passes, one
+DATA_WIDTH rejection for a forward Z-shaped frame (white separation
+103/75=1.373 versus required 1.4) and one actual reverse Z decode. First
+pass captured all markers/edges and fell about 2 ms short of the required
+wide-gap duration. No overflow/invalid flag. Repeatability and borderline
+timing tolerance remain unresolved; no threshold changed during review.
+
+W/F framing evidence (18 November 2026): actual log successes are W F/R/F
+and F forward. Host probing of raw edges recovers three more complete F
+frames (F/R/R) preceded by 8/4/2 unwanted transitions; current sensing
+resets every failed ten-edge opening group and loses their alignment.
+All recovered frames pass the existing classifier when aligned, without
+threshold changes. Rolling start-marker resynchronisation remains to be
+implemented/tested. Rejected windows are not independent physical scans.

@@ -48,6 +48,11 @@
 #define S4_CAL_GAP_MS       10
 #define S4_CAL_MAX_RANGE_G  0.05f   /* more spread than this = car is moving */
 #define S4_CAL_RETRIES      3
+#define S4_CAL_AGAIN_MS     3000    /* still uncalibrated after all retries
+                                       (car moved during start-up): try the
+                                       whole calibration again this often,
+                                       so the car does not stay not-ready
+                                       until it is rebooted                 */
 
 /* ------------------------------------------------------------------ *
  *  Filters.  filtered += alpha * (new - filtered): a small alpha is smooth
@@ -69,6 +74,47 @@
 #define S4_HUMP_EXIT_N      5       /* ... for this many samples in a row    */
 #define S4_HUMP_MAX_MS      4000    /* longer than this is a slope, not a hump*/
 #define S4_HUMP_MIN_CM      0.3f    /* smaller than this is just noise       */
+
+/* ------------------------------------------------------------------ *
+ *  A hump under ONE rear wheel (tricycle chassis)
+ *
+ *  The car has ONE wheel in the middle at the front and TWO at the back.  A
+ *  hump to the left or right is climbed by a single rear wheel: the front
+ *  wheel stays on the floor, so the nose never goes UP.  The IMU sees a ROLL
+ *  (right wheel up = negative roll) and a little nose-DOWN pitch instead.
+ *  The pitch detector above can not see that, so a second detector watches
+ *  the roll:
+ *
+ *      height of the wheel = S4_TRACK_MM * sin(roll)
+ *
+ *  (one rear wheel is higher than the other by that much).  It needs no
+ *  distance, only the track width.
+ *  Both detectors can report the same hump (a hump across the whole width is
+ *  climbed by the front wheel, then by both rear wheels, and a crooked one
+ *  rolls the car a little): reports closer together than S4_HUMP_MERGE_MS
+ *  are ONE hump, with the larger peak.
+ * ------------------------------------------------------------------ */
+#ifndef S4_SIDE_ENABLE              /* (#ifndef: the PC tests change it)      */
+#define S4_SIDE_ENABLE      1       /* 0 = pitch detector only (old behaviour)*/
+#endif
+#define S4_TRACK_MM         130.0f  /* MEASURE IT: rear wheel centre to rear  */
+                                    /* wheel centre, in mm.  Hump height is   */
+                                    /* directly proportional to this          */
+#define S4_SIDE_ARM_DEG     1.0f    /* roll within this of level re-learns it */
+#define S4_SIDE_ENTER_DEG   2.5f    /* a side climb is confirmed above this ..*/
+#define S4_SIDE_ENTER_N     8       /* ... for this many samples (160 ms): a knock or a shove is over sooner */
+#define S4_SIDE_MAX_DEG     25.0f   /* more roll than this is a car on its side, not a hump (4+ cm)         */
+#define S4_SIDE_DROP_DEG    1.0f    /* this far below the peak = going down   */
+#define S4_SIDE_PEAK_ALPHA  0.15f   /* the peak is read from a smoother roll  */
+                                    /* (shaking would otherwise add to it)    */
+#define S4_SIDE_EXIT_DEG    1.2f    /* within this of level = finished ...    */
+#define S4_SIDE_EXIT_N      5       /* ... for this many samples in a row     */
+#define S4_SIDE_MAX_MS      4000    /* longer than this is a banked floor     */
+#ifndef S4_SIDE_TURN_MAX_DPS         /* (#ifndef: the PC tests change it)      */
+#define S4_SIDE_TURN_MAX_DPS 20.0f  /* turning faster than this: sideways     */
+#endif
+                                    /* acceleration looks like roll, ignore   */
+#define S4_HUMP_MERGE_MS    800     /* reports this close together = one hump */
 
 /* ------------------------------------------------------------------ *
  *  Picked up or overturned (tune)

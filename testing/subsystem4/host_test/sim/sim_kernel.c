@@ -302,7 +302,7 @@ static pthread_mutex_t s1_m = PTHREAD_MUTEX_INITIALIZER;
 void s1_set_speed(INT v)    { pthread_mutex_lock(&s1_m); g_s1.speed_mm_s = v;  pthread_mutex_unlock(&s1_m); }
 void s1_set_obstacle(INT v) { pthread_mutex_lock(&s1_m); g_s1.obstacle_cm = v; pthread_mutex_unlock(&s1_m); }
 void s1_set_barcode_id(UB v){ pthread_mutex_lock(&s1_m); g_s1.barcode_id = v;  pthread_mutex_unlock(&s1_m); }
-void s1_set_line_mask(UW v) { pthread_mutex_lock(&s1_m); g_s1.line_mask = v;   pthread_mutex_unlock(&s1_m); }
+void s1_set_obstacle_width(INT v) { pthread_mutex_lock(&s1_m); g_s1.obstacle_width_cm = (v < 0) ? 0 : ((v > 31) ? 31 : v); pthread_mutex_unlock(&s1_m); }
 void s1_set_pitch(INT pitch_deg)
 {
     pthread_mutex_lock(&s1_m);
